@@ -320,7 +320,11 @@ def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
                     # epics) and the review-coverage panels have something to show —
                     # without them the report renders but half of it reads as zero.
                     if n % 3 == 0:
-                        kind = n % 9
+                        # derived from n//3, NOT n%9: issues only exist for multiples of
+                        # three, so n%9 could only ever be 0, 3 or 6 and the epic branch
+                        # was unreachable — the KPI tile read 0 and looked like a bug in
+                        # the report rather than in the fixture.
+                        kind = (n // 3) % 9
                         conn.execute(
                             "INSERT OR REPLACE INTO issue (repo, number, org,"
                             " author_login, created_at, is_bug, is_feature, is_epic,"
@@ -334,13 +338,39 @@ def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
                              "closed" if n % 4 else "open", "completed" if n % 4 else None,
                              _iso(day + timedelta(days=2 + n % 5)) if n % 4 else None,
                              login, None, f"demo issue {n}"))
+                    # Lifecycle events, so the flow panels have rework to show. Without
+                    # these, "sent back for changes", "reopened", "back to draft" and
+                    # "re-reviewed" are all 0% — the one story the report exists to tell.
+                    tl = [("review_requested", 10), ("assigned", 10)]
+                    if n % 7 == 0:
+                        tl.append(("convert_to_draft", 11))
+                        tl.append(("ready_for_review", 13))
+                    if n % 11 == 0:
+                        tl.append(("reopened", 16))
+                    if n % 5 == 0:
+                        tl.append(("review_requested", 14))   # a second ask = re-review
+                    for ev, hh in tl:
+                        conn.execute(
+                            "INSERT INTO timeline_event (repo, item_type, number, event,"
+                            " actor_login, created_at) VALUES (?,?,?,?,?,?)",
+                            (key, "pr", n, ev, login, _iso(day.replace(hour=hh))))
+                    if n % 6 == 0:
+                        conn.execute(
+                            "INSERT INTO timeline_event (repo, item_type, number, event,"
+                            " actor_login, created_at) VALUES (?,?,?,?,?,?)",
+                            (key, "issue", n, "reopened", login,
+                             _iso(day.replace(hour=17))))
                     for ri2 in range(1 + n % 3):
                         reviewer = logins[(pi + 1 + ri2) % len(logins)]
+                        # CHANGES_REQUESTED is what "sent back for changes" and the
+                        # rework-rounds figure count; approvals and plain comments do
+                        # not, so a dataset with only those reads 0% there.
+                        state = ("CHANGES_REQUESTED" if (n + ri2) % 4 == 0
+                                 else "APPROVED" if ri2 == 0 else "COMMENTED")
                         conn.execute(
                             "INSERT OR REPLACE INTO review (repo, pr_number,"
                             " reviewer_login, state, submitted_at) VALUES (?,?,?,?,?)",
-                            (key, n, reviewer,
-                             "APPROVED" if ri2 == 0 else "COMMENTED",
+                            (key, n, reviewer, state,
                              _iso(day.replace(hour=12 + ri2))))
             day += timedelta(days=1)
 
@@ -373,7 +403,7 @@ def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
         conn.commit()
         counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                   for t in ("person", "repo", "commits", "pull_request", "issue",
-                            "review", "snapshots", "traffic", "runs")}
+                            "review", "timeline_event", "snapshots", "traffic", "runs")}
     finally:
         conn.close()
     return counts
