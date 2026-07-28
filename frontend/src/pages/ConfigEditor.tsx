@@ -30,6 +30,17 @@ export default function ConfigEditor() {
   const REPOSRC = useRef<string[]>([]);
   const DOMAINS = useRef<Domain[]>([]);
   const COMPANIES = useRef<string[]>([]);
+  // Entries that come from config.yaml, not the database. The overlay APPENDS to
+  // extra_orgs/extra_repos and merges company domains, so these cannot be removed
+  // here — the UI has to say so rather than offer an × that does nothing.
+  const ORGS_FILE = useRef<Set<string>>(new Set());
+  const REPOSRC_FILE = useRef<Set<string>>(new Set());
+  // Policy blocks (configstore.BLOB_KEYS). Saved ONE AT A TIME through their own
+  // endpoint, not through save() below: that posts whole-scope replaces, and a
+  // policy must not ride along with — or be wiped by — a repo-classification edit.
+  const POLICIES = useRef<Record<string, any>>({});
+  const polDraft = useRef<Record<string, string>>({});
+  const [polStatus, setPolStatus] = useState<Record<string, { text: string; color: string }>>({});
   const VERSION = useRef<any>(null);
   const groupBy = useRef<string>("type");
   const selected = useRef<Record<string, boolean>>({});
@@ -69,8 +80,14 @@ export default function ConfigEditor() {
         ELEMS_EXTRA.current = ex;
         ORGS.current = (d.extra_orgs || []).slice();
         REPOSRC.current = (d.extra_repos || []).slice();
+        ORGS_FILE.current = new Set(d.extra_orgs_from_file || []);
+        REPOSRC_FILE.current = new Set(d.extra_repos_from_file || []);
         DOMAINS.current = (d.domains || []).map((x: any) => ({ domain: x.domain, company: x.company, source: x.source }));
         COMPANIES.current = (d.companies || []).slice();
+        POLICIES.current = d.policies || {};
+        polDraft.current = Object.fromEntries(
+          Object.entries(POLICIES.current).map(([k, v]: [string, any]) => [k, v.yaml || ""]),
+        );
         VERSION.current = d.version;
         setLoaded(true);
       })
@@ -153,6 +170,35 @@ export default function ConfigEditor() {
     TYPES.current = TYPES.current.filter((x) => x.id !== id);
     force();
   }
+  function savePolicy(key: string) {
+    setPolStatus((s) => ({ ...s, [key]: { text: "saving…", color: "var(--mut)" } }));
+    fetch("/api/config/policy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, yaml: polDraft.current[key] ?? "" }),
+    })
+      .then((r) => r.json().then((j: any) => ({ s: r.status, j })))
+      .then((res) => {
+        if (!res.j.ok) {
+          // The server's message names the problem (bad YAML, wrong shape) — show it
+          // verbatim rather than a generic "save failed", since the whole point of a
+          // YAML field is that you can be told what you typed wrong.
+          setPolStatus((s) => ({ ...s, [key]: { text: res.j.error || "save failed", color: "var(--bad)" } }));
+          return;
+        }
+        POLICIES.current[key] = { ...POLICIES.current[key], overridden: res.j.overridden, yaml: res.j.yaml };
+        polDraft.current[key] = res.j.yaml || "";
+        setPolStatus((s) => ({
+          ...s,
+          [key]: res.j.overridden
+            ? { text: "saved ✓ — this deployment now owns it", color: "var(--good)" }
+            : { text: "cleared ✓ — back to the config.yaml default", color: "var(--good)" },
+        }));
+        force();
+      })
+      .catch(() => setPolStatus((s) => ({ ...s, [key]: { text: "save failed", color: "var(--bad)" } })));
+  }
+
   function save() {
     setSaving(true);
     setStatus("saving...", "var(--mut)");
@@ -462,23 +508,46 @@ export default function ConfigEditor() {
       </>
     );
   }
-  function srcChipsNode(kind: "org" | "src", listRef: React.MutableRefObject<string[]>, prompt: string, label: string) {
+  function srcChipsNode(
+    kind: "org" | "src",
+    listRef: React.MutableRefObject<string[]>,
+    prompt: string,
+    label: string,
+    fromFile?: React.MutableRefObject<Set<string>>,
+  ) {
     return (
       <>
-        {listRef.current.map((o) => (
-          <span className="chip" data-kind={kind} data-val={o} key={o}>
-            {o}{" "}
+        {listRef.current.map((o) => {
+          // A file-listed entry has no × on purpose: this list is appended to, never
+          // replaced, so removing it here would look like it worked and come back on
+          // the next render. Say where it lives instead.
+          const locked = !!fromFile?.current.has(o);
+          return (
             <span
-              className="x"
-              onClick={() => {
-                listRef.current = listRef.current.filter((x) => x !== o);
-                force();
-              }}
+              className="chip"
+              data-kind={kind}
+              data-val={o}
+              key={o}
+              title={locked ? "Listed in config.yaml — remove it there, not here" : undefined}
+              style={locked ? { opacity: 0.75 } : undefined}
             >
-              &#10005;
+              {o}{" "}
+              {locked ? (
+                <span className="tag" style={{ marginLeft: 2 }}>config.yaml</span>
+              ) : (
+                <span
+                  className="x"
+                  onClick={() => {
+                    listRef.current = listRef.current.filter((x) => x !== o);
+                    force();
+                  }}
+                >
+                  &#10005;
+                </span>
+              )}
             </span>
-          </span>
-        ))}
+          );
+        })}
         <span
           className="chip add"
           data-kind={kind}
@@ -500,7 +569,14 @@ export default function ConfigEditor() {
       return (
         <tr data-dom={i} key={i}>
           <td className="mono">
-            {d.domain} {d.source === "override" ? <span className="tag">override</span> : null}
+            {d.domain}{" "}
+            {d.source === "override" ? (
+              <span className="tag">database</span>
+            ) : (
+              <span className="tag" title="Listed in config.yaml — you can change its company here, but removing the row only takes effect until the next render">
+                config.yaml
+              </span>
+            )}
           </td>
           <td>
             <select
@@ -564,6 +640,10 @@ export default function ConfigEditor() {
             Add your own — each becomes a colour in the report's split. The <b>default</b> type is the fallback for
             unlisted repos; “ignore” drops a repo from all metrics.
           </p>
+          <p className="h-sub">
+            <b>Replaces</b> the set in <code>config.yaml</code> as soon as you save one — the file's
+            types stop being consulted, so a type you delete here is really gone.
+          </p>
           <div className="types" id="types">
             {typesNode()}
           </div>
@@ -593,6 +673,11 @@ export default function ConfigEditor() {
         <p className="h-sub">
           <span id="repoCount">{REPOS.current.length} repositories</span> · select rows to bulk-assign, or set each
           inline.
+        </p>
+        <p className="h-sub">
+          <b>Overrides per repository.</b> A repo you move is pinned here and stops following{" "}
+          <code>config.yaml</code>; every repo you leave alone keeps following it, including new ones
+          the next collection finds.
         </p>
         <div className="toolbar">
           <label className="search">
@@ -688,17 +773,27 @@ export default function ConfigEditor() {
           <p className="eyebrow">Sources</p>
           <h2>Orgs &amp; extra repos</h2>
           <p className="h-sub">Add a GitHub org or a single org/repo — a collection is queued on save.</p>
+          <p className="h-sub">
+            <b>Adds to</b> what <code>config.yaml</code> lists. Entries marked{" "}
+            <span className="tag">config.yaml</span> come from that file and can only be removed
+            there — this page can add sources, not take the file's away.
+          </p>
           <div className="chips" id="orgChips" style={{ marginBottom: 10 }}>
-            {srcChipsNode("org", ORGS, "GitHub org:", "+ Org")}
+            {srcChipsNode("org", ORGS, "GitHub org:", "+ Org", ORGS_FILE)}
           </div>
           <div className="chips" id="repoSrcChips">
-            {srcChipsNode("src", REPOSRC, "org/repo:", "+ Repo")}
+            {srcChipsNode("src", REPOSRC, "org/repo:", "+ Repo", REPOSRC_FILE)}
           </div>
         </div>
         <div className="card">
           <p className="eyebrow">Companies</p>
           <h2>Email-domain to company</h2>
           <p className="h-sub">Maps a contributor's email domain to a company for the by-company breakdown.</p>
+          <p className="h-sub">
+            <b>Adds to and edits</b> what <code>config.yaml</code> lists. You can retarget a{" "}
+            <span className="tag">config.yaml</span> row to a different company, but removing it
+            here does not stick — delete it from the file instead.
+          </p>
           <table className="dom">
             <thead>
               <tr>
@@ -724,6 +819,84 @@ export default function ConfigEditor() {
               + Domain rule
             </span>
           </div>
+        </div>
+        {/* Spans both columns of .cols: a 365px column is unusable for editing YAML,
+            which is what every block in here is. */}
+        <div className="card" style={{ gridColumn: "1 / -1" }}>
+          <p className="eyebrow">Policies</p>
+          <h2>Detection rules &amp; exclusions</h2>
+          <p className="h-sub">
+            The blocks that decide what counts: which commits are AI-marked, which accounts are bots,
+            what a spec is, which lines are meaningful. Edited as YAML because they are nested and
+            rarely touched. Each saves on its own — <b>stored in the database</b>, so they survive a
+            deployment whose <code>config.yaml</code> comes from git. Empty the field to go back to
+            the file default.
+          </p>
+          {Object.keys(POLICIES.current).length === 0 ? (
+            <p className="h-sub" style={{ opacity: 0.7 }}>No policy blocks in this config.</p>
+          ) : (
+            Object.entries(POLICIES.current).map(([key, p]: [string, any]) => {
+              const st = polStatus[key];
+              const dirty = (polDraft.current[key] ?? "") !== (p.yaml ?? "");
+              return (
+                <details key={key} style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                    {p.label}{" "}
+                    <span
+                      className="chip"
+                      style={{
+                        fontWeight: 500,
+                        background: p.overridden ? "var(--good-bg)" : "var(--panel2)",
+                        color: p.overridden ? "var(--good)" : "var(--mut)",
+                      }}
+                    >
+                      {p.overridden ? "database" : "config.yaml"}
+                    </span>{" "}
+                    <code style={{ opacity: 0.6, fontWeight: 400 }}>{key}</code>
+                  </summary>
+                  <p className="h-sub" style={{ marginTop: 8 }}>{p.blurb}</p>
+                  <textarea
+                    /* Remount when the SERVER's value changes (a save that normalised
+                       the YAML, or a reset back to the file default). Without this the
+                       field is uncontrolled — React leaves defaultValue alone on
+                       re-render — so "Reset to config.yaml" flipped the badge while
+                       the textarea kept showing the text you had just discarded. */
+                    key={`${key}:${p.yaml}`}
+                    spellCheck={false}
+                    defaultValue={polDraft.current[key] ?? ""}
+                    onChange={(e) => {
+                      polDraft.current[key] = e.currentTarget.value;
+                      force();
+                    }}
+                    style={{
+                      width: "100%", minHeight: 180, fontFamily: "ui-monospace, monospace",
+                      fontSize: 12.5, lineHeight: 1.5, padding: 10,
+                      border: "1px solid var(--line2)", borderRadius: "var(--r-sm)",
+                      background: "var(--panel)", color: "var(--ink)", resize: "vertical",
+                    }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                    <span className="chip add" onClick={() => savePolicy(key)}>
+                      {dirty ? "Save" : "Save (unchanged)"}
+                    </span>
+                    {p.overridden ? (
+                      <span
+                        className="chip"
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          polDraft.current[key] = "";
+                          savePolicy(key);
+                        }}
+                      >
+                        Reset to config.yaml
+                      </span>
+                    ) : null}
+                    {st ? <small style={{ color: st.color }}>{st.text}</small> : null}
+                  </div>
+                </details>
+              );
+            })
+          )}
         </div>
       </div>
     </>

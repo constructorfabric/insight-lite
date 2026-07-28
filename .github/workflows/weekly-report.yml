@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: fabric-report
+  group: insight-report
   cancel-in-progress: false
 
 jobs:
@@ -33,9 +33,9 @@ jobs:
       - name: Collect data
         env:
           # Org-scoped read token. The default GITHUB_TOKEN only sees THIS repo,
-          # so to read the whole org set a secret FABRIC_REPORT_TOKEN (PAT with
+          # so to read the whole org set a secret INSIGHT_REPORT_TOKEN (PAT with
           # read:org + repo). Falls back to GITHUB_TOKEN if unset.
-          GH_TOKEN: ${{ secrets.FABRIC_REPORT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.INSIGHT_REPORT_TOKEN || secrets.GITHUB_TOKEN }}
         run: python collect.py
 
       - name: Render HTML

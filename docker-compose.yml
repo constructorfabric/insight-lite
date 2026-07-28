@@ -19,7 +19,11 @@ services:
       PORTAL_USER: ${PORTAL_USER:-insight}
       PORTAL_PASSWORD: ${PORTAL_PASSWORD:-}
     env_file:
-      - .env
+      # required:false — a fresh clone has no .env, and a mandatory env_file makes
+      # `docker compose up` fail before it starts anything ("env file ... not found").
+      # Everything in it is optional anyway; copy .env.example when you need one.
+      - path: .env
+        required: false
     # ALL runtime state (report.db, caches, clones, history/,
     # exports/, generated report.html/data.json) lives on this volume, never
     # in the image — that's what makes an image-swap deploy safe. Code +
@@ -46,7 +50,11 @@ services:
       MCP_PORT: 8082
       MCP_TOKEN: ${MCP_TOKEN:-}
     env_file:
-      - .env
+      # required:false — a fresh clone has no .env, and a mandatory env_file makes
+      # `docker compose up` fail before it starts anything ("env file ... not found").
+      # Everything in it is optional anyway; copy .env.example when you need one.
+      - path: .env
+        required: false
     volumes:
       - report-data:/work/data
     command: python mcp_server.py
@@ -89,7 +97,11 @@ services:
       # allow Basic-auth logins that bypass GitHub. Leave empty to disable.
       OAUTH2_PROXY_HTPASSWD_FILE: ${OAUTH_HTPASSWD_FILE:-}
     env_file:
-      - .env
+      # required:false — a fresh clone has no .env, and a mandatory env_file makes
+      # `docker compose up` fail before it starts anything ("env file ... not found").
+      # Everything in it is optional anyway; copy .env.example when you need one.
+      - path: .env
+        required: false
     volumes:
       - ./deploy/oauth:/etc/oauth2-proxy:ro
 

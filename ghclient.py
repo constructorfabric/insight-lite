@@ -68,6 +68,48 @@ def validate_token(tok: str) -> dict:
         return {"ok": False, "error": f"could not reach GitHub: {exc}"}
 
 
+def check_org(org: str, tok: str = "") -> dict:
+    """Does `org` exist and can this token see it? {ok, error, kind, name}.
+
+    The setup wizard used to accept any syntactically valid org name, so a typo (or a
+    private org the token cannot see) was only discovered when the first collection came
+    back with nothing — by which point the wizard has said "saved" and the failure looks
+    like the tool not working. `kind` distinguishes an organisation from a user account,
+    which matters: a user account has no members and no org-level PR/issue metadata, so
+    half the report would be silently empty.
+
+    Network problems return ok=True: refusing to save an org because GitHub is briefly
+    unreachable would be worse than saving one we could not verify.
+    """
+    h = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
+    try:
+        r = requests.get(f"{API}/orgs/{org}", headers=h, timeout=15)
+        if r.ok:
+            return {"ok": True, "kind": "org", "name": r.json().get("login") or org}
+        if r.status_code == 404:
+            # Not an org — it may still be a user, which is a different (and mostly
+            # unsupported) shape rather than a typo, so say which it is.
+            u = requests.get(f"{API}/users/{org}", headers=h, timeout=15)
+            if u.ok and (u.json().get("type") == "User"):
+                return {"ok": False, "kind": "user",
+                        "error": f"“{org}” is a user account, not an organisation — "
+                                 f"members, PRs and issues are collected per org, so "
+                                 f"most of the report would be empty"}
+            return {"ok": False, "kind": "missing",
+                    "error": f"no organisation “{org}” is visible to this token "
+                             f"(check the spelling, and that the token can see it)"}
+        if r.status_code in (401, 403):
+            return {"ok": False, "kind": "forbidden",
+                    "error": f"the token cannot read “{org}” "
+                             f"(HTTP {r.status_code} — needs read:org)"}
+        r.raise_for_status()
+        return {"ok": True, "kind": "org", "name": org}
+    except requests.RequestException:
+        return {"ok": True, "kind": "unverified"}
+
+
 def load_config() -> dict:
     """Base config.yaml with the server-owned DB config overlay layered on
     top (portal edits: repo classification / element, new elements, orgs, repos)."""

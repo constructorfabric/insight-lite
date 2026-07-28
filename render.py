@@ -2583,9 +2583,28 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
 
     assets = spa.entry_assets(entry)
     if assets is None:
+        # The UI is React; there is no server-rendered equivalent to fall back to
+        # (the Jinja pages still reachable at ?legacy=1 are the pixel-gate baseline on
+        # its way out, not a supported path). So this page's whole job is to tell you
+        # how to get a bundle — with BOTH routes, because someone who cloned the repo
+        # and ran `python server.py` has hit this without necessarily having Node.
         root_inner = (
-            '<p style="padding:24px;color:var(--mut)">Frontend build not found — '
-            'run <code>cd frontend &amp;&amp; npm run build</code>.</p>')
+            '<div style="padding:32px;max-width:620px">'
+            '<h1 style="margin:0 0 8px">Frontend not built yet</h1>'
+            '<p style="color:var(--mut);margin:0 0 20px">The interface is a React app '
+            'and its bundle is not committed to the repository, so it has to be built '
+            'once. Either of these gives you a working portal:</p>'
+            '<p style="margin:0 0 6px"><b>With Docker</b> — builds the bundle for you:</p>'
+            '<pre style="background:var(--panel2);padding:12px;border-radius:8px;margin:0 0 20px">'
+            'docker compose up --build</pre>'
+            '<p style="margin:0 0 6px"><b>From source</b> — needs Node 20+:</p>'
+            '<pre style="background:var(--panel2);padding:12px;border-radius:8px;margin:0 0 20px">'
+            'cd frontend &amp;&amp; npm install &amp;&amp; npm run build</pre>'
+            '<p style="color:var(--mut);margin:0">Then reload this page. The API is '
+            'already running — <code>/health</code> answers, and every '
+            '<code>/api/…</code> endpoint works — only the rendered pages need '
+            'the bundle.</p>'
+            '</div>')
         tags = ""
     else:
         root_inner = ""

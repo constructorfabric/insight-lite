@@ -45,7 +45,7 @@ def all_steps(*, no_cache: bool = False) -> None:
 
 
 def export_snapshot() -> Path:
-    EXPORTS.mkdir(exist_ok=True)
+    EXPORTS.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     base = EXPORTS / f"insight-report-{stamp}"
     # (no people.yaml copy: there is no such file any more. The curated roster reaches
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "command",
         choices=["collect", "render", "directory", "reindex", "reconfig", "refresh", "all",
-                 "snapshot-status", "export", "serve"],
+                 "snapshot-status", "export", "serve", "config-capture"],
     )
     p.add_argument("--no-cache", action="store_true", help="Bypass GitHub API cache")
     p.add_argument("--host", default=os.environ.get("PORTAL_HOST")
@@ -108,6 +108,23 @@ def main(argv: list[str] | None = None) -> int:
         import collect
         n = collect.snapshot_status_only()
         print(f"Board status snapshot: {n} items recorded.")
+    elif args.command == "config-capture":
+        # Run this ONCE on a live deployment before its config.yaml starts arriving
+        # from git. It copies the policy blocks (AI-tool markers, provenance /
+        # framework / tracker blocks, bot denylist, identity bridges, spec and LOC
+        # filters, email) out of the file and into the DB overlay, which lives on the
+        # data volume. After that the file can be replaced by the published generic
+        # one without any of them changing. See configstore.BLOB_KEYS.
+        import configstore
+        written = configstore.capture_base_into_overlay()
+        if written:
+            print(f"Captured into the DB overlay: {', '.join(written)}")
+        else:
+            print("Nothing to capture — every policy block is already DB-owned.")
+        skipped = [k for k in configstore.BLOB_KEYS if k not in written]
+        if skipped:
+            print(f"Left as-is (already overridden, or absent from config.yaml): "
+                  f"{', '.join(skipped)}")
     elif args.command == "export":
         path = export_snapshot()
         print(path)

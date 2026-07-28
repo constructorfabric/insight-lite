@@ -410,7 +410,7 @@ def run_job(kind: str, args: list[str]) -> bool:
         )
 
     def worker() -> None:
-        RUNTIME.mkdir(exist_ok=True)
+        RUNTIME.mkdir(parents=True, exist_ok=True)
         cmd = [sys.executable, "reportctl.py", *args]
         proc = subprocess.Popen(
             cmd,
@@ -4142,7 +4142,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/favicon.ico":
             self.send_bytes(b"", "image/x-icon", HTTPStatus.NO_CONTENT)
         elif path == "/exports":
-            EXPORTS.mkdir(exist_ok=True)
+            EXPORTS.mkdir(parents=True, exist_ok=True)
             items = sorted(EXPORTS.glob("*.html"), reverse=True)
             links = "".join(
                 f'<li><a href="/exports/{html.escape(p.name)}">{html.escape(p.name)}</a></li>'
@@ -4435,6 +4435,18 @@ class Handler(BaseHTTPRequestHandler):
         if not re.match(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$", org):
             self.send_json({"ok": False, "error": "invalid org name"}, 400)
             return
+        # Syntax is not existence. Saving an org GitHub has never heard of used to
+        # succeed, and the mistake only surfaced as an empty first collection — which
+        # reads as "the tool doesn't work" rather than "that name is wrong". Checked
+        # against the stored token; a network failure does NOT block the save.
+        import ghclient as _gh
+        # required=False: the wizard lets the org be saved before a token exists, and
+        # token() otherwise raises SystemExit — which would kill the request, not
+        # explain anything. Unauthenticated, the check still catches a plain typo.
+        _org_check = _gh.check_org(org, _gh.token(required=False))
+        if not _org_check.get("ok"):
+            self.send_json({"ok": False, "error": _org_check.get("error", "org not found")}, 400)
+            return
         orgs, repos = [], []
         for o in (payload.get("extra_orgs") or []):
             o = (o or "").strip()
@@ -4684,6 +4696,27 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json({"ok": True, "weights": eff})
             return
+        if path == "/api/config/policy":
+            # Deliberately its own endpoint rather than part of the config save, for
+            # the same reason the score weights are: that save does whole-scope
+            # replaces, and a policy block must not be wiped by an unrelated edit to
+            # repo classification. One block per request, so a bad YAML in one cannot
+            # lose the others.
+            payload = self._read_json_body()
+            if payload is None:
+                return
+            import configstore as _cs
+            try:
+                out = _cs.save_policy(payload.get("key") or "", payload.get("yaml"))
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            except Exception as exc:               # noqa: BLE001 — never 500 silently
+                log_degraded(f"policy save ({payload.get('key')})", exc)
+                self.send_json({"ok": False, "error": str(exc)}, 500)
+                return
+            self.send_json({"ok": True, **out})
+            return
         if path == "/api/semantic":
             self.handle_semantic_post()
             return
@@ -4777,7 +4810,7 @@ class _PortalServer(ThreadingHTTPServer):
 
 
 def serve(host: str = "127.0.0.1", port: int = 8080) -> None:
-    RUNTIME.mkdir(exist_ok=True)
+    RUNTIME.mkdir(parents=True, exist_ok=True)
     # Self-heal any taxonomy saved under an older bucket vocabulary (idempotent).
     try:
         import store

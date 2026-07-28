@@ -20,6 +20,18 @@ Overlay shape (all keys optional):
     elements_extra:   [NewElement, ...]         # element names with no repos yet
     extra_orgs:       [org, ...]                # appended to base extra_orgs
     extra_repos:      [org/name, ...]           # appended to base extra_repos
+    <blob key>:       the whole sub-tree, replacing the base (see BLOB_KEYS)
+
+BLOB_KEYS exist because the merge-per-item scopes above only cover the parts the
+editors expose. Everything else in config.yaml was FILE-only, which is fine while the
+file travels with the deployment and breaks the moment it does not: a deployment that
+pulls this repo gets the shipped generic config, and the AI-tool markers, the
+provenance/framework/tracker blocks, the bot-login denylist and the identity bridges
+silently revert to defaults — panels switch off, service accounts reappear as people,
+LOC shifts. Nothing errors, which is the whole problem. Storing them in the DB (which
+lives on the data volume, not in the image) means the file can stay generic and
+publishable while a deployment keeps its real policy. `reportctl.py config-capture`
+does the one-time import from file to DB.
 """
 from __future__ import annotations
 
@@ -45,6 +57,15 @@ CLASSES = ("platform", "app", "ignore")
 # of the config editor's domain so its version token covers taxonomy edits too.
 CONFIG_SCOPES = ("repo", "repo_type", "element_extra", "extra_org", "extra_repo",
                  "company_domain", "setting", "semantic")
+
+# Config keys the overlay replaces WHOLESALE, stored under the `setting` scope as
+# {"value": <sub-tree>}. Wholesale rather than merged on purpose: these are policy
+# lists, and a merge would make the shipped defaults undeletable — you could add an
+# AI-tool marker but never drop one, and a denylist you cannot shorten is not a
+# denylist. Absent override = the base file value, unchanged.
+BLOB_KEYS = ("ai_tools", "studio_provenance", "gears_usage", "fabric_trackers",
+             "specs", "meaningful_loc", "bot_logins", "identity_overrides",
+             "migration_title_prefixes", "email")
 
 
 def load_overlay() -> dict:
@@ -72,6 +93,13 @@ def load_overlay() -> dict:
         ov["lookback_days"] = settings["lookback_days"]["value"]
     if (settings.get("dev_score_weights") or {}).get("value"):
         ov["dev_score_weights"] = settings["dev_score_weights"]["value"]
+    for key in BLOB_KEYS:
+        # `is not None` rather than truthiness: an EMPTY override is a real choice
+        # (no bot logins, no identity bridges) and must not silently fall back to the
+        # shipped list, which is the failure this whole mechanism exists to prevent.
+        val = (settings.get(key) or {}).get("value")
+        if val is not None:
+            ov[key] = val
     rc = {n: v["classification"] for n, v in repo.items() if v.get("classification")}
     re_ = {n: v["element"] for n, v in repo.items() if v.get("element")}
     if rc:
@@ -159,7 +187,43 @@ def apply_overlay(cfg: dict, ov: dict | None = None) -> dict:
         w = cfg.setdefault("developer_score_weights", {})
         w.update(ov["dev_score_weights"])
 
+    # policy blocks — replaced whole, see BLOB_KEYS
+    for key in BLOB_KEYS:
+        if key in ov:
+            cfg[key] = ov[key]
+
     return cfg
+
+
+def capture_base_into_overlay(conn=None, keys=BLOB_KEYS) -> list[str]:
+    """Copy the CURRENT config.yaml values for `keys` into the DB overlay.
+
+    The one-time migration a live deployment runs before its config.yaml stops being
+    its own: after this, the policy blocks are DB-owned (on the data volume) and the
+    file can be replaced by the generic published one without any of them changing.
+    Idempotent — a second run writes nothing — and it never touches a key that is
+    already overridden, so it cannot clobber an edit made in the UI.
+
+    Returns the keys it wrote.
+    """
+    import store
+    base = base_config()
+    own = conn is None
+    conn = conn or store.connect()
+    try:
+        existing = store.read_overrides(conn, "setting")
+        written = []
+        for key in keys:
+            if key in existing:              # already DB-owned: leave the edit alone
+                continue
+            if key not in base:
+                continue
+            store.write_override(conn, "setting", key, {"value": base[key]})
+            written.append(key)
+        return written
+    finally:
+        if own:
+            conn.close()
 
 
 def base_config() -> dict:
@@ -225,8 +289,17 @@ def editor_data() -> dict:
         "org": cfg.get("org", ""),
         "extra_orgs": list(cfg.get("extra_orgs") or []),
         "extra_repos": list(cfg.get("extra_repos") or []),
+        # Which of those came from config.yaml rather than the DB. The overlay only
+        # APPENDS to these two lists, so a file-listed entry cannot be removed from
+        # the UI — the editor needs to know that to say so, instead of offering an ×
+        # that silently has no effect on the next render.
+        "extra_orgs_from_file": [o for o in (base.get("extra_orgs") or [])
+                                 if o not in (ov.get("extra_orgs") or [])],
+        "extra_repos_from_file": [r for r in (base.get("extra_repos") or [])
+                                  if r not in (ov.get("extra_repos") or [])],
         "domains": domains,
         "companies": companies,
+        "policies": policy_data(),
         "version": version,
     }
 
@@ -387,6 +460,118 @@ def save_score_weights(weights: dict) -> dict:
     finally:
         conn.close()
     return store._score_weights()
+
+
+# Human-facing description per policy block, shown above its editor. Kept next to
+# BLOB_KEYS so a key added there without a blurb is obvious.
+POLICY_LABELS = {
+    "ai_tools": ("AI-tool markers",
+                 "Commit-message patterns that attribute a commit to a tool. "
+                 "Each marker is exact (an authenticated bot trailer) or heuristic "
+                 "(a bare mention) — the badge in the report comes from this."),
+    "studio_provenance": ("Content provenance",
+                          "Markers grepped from the full repo tree, not commit "
+                          "messages. The one named by blame_marker is attributed to "
+                          "authors by git blame."),
+    "gears_usage": ("Framework usage",
+                    "Which repos DEPEND ON your shared framework, matched by package "
+                    "or crate name. Provider repos are excluded automatically."),
+    "fabric_trackers": ("Generic trackers",
+                        "Open-ended markers scanned by content (git grep) or by file "
+                        "path. Adding one here needs no code change."),
+    "specs": ("Spec detection",
+              "Every markdown file counts as a spec EXCEPT what these exclusions "
+              "match. Changing this moves spec-contribution numbers."),
+    "meaningful_loc": ("Meaningful-LOC filter",
+                       "Paths excluded from report-facing LOC — generated, vendored, "
+                       "lockfiles, binaries. Raw git LOC is unaffected."),
+    "bot_logins": ("Bot / service accounts",
+                   "Substring match on login; excluded from people metrics. Careful: "
+                   "an account merely NAMED like a service may be a real person, and "
+                   "a wrongly listed human silently vanishes from every metric."),
+    "identity_overrides": ("Identity bridges",
+                           "commit email -> GitHub login, for people automatic "
+                           "matching cannot connect. Personal data: prefer the "
+                           "Identity editor, which keeps these per person."),
+    "migration_title_prefixes": ("Migration title prefixes",
+                                 "PRs/issues whose title starts with one of these are "
+                                 "skipped as duplicates recreated by a migration tool."),
+    "email": ("Email delivery",
+              "Recipients and subject for the weekly send. SMTP credentials come "
+              "from the environment, never from here."),
+}
+
+
+def policy_data() -> dict:
+    """The policy blocks for the Config editor: current effective YAML per key, the
+    base file value to compare against, and whether an override is in force.
+
+    `yaml` is what the editor shows and posts back — YAML rather than a bespoke widget
+    per key on purpose: these are nested, rarely-touched structures, and ten hand-built
+    forms would be ten things to keep in sync with the collector that reads them.
+    """
+    import store
+    base = base_config()
+    try:
+        conn = store.connect()
+        settings = store.read_overrides(conn, "setting")
+        conn.close()
+    except Exception:                # noqa: BLE001 — editor must still render
+        settings = {}
+    out = {}
+    for key in BLOB_KEYS:
+        label, blurb = POLICY_LABELS.get(key, (key, ""))
+        overridden = key in settings and settings[key].get("value") is not None
+        effective = settings[key]["value"] if overridden else base.get(key)
+        out[key] = {
+            "label": label, "blurb": blurb, "overridden": overridden,
+            "yaml": _dump_yaml(effective),
+            "base_yaml": _dump_yaml(base.get(key)),
+        }
+    return out
+
+
+def _dump_yaml(value) -> str:
+    if value is None:
+        return ""
+    return yaml.safe_dump(value, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
+def save_policy(key: str, text: str) -> dict:
+    """Persist one policy block from YAML text, or clear it when `text` is blank.
+
+    Blank means "back to the file default", and it CLEARS the override rather than
+    storing an empty one — otherwise "reset" would pin emptiness, which for
+    bot_logins means every service account reappears as a person. Deliberate
+    emptiness is still expressible: `[]` or `{}` stores an empty collection.
+
+    Raises ValueError with a readable message on bad YAML or the wrong shape; the
+    caller turns that into a 400 so the editor can show it.
+    """
+    import store
+    if key not in BLOB_KEYS:
+        raise ValueError(f"unknown policy block: {key}")
+    text = (text or "").strip()
+    conn = store.connect()
+    try:
+        if not text:
+            store.delete_override(conn, "setting", key)
+            return {"key": key, "overridden": False, "yaml": _dump_yaml(base_config().get(key))}
+        try:
+            parsed = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"not valid YAML: {exc}") from exc
+        base_val = base_config().get(key)
+        if parsed is None:
+            raise ValueError("empty document — clear the field to reset to the default, "
+                             "or write [] / {} for a deliberately empty value")
+        if base_val is not None and not isinstance(parsed, type(base_val)):
+            raise ValueError(f"expected a {type(base_val).__name__}, got "
+                             f"{type(parsed).__name__}")
+        store.write_override(conn, "setting", key, {"value": parsed})
+        return {"key": key, "overridden": True, "yaml": _dump_yaml(parsed)}
+    finally:
+        conn.close()
 
 
 CONFIG_EDITOR_HTML = _asset("config.html")

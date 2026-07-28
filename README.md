@@ -242,16 +242,51 @@ All metrics are computed for the lookback window and, where shown, broken down
 | `Dockerfile` / `docker-compose.yml` | containerized portal on `:8080` (secrets via `.env`, never hardcoded) |
 | `.github/workflows/weekly-report.yml` | Mondays 06:00 UTC → collect, render, publish to Pages, email |
 
+## Before you start
+
+- **A GitHub token** with `read:org` + `repo`. The setup wizard takes it in the browser
+  and stores it in the database; `GH_TOKEN` / `GITHUB_TOKEN` also work. Everything else
+  that can be configured by environment is documented in [`.env.example`](.env.example)
+  — copy it to `.env` when you need one, it is optional.
+- **`git`** on PATH. Commits, surviving-LOC and content markers come from real clones,
+  not the API, so the collector shells out to `git`.
+- **Docker** for the compose path — this is the recommended one, and it builds the
+  React bundle for you.
+- To run it **from source** instead: **Python 3.9+** (CI and the image use 3.12) *and*
+  **Node 20+**. The UI is a React app whose bundle is not committed, so it has to be
+  built once with `cd frontend && npm install && npm run build`; the pages say so if you
+  skip it. The collector, the API and the MCP server are pure Python — only the rendered
+  pages need the bundle.
+- Disk for the clones: the collector keeps full clones under `.repos/`.
+- Nothing else. No database to provision — SQLite is created on first use, and so is
+  every directory under `DATA_DIR`.
+
 ## Quick start (Docker Compose)
 
 Recommended local mode is the Docker Compose portal:
 
 ```bash
-export GH_TOKEN=...      # or GITHUB_TOKEN=...
 docker compose up --build
 ```
 
-Open <http://localhost:8080>.
+Open <http://localhost:8080> — the setup wizard asks for the token and the org, and
+stores both in the database. Nothing else to prepare.
+
+If you would rather configure by file, copy the template and fill in what you need:
+
+```bash
+cp .env.example .env
+```
+
+`.env` is git-ignored and every setting in it is optional — the compose file treats it
+as `required: false`, so a fresh clone starts without one. It is where the things that
+are NOT part of the wizard live: `PORTAL_PASSWORD` for the built-in login, `MCP_TOKEN`,
+`ALERT_WEBHOOK_URL` for refresh alerting, the Gemini keys for the metrics assistant, and
+the OAuth settings. `GH_TOKEN` / `GITHUB_TOKEN` work there too if you prefer the
+environment over the wizard.
+
+> Compose reads `.env` when it **creates** a container, so after editing it run
+> `docker compose up -d report` — a plain `restart` will not pick the change up.
 
 The portal lets you refresh data, view the current report, edit identity
 resolution, and export a timestamped HTML snapshot without downloading files
@@ -445,7 +480,7 @@ python -m py_compile collect.py render.py ghclient.py identity.py directory.py e
    `your-org/insight`).
 2. Repo **Settings → Pages → Source: GitHub Actions**.
 3. Add secrets (**Settings → Secrets and variables → Actions**):
-   - `FABRIC_REPORT_TOKEN` — PAT with `read:org` + `repo` (the default
+   - `INSIGHT_REPORT_TOKEN` — PAT with `read:org` + `repo` (the default
      `GITHUB_TOKEN` only sees its own repo, not the whole org).
    - Email (later): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`.
 4. The report publishes to the repo's GitHub Pages URL each Monday;
@@ -500,7 +535,7 @@ Caveats common to all traffic:
   not windowed to `lookback_days`.
 - **Needs push/admin** — `/traffic/*` returns `403` on repos the token can't
   push to. With the default token only insight/example-web-front resolve; grant the
-  `FABRIC_REPORT_TOKEN` org-wide push (or an org GitHub App with the traffic
+  `INSIGHT_REPORT_TOKEN` org-wide push (or an org GitHub App with the traffic
   permission) to cover every repo. Repos without access are surfaced as "no
   traffic access yet" rather than silently dropped.
 

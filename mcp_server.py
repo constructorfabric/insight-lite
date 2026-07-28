@@ -26,7 +26,7 @@ import tooldefs
 # Behind the reverse proxy the Host header is the public host, which the default
 # DNS-rebinding protection would reject (421). We sit behind nginx + bearer auth,
 # so that protection is redundant — disable it and let the token gate access.
-mcp = FastMCP("constructor-fabric-report",
+mcp = FastMCP("insight-report",
               transport_security=TransportSecuritySettings(
                   enable_dns_rebinding_protection=False))
 
