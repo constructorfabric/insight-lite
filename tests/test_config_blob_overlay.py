@@ -14,7 +14,6 @@ config.yaml is deliberately generic. What would change, with no error anywhere:
   * bot_logins            -> service accounts reappear as PEOPLE in every metric
   * identity_overrides    -> manual identity bridges vanish, people split in two
   * specs / meaningful_loc-> different exclusions, so LOC and spec counts shift
-  * email                 -> reports sent from the wrong address
 
 So these keys are now overridable (configstore.BLOB_KEYS), and reportctl
 config-capture imports the file's current values into the DB once.
@@ -66,7 +65,7 @@ class BlobOverlayTest(unittest.TestCase):
         changes numbers. If one is dropped from BLOB_KEYS, say so here."""
         for key in ("ai_tools", "studio_provenance", "gears_usage", "fabric_trackers",
                     "bot_logins", "identity_overrides", "specs", "meaningful_loc",
-                    "migration_title_prefixes", "email"):
+                    "migration_title_prefixes"):
             self.assertIn(key, configstore.BLOB_KEYS)
 
 
@@ -85,7 +84,7 @@ class CaptureTest(unittest.TestCase):
 
     BASE = {"ai_tools": {"markers": {"Mine": {"pattern": "m"}}},
             "bot_logins": ["[bot]", "our-ci"],
-            "email": {"enabled": True, "recipients": ["team@example.com"]}}
+            "migration_title_prefixes": ["[PR #"]}
 
     def test_capture_writes_the_base_values_and_they_then_survive_a_new_file(self):
         import store
@@ -96,11 +95,12 @@ class CaptureTest(unittest.TestCase):
         # the published generic file arrives: different markers, empty denylist
         published = {"ai_tools": {"markers": {"Generic": {"pattern": "g"}}},
                      "bot_logins": ["[bot]"],
-                     "email": {"enabled": False, "recipients": []}}
+                     "migration_title_prefixes": []}
         merged = configstore.apply_overlay(dict(published), configstore.load_overlay())
         self.assertEqual(merged["ai_tools"], self.BASE["ai_tools"])
         self.assertEqual(merged["bot_logins"], self.BASE["bot_logins"])
-        self.assertEqual(merged["email"], self.BASE["email"])
+        self.assertEqual(merged["migration_title_prefixes"],
+                         self.BASE["migration_title_prefixes"])
         store.connect().close()
 
     def test_capture_never_clobbers_an_existing_override(self):

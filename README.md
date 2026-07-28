@@ -238,7 +238,6 @@ All metrics are computed for the lookback window and, where shown, broken down
 | `directory.py` | builds `identity-editor.html` from the collected run + the curated identity overrides |
 | `reportctl.py` | CLI: `collect / render / directory / refresh / all / export / serve` (`--no-cache`) |
 | `server.py` | local web portal (view / refresh / export / edit identity) |
-| `email_report.py` | sends `report.html` via SMTP (no-op until enabled) |
 | `Dockerfile` / `docker-compose.yml` | containerized portal on `:8080` (secrets via `.env`, never hardcoded) |
 
 ## Before you start
@@ -300,7 +299,6 @@ One command — creates the venv, installs deps, collects, renders, opens the re
 ```bash
 ./run.sh                 # collect + render + open report.html
 ./run.sh --no-open       # skip opening the browser
-./run.sh --email         # also run the email step (honours config.yaml + SMTP_*)
 ```
 
 Token: uses `$GH_TOKEN`/`$GITHUB_TOKEN` if set, else falls back to `gh auth token`
@@ -470,7 +468,7 @@ docker compose run --rm report python reportctl.py directory
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 python -m unittest discover -s tests -v
-python -m py_compile collect.py render.py ghclient.py identity.py directory.py email_report.py reportctl.py server.py tests/test_rules.py
+python -m py_compile collect.py render.py ghclient.py identity.py directory.py reportctl.py server.py tests/test_rules.py
 ```
 
 ## Scheduling the refresh
@@ -503,12 +501,6 @@ If you do want it in Actions, write the workflow yourself so the decisions are y
 give it an org-scoped PAT, and think hard before adding any step that publishes the
 rendered report somewhere public.
 
-## Enable email
-
-1. In `config.yaml` set `email.enabled: true` and add `email.recipients`.
-2. Add the four `SMTP_*` secrets.
-
-Until then `email_report.py` is a safe no-op and only the web report is produced.
 
 ## MCP server (read-only data access)
 

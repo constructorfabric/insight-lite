@@ -4,7 +4,6 @@
 #
 #   ./run.sh            # collect + render + open report.html
 #   ./run.sh --no-open  # skip opening the browser
-#   ./run.sh --email    # also run the email step (honours config.yaml + SMTP_* env)
 #
 # Token: uses $GH_TOKEN / $GITHUB_TOKEN if set, otherwise falls back to `gh auth token`.
 set -euo pipefail
@@ -33,9 +32,6 @@ pip install -q -r requirements.txt
 python collect.py
 python render.py
 
-for arg in "$@"; do
-  [[ "$arg" == "--email" ]] && python email_report.py
-done
 
 # --- open ----------------------------------------------------------------
 if [[ " $* " != *" --no-open "* ]]; then

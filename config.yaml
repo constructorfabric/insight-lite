@@ -336,12 +336,3 @@ developer_score_weights:      # normalised at scoring, so these needn't sum to 1
   craft: 25             # review rounds, merge rate
   flow: 35              # timeline forward-flow / friction
 
-# ---------------------------------------------------------------------------
-# Email delivery (sender intentionally stubbed — see email_report.py).
-# Recipients edited here; SMTP creds come from the environment, never this file.
-# ---------------------------------------------------------------------------
-email:
-  enabled: false          # flip to true once SMTP is wired
-  subject: "Insight — weekly contribution & usage report"
-  from_addr: "insight-report@example.com"
-  recipients: []          # e.g. ["team@example.com"]

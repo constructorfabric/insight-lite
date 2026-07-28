@@ -65,7 +65,7 @@ CONFIG_SCOPES = ("repo", "repo_type", "element_extra", "extra_org", "extra_repo"
 # denylist. Absent override = the base file value, unchanged.
 BLOB_KEYS = ("ai_tools", "studio_provenance", "gears_usage", "fabric_trackers",
              "specs", "meaningful_loc", "bot_logins", "identity_overrides",
-             "migration_title_prefixes", "email")
+             "migration_title_prefixes")
 
 # The STRUCTURAL config — what gets collected and how it is grouped. Stored under the
 # `base` scope and applied as a BASE LAYER, i.e. before every per-item rule below, so
@@ -536,9 +536,6 @@ POLICY_LABELS = {
     "migration_title_prefixes": ("Migration title prefixes",
                                  "PRs/issues whose title starts with one of these are "
                                  "skipped as duplicates recreated by a migration tool."),
-    "email": ("Email delivery",
-              "Recipients and subject for the weekly send. SMTP credentials come "
-              "from the environment, never from here."),
 }
 
 
