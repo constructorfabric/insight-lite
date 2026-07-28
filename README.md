@@ -173,9 +173,21 @@ different questions.
 
 ### The portal, with Docker — start here
 
+From the published image, no checkout needed beyond a compose file:
+
+```bash
+docker compose up -d
+```
+
+Or build it yourself from a clone — the local override does that automatically:
+
 ```bash
 docker compose up --build
 ```
+
+The image is `ghcr.io/constructorfabric/insight-lite:latest`, built for amd64 and arm64,
+published only from commits whose test suite passed. Every build is also tagged with its
+commit SHA if you would rather pin one.
 
 Open <http://localhost:8080>. The setup wizard asks for a GitHub token and your org,
 stores both in the database, and offers to run the first collection. Nothing to prepare

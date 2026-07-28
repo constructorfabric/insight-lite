@@ -1,6 +1,6 @@
 services:
   report:
-    image: insight-report:latest
+    image: ghcr.io/constructorfabric/insight-lite:latest
     restart: unless-stopped
     ports:
       # Loopback only by default. To expose it on the network, change this to
@@ -39,7 +39,7 @@ services:
   # `Authorization: Bearer <token>` (the server refuses unauthenticated otherwise
   # only on localhost). Connect a client to  https://<host>/mcp .
   mcp:
-    image: insight-report:latest
+    image: ghcr.io/constructorfabric/insight-lite:latest
     restart: unless-stopped
     ports:
       - "127.0.0.1:8082:8082"

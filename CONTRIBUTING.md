@@ -43,6 +43,19 @@ The React frontend lives in `frontend/`. `npm install && npm run build` inside i
 the bundle into `assets/app/`, which the server serves. Python-side changes need no
 frontend build unless you touched `frontend/`.
 
+## What CI does
+
+One workflow, two jobs, and the second declares `needs: test` — so an image can only
+exist for a commit whose suite passed. A pull request builds the image but does not
+publish it, which still catches a broken Dockerfile without putting anything unreviewed
+in the registry.
+
+The build then smoke-tests the image before publishing: starts it, waits for `/health`,
+checks that a dataless container redirects to the setup wizard, asserts the Vite manifest
+and `templates/` resolve from inside the image, and seeds the demo data to render a full
+report. That last one exists because "it builds" and "it works" are different claims —
+a wrong path inside the image would not surface until a page was rendered.
+
 ## Before you open a PR
 
 - **Never commit collected data.** `history/*.jsonl`, `history/report.db`, `data.json`,

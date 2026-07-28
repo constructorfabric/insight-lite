@@ -1,0 +1,169 @@
+name: CI
+
+# One pipeline, so the ordering is a fact rather than a convention: `build` declares
+# `needs: test`, which means an image can only exist for a commit whose suite passed.
+# Two separate workflows would have run in parallel and happily published a broken image
+# while the tests were still going red.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # node is preinstalled on ubuntu-latest, so the inline-JS validity tests run
+      # instead of skipping.
+      #
+      # -t . matters: without it the start directory is also the top-level directory,
+      # so test modules import as top-level names and tests/__init__.py — which installs
+      # the state isolation and the seeded fixture store — never runs. With `-t .` they
+      # import as tests.test_*, the package initialises first, and the run is both
+      # isolated and reproducible. tests/test_state_isolation.py fails loudly if that
+      # ever stops being true.
+      - name: Run test suite
+        run: python -m unittest discover -s tests -t . -v
+
+  build:
+    name: Image
+    needs: test                     # the gate: no image without a green suite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write               # only this job needs to write to the registry
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # A pull request builds but never publishes. That still catches the failure mode
+      # worth catching — a Dockerfile or layout change that breaks the image — without
+      # letting an unreviewed commit put anything in the registry.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # `latest` tracks main; every build is also addressable by commit SHA so a
+          # deployment can pin one, and a v* tag publishes its own semver tags.
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=Insight Lite
+            org.opencontainers.image.description=Self-hosted engineering-productivity and delivery analytics for a GitHub organisation
+
+      # Single-arch first, loaded into the local daemon so it can actually be run.
+      # Publishing an image nobody has started is how "it builds" gets mistaken for
+      # "it works" — the smoke test below is the point of this step.
+      - name: Build for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: insight-lite:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test the image
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 127.0.0.1:8099:8080 insight-lite:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8099/health; then ok=1; break; fi
+            sleep 1
+          done
+          [ "${ok:-}" = 1 ] || { echo "::error::/health never came up"; docker logs smoke; exit 1; }
+
+          # A fresh image has no data, so the root must send you to the setup wizard.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/)
+          [ "$code" = 302 ] || { echo "::error::expected a redirect to /setup, got $code"; exit 1; }
+
+          # The failure this catches: templates/ and assets/ live beside backend/, and a
+          # wrong ROOT inside the image would not surface until a page was rendered.
+          docker exec smoke python3 -c "
+          import sys, os; sys.path.insert(0, '/work/backend')
+          import spa, render
+          assert spa.entry_assets('overview'), 'Vite manifest missing from the image'
+          assert os.path.isdir(os.path.join(render.ROOT, 'templates')), 'templates/ not found'
+          print('assets and templates resolve')
+          "
+
+          # And that the demo seeder still produces a renderable report inside the image,
+          # which is the only end-to-end check of collect-shaped data we can run without
+          # a GitHub token.
+          docker exec smoke sh -c 'cd /work && python3 backend/demo.py --db /tmp/smoke.db >/dev/null'
+          docker exec -e REPORT_DB=/tmp/smoke.db smoke python3 -c "
+          import sys; sys.path.insert(0, '/work/backend')
+          import render
+          html = render.render_report(render.build_model(render.load_data()))
+          assert len(html) > 50_000, f'report suspiciously small: {len(html)} bytes'
+          print(f'report renders: {len(html)} bytes')
+          "
+          docker rm -f smoke >/dev/null
+
+      # Only now, and only for a real push: the multi-arch publish. arm64 is included
+      # because most people evaluating a self-hosted tool are on Apple Silicon, and
+      # emulating amd64 there makes the first impression a slow one.
+      - name: Build and push
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # keeps the package listing to real architectures instead of an
+          # "unknown/unknown" provenance entry beside them
+          provenance: false
+
+      - name: Summary
+        if: github.event_name != 'pull_request'
+        run: |
+          {
+            echo "### Published"
+            echo
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo
+            echo "Pull it:"
+            echo '```bash'
+            echo "docker pull ${{ env.IMAGE }}:latest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
