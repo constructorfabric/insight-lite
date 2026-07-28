@@ -1,0 +1,319 @@
+{% macro typemix(counts, types) %}
+{% set ns = namespace(t=0) %}{% for x in types %}{% set ns.t = ns.t + counts.get(x.id, 0) %}{% endfor %}
+{% if ns.t %}<span class="mixbar" data-tip="{% for x in types %}{% if counts.get(x.id,0) %}{{ x.name }} {{ counts.get(x.id,0) }}{% if not loop.last %} · {% endif %}{% endif %}{% endfor %}">{% for x in types %}{% if counts.get(x.id,0) %}<i style="width:{{ (100*counts.get(x.id,0)/ns.t)|round(1) }}%;background:{{ x.color }}"></i>{% endif %}{% endfor %}</span>{% else %}<span class="dm">—</span>{% endif %}
+{% endmacro %}
+
+{# the "no data" phrase for a pillar's headline metric, per what the metric needs #}
+{% macro nodata_metric(pillar) %}{% if pillar=='flow' %}no flow data{% elif pillar in ('delivery','craft') %}no merged PRs{% else %}no PRs{% endif %}{% endmacro %}
+{# the headline metric of a pillar, formatted in real units — for the "why rank" line #}
+{% macro fmt_primary(pillar, v) %}{% if v is none %}{{ nodata_metric(pillar) }}{% elif pillar=='delivery' %}{{ v|round(1) }}h to merge{% elif pillar=='craft' %}{{ v|round(1) }} rounds/PR{% elif pillar=='flow' %}{{ v|round(2) }} friction{% else %}{{ v|num }} commits{% endif %}{% endmacro %}
+{# short value of a pillar's headline metric (no label) — for side-by-side compares #}
+{% macro fmt_val(pillar, v) %}{% if v is none %}{{ nodata_metric(pillar) }}{% elif pillar=='delivery' %}{{ v|round(1) }}h{% elif pillar=='craft' %}{{ v|round(1) }} rounds{% elif pillar=='flow' %}{{ v|round(2) }}{% else %}{{ v|num }} commits{% endif %}{% endmacro %}
+{# self-card: the subject's own next step up — the person directly above them #}
+{% macro whyrank_above(row, plabels) %}{% if row.above %}<p class="dsc-whyrank">Behind <b>#{{ row.rank - 1 }} {{ row.above.name }}</b> by {{ row.above.gap_total }} pt{{ 's' if row.above.gap_total != 1 }} — mostly <b>{{ plabels[row.above.pillar][0] }}</b>{% if row.above.pillar != 'engagement' %}: {% if row.above.mine is none %}you: {{ nodata_metric(row.above.pillar) }}{% else %}you {{ fmt_primary(row.above.pillar, row.above.mine) }}{% endif %} vs {% if row.above.theirs is none %}them: {{ nodata_metric(row.above.pillar) }}{% else %}their {{ fmt_primary(row.above.pillar, row.above.theirs) }}{% endif %}{% endif %}.</p>{% else %}<p class="dsc-whyrank">Top of the board this window.</p>{% endif %}{% endmacro %}
+{# leaderboard: each member measured against the page's subject ("you") — how to catch up / where you lead #}
+{% macro vs_self_line(v, you, plabels) %}{% if not v %}{% elif v.self %}<p class="dsc-whyrank dsc-selfrow">This is {{ you }}.</p>{% else %}<p class="dsc-whyrank">{{ 'Ahead of' if v.delta > 0 else ('Behind' if v.delta < 0 else 'Level with') }} {{ you }}{% if v.delta %} by {{ v.delta|abs }} pt{{ 's' if v.delta|abs != 1 }}{% endif %}{% if v.pillar %} — mostly <b>{{ plabels[v.pillar][0] }}</b>{% if v.pillar != 'engagement' and v.metric_label %}: they {{ fmt_val(v.pillar, v.row_val) }}, {{ you }} {{ fmt_val(v.pillar, v.anchor_val) }}{% endif %}{% endif %}.</p>{% endif %}{% endmacro %}
+
+{# the score, decomposed: real work → team reference → score → points. Shared by the
+   person card and each leaderboard row's expansion so the chain is identical. #}
+{% macro score_chain(row, active, weights, tm, plabels, wsum) %}{% set dv = row.drivers %}
+<table class="dsc-chain">
+  <thead><tr><th>Pillar</th><th>Your real work</th><th>vs team</th><th>Score → pts</th></tr></thead>
+  <tbody>
+  {% for key in ['engagement','delivery','craft','flow'] %}{% set on = key in active %}{% set v = row.pillars.get(key) %}{% set pts = row.contributions.get(key) %}
+  <tr class="{{ 'off' if not on }}{{ ' gap' if on and v is none }}">
+    <td class="pil">{{ plabels[key][0] }}{% if on %} <span class="w">{{ (100*weights[key]/wsum)|round|int }}%</span>{% endif %}</td>
+    <td class="work">
+      {%- if key=='engagement' -%}{{ dv.commits|num }} commits · {{ dv.prs_merged|num }} PRs · {{ dv.reviews_given|num }} reviews · {{ dv.specs|num }} specs
+      {%- elif key=='delivery' -%}{% if dv.ttm is not none %}{{ dv.ttm|round(1) }}h to merge · {{ dv.size|round|int }} files/PR{% else %}no merged PRs{% endif %}
+      {%- elif key=='craft' -%}{% if dv.rounds is not none %}{{ dv.rounds|round(1) }} rounds/PR · {{ (100*dv.merge_rate)|round|int }}% merged{% else %}no PRs opened{% endif %}
+      {%- else -%}{% if dv.flow is not none %}{{ dv.flow|round(2) }} friction/item{% else %}no timeline data{% endif %}{%- endif -%}
+    </td>
+    <td class="vs">
+      {%- if not on -%}<span class="mut">not scored (team data gap)</span>
+      {%- elif key=='engagement' -%}team {{ tm.prs_merged|num }} PRs
+      {%- elif key=='delivery' -%}{% if tm.ttm is not none %}team {{ tm.ttm|round(1) }}h{% else %}—{% endif %}
+      {%- elif key=='craft' -%}{% if tm.rounds is not none %}team {{ tm.rounds|round(1) }} rounds{% else %}—{% endif %}
+      {%- else -%}{% if tm.flow is not none %}team {{ tm.flow|round(2) }}{% else %}—{% endif %}{%- endif -%}
+    </td>
+    <td class="sp">{% if on %}<b>{{ v if v is not none else 0 }}</b><span class="ar">→ +{{ pts }}</span>{% else %}<span class="mut">—</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  <tr class="tot"><td colspan="3">Score</td><td class="sp"><b>{{ row.score }}</b></td></tr>
+  </tbody>
+</table>
+{% endmacro %}
+
+{% macro panel_people(pr) %}
+<div class="tblbar">
+  <input type="search" class="people-filter" placeholder="Filter by login, name, or company…" aria-label="Filter people">
+  {% if pr.people|length > 40 %}<button type="button" class="people-toggle">Show all {{pr.people|length}}</button>{% endif %}
+  <span class="cnt" data-people-count></span>
+</div>
+{# per-row precompute: bar widths, badge flags, and the two rich cells (type-mix bar,
+   code/specs pair) rendered here since they need macros / conditional markup. #}
+{% set cmax = (pr.people|map(attribute='commits')|max) if pr.people else 1 %}{% set cmax = cmax or 1 %}
+{% set lmax = (pr.people|map(attribute='loc')|max) if pr.people else 1 %}{% set lmax = lmax or 1 %}
+{% for r in pr.people %}
+{%- set tm %}{{ typemix(r.by_type, pr.split.types) }}{% endset -%}
+{%- set cs %}{% if r.commits %}<span style="color:var(--acc)">{{ r.code_commits|num }}</span> / <span style="color:var(--app)">{{ r.specs|num }}</span>{% else %}<span style="color:var(--mut)">—</span>{% endif %}{% endset -%}
+{%- set _ = r.update({
+  '_email': emails_by_login.get(r.login, ''),
+  '_not_member': not r.is_member,
+  '_commits_pct': (r.commits / cmax * 100)|round(1),
+  '_loc_pct': (r.loc / lmax * 100)|round(1),
+  '_loc_tip': (r.raw_loc|loc) ~ ' raw additions',
+  '_typemix': tm,
+  '_typemix_total': r.by_type.values()|sum,
+  '_codespecs': cs,
+  '_mixtip': 'code ' ~ (r.code_commits|num) ~ ' (' ~ (r.mix_code_pct|pct) ~ '%) · specs ' ~ (r.specs|num) ~ ' (' ~ (r.mix_specs_pct|pct) ~ '%)',
+}) -%}
+{% endfor %}
+{% set groups = [
+  {'label': 'Identity', 'span': 3},
+  {'label': 'Surviving code · today <span class="alltime-tag">all-time</span>', 'span': 4, 'tip': "Surviving lines in today's tree (git blame, exact line counts). All-time — not affected by the period filter."},
+  {'label': 'Activity · in period', 'span': 7, 'tip': 'Activity inside the selected period'},
+  {'label': 'Review <span class="alltime-tag">all-time</span>', 'span': 3, 'tip': 'All-time — not affected by the period filter'},
+  {'label': 'Fabric / AI', 'span': 2, 'tip': 'Fabric / AI-tool footprint (commits are period-scoped; cpt lines are all-time)'},
+  {'label': 'Where effort goes · in period', 'span': 2},
+] %}
+{% set cols = [
+  {'kind': 'link', 'label': 'Person', 'key': 'login', 'tip_key': '_email', 'tags': [{'if_key': '_not_member', 'text': 'ext', 'cls': 'ext'}]},
+  {'kind': 'text', 'label': 'Name', 'key': 'name'},
+  {'kind': 'text', 'label': 'Co.', 'key': 'company', 'tip': 'Company affiliation (email domain / override)'},
+  {'label': 'Unmarked', 'label_html': 'Unmarked <span class="prec heuristic">upper bound</span>', 'key': 'surv_code_human', 'fmt': 'loc', 'cls': 'g', 'tip': "Surviving code lines with NO AI/Studio marker. Line count is exact (blame); the 'human' label is NOT — code from tools that leave no marker (Copilot, pasted LLM output) also lands here. Treat as an UPPER BOUND on hand-written code, not proof of authorship."},
+  {'label': 'AI-marked', 'label_html': 'AI-marked <span class="prec heuristic">floor</span>', 'key': 'surv_code_ai', 'fmt': 'loc', 'tip': 'surviving code lines carrying an AI/Studio marker (@cpt / studio). A floor on AI-generated code — only marked generations are counted.'},
+  {'label': 'Spec LOC', 'key': 'surv_spec', 'fmt': 'loc', 'tip': "surviving spec (markdown) lines authored in today's tree"},
+  {'label': 'Δ window', 'key': 'surv_win_code', 'fmt': 'loc', 'dash': true, 'tip': 'surviving code lines whose last commit is inside the lookback window (all-time metric; shown only at all-time)'},
+  {'kind': 'bar', 'label': 'Commits', 'width_key': '_commits_pct', 'content_key': 'commits', 'fmt': 'num', 'cls': 'g', 'drill': {'drill': 'commit', 'author': '@login'}, 'drill_if': 'commits'},
+  {'kind': 'bar', 'label': 'LOC +', 'width_key': '_loc_pct', 'content_key': 'loc', 'fmt': 'loc', 'tip_key': '_loc_tip', 'drill': {'drill': 'commit', 'author': '@login'}, 'drill_if': 'commits', 'tip': 'Meaningful LOC = raw git additions minus generated/vendor/dependency/fixture/lockfile/build/binary paths. Cleaner code-volume signal, not productivity.'},
+  {'label': 'PRs', 'key': 'prs', 'drill': {'drill': 'pr', 'author': '@login'}, 'drill_if': 'prs'},
+  {'label': 'Specs', 'key': 'specs', 'drill': {'drill': 'commit', 'flag': 'is_spec', 'author': '@login'}, 'drill_if': 'specs'},
+  {'label': 'Bugs', 'key': 'bugs', 'drill': {'drill': 'issue', 'flag': 'is_bug', 'author': '@login'}, 'drill_if': 'bugs'},
+  {'label': 'Epics', 'key': 'epics', 'drill': {'drill': 'issue', 'flag': 'is_epic', 'author': '@login'}, 'drill_if': 'epics'},
+  {'label': 'Features', 'key': 'features', 'drill': {'drill': 'issue', 'flag': 'is_feature', 'author': '@login'}, 'drill_if': 'features'},
+  {'label': 'Rev', 'key': 'reviews', 'cls': 'g', 'tip': 'PR reviews given (as reviewer) — all-time'},
+  {'label': 'Appr', 'key': 'approvals', 'tip': 'approvals given (as reviewer) — all-time'},
+  {'label': 'Med TTM', 'key': 'ttm', 'fmt': 'raw', 'unit': 'h', 'dash': true, 'tip': "median time-to-merge of this person's merged PRs — all-time"},
+  {'label': 'AI✦', 'key': 'ai_commits', 'cls': 'g', 'drill': {'drill': 'commit', 'flag': 'ai_marked', 'author': '@login'}, 'drill_if': 'ai_commits', 'tip': 'commits carrying an AI-tool marker in the period — Platform usage'},
+  {'label': 'cpt', 'key': 'cpt_lines', 'fmt': 'loc', 'tip': 'assistant-marked code lines authored (git blame) — all-time'},
+  {'kind': 'html', 'label': 'Type mix', 'key': '_typemix', 'sort_key': '_typemix_total', 'cls': 'g', 'tip': 'Commits + PRs per repository type in the period'},
+  {'kind': 'html', 'label': 'Code / Specs', 'key': '_codespecs', 'sort_key': 'code_commits', 'tip_key': '_mixtip', 'tip': "Share of this person's commits that are code vs spec docs"},
+] %}
+<div class="card" style="overflow-x:auto">
+{{ data_table(cols, pr.people, cap=40, groups=groups) }}
+</div>
+{% if pr.people|length > 40 %}{% set ranked_by = "period activity" if pr.label != 'all' else "surviving hand-written code" %}<p class="conc people-note"><span class="when-collapsed">Showing top <b>40</b> of <b>{{pr.people|length}}</b> people (ranked by {{ranked_by}}). The filter searches all of them; <b>Show all</b> expands the rest.</span><span class="when-expanded" hidden>Showing <b>all {{pr.people|length}}</b> people (ranked by {{ranked_by}}). <b>Show top 40</b> collapses the list.</span></p>{% endif %}
+{% endmacro %}
+
+{% macro panel_person_weekly(pw) %}
+{% if pw.grand.commits or pw.grand.issues %}
+<div style="overflow-x:auto"><table class="grouped person-weekly">
+  <thead>
+    <tr class="grp"><th>Week (starting)</th>{% for col in pw.columns %}<th colspan="2" class="g" data-tip="{{col.repo}}">{{col.name}}</th>{% endfor %}<th class="g">Issues</th></tr>
+    <tr><th></th>{% for col in pw.columns %}<th class="g">Commits</th><th>Lines +/-</th>{% endfor %}<th class="g">opened</th></tr>
+  </thead>
+  <tbody>
+  {% for row in pw.rows %}
+    <tr>
+      <td>{{row.week}}</td>
+      {% for cell in row.cells %}{% set col = pw.columns[loop.index0] %}{% set dr = cell and cell.commits and col.repo != '(other)' %}{% if cell %}<td class="g"{% if dr %} data-drill="commit" data-author="{{pw.login}}" data-scope="repo:{{col.repo}}" data-from="{{row.week}}" data-to="{{row.week_end}}"{% endif %}>{{ cell.commits|num }}</td><td class="pw-lines"{% if dr %} data-drill="commit" data-author="{{pw.login}}" data-scope="repo:{{col.repo}}" data-from="{{row.week}}" data-to="{{row.week_end}}"{% endif %}><span class="pw-add">+{{ cell.add|num }}</span>/<span class="pw-del">-{{ cell['del']|num }}</span></td>{% else %}<td class="g mut">–</td><td class="mut">–</td>{% endif %}{% endfor %}
+      <td class="g"{% if row.issues %} data-drill="issue" data-author="{{pw.login}}" data-scope="none" data-from="{{row.week}}" data-to="{{row.week_end}}"{% endif %}>{% if row.issues %}{{ row.issues|num }}{% else %}<span class="mut">–</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr class="pw-tot"><td>Total</td>{% for t in pw.col_totals %}<td class="g">{{ t.commits|num }}</td><td class="pw-lines"><span class="pw-add">+{{ t.add|num }}</span>/<span class="pw-del">-{{ t['del']|num }}</span></td>{% endfor %}<td class="g">{{ pw.grand.issues|num }}</td></tr>
+  </tfoot>
+</table></div>
+<p class="conc"><b>Grand total</b> — commits: {{ pw.grand.commits|num }}, lines <span class="pw-add">+{{ pw.grand.add|num }}</span>/<span class="pw-del">-{{ pw.grand['del']|num }}</span>, issues opened: {{ pw.grand.issues|num }} · window {{pw.since}} → {{pw.until}}.
+  Commits = git log on the cloned default branch (no merges), bucketed by author week; Lines = git diff insertions/deletions; Issues = GitHub issues opened by this author. Top {{pw.columns|length}} repos by commits{% if pw.columns and pw.columns[-1].repo == '(other)' %} (rest folded into <b>(other)</b>){% endif %}.</p>
+{% else %}
+<p class="hint">No commit or issue activity for <b>{{pw.login}}</b> in the selected period.</p>
+{% endif %}
+{% endmacro %}
+
+{# ---- Person dashboard: header + KPIs + activity + composition + impact ---- #}
+{% macro split2(a, b, la, lb, ca, cb) %}
+{% set tot = a + b %}
+{% if tot %}
+<div class="split2"><i style="width:{{ (100*a/tot)|round }}%;background:{{ca}}" data-tip="{{la}}: {{ a|num }}"></i><i style="width:{{ (100*b/tot)|round }}%;background:{{cb}}" data-tip="{{lb}}: {{ b|num }}"></i></div>
+<div class="leg2"><span><span class="sw" style="background:{{ca}}"></span>{{la}} <b>{{ (100*a/tot)|round }}%</b> · {{ a|num }}</span><span><span class="sw" style="background:{{cb}}"></span>{{lb}} <b>{{ (100*b/tot)|round }}%</b> · {{ b|num }}</span></div>
+{% else %}<p class="hint">Nothing in the selected period.</p>{% endif %}
+{% endmacro %}
+
+{% macro heatstrip(heat) %}
+{% set mx = (heat|map(attribute='commits')|max) or 1 %}
+<div class="heat" role="img" aria-label="weekly commit activity">
+{%- for h in heat %}<span class="hc" style="--a:{{ (h.commits / mx)|round(3) }}" data-tip="{{h.week}} — {{h.commits}} commits, {{h.issues}} issues"></span>{%- endfor %}
+</div>
+{% endmacro %}
+
+{% macro statrow(k, v, tip) %}<div class="statrow"><span class="sk"{% if tip %} data-tip="{{tip}}"{% endif %}>{{k}}</span><span class="sv">{{v}}</span></div>{% endmacro %}
+
+{% macro person_dashboard(p) %}
+{% set pf = p.profile %}{% set at = p.alltime or {} %}{% set t = pf.totals %}
+{% set has_impact = (at.surv_code_human or at.surv_code_ai or at.surv_spec or at.reviews or at.merged_prs) %}
+{% if not (t.commits or t.prs or t.issues or has_impact) %}
+  <p class="hint">No activity for <b>{{pf.login}}</b> in the selected period, and no lasting footprint on record.</p>
+{% else %}
+<div class="pcard phead">
+  <img class="pav" src="https://avatars.githubusercontent.com/{{pf.login}}?s=120" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">
+  <div class="pid">
+    <div class="pname">{{ at.name or pf.login }} <a class="mut" href="https://github.com/{{pf.login}}" target="_blank" rel="noopener">@{{pf.login}}</a></div>
+    <div class="pmeta">
+      {% if at.company %}<span class="chip">{{at.company}}</span>{% endif %}
+      <span class="chip {{ 'mem' if at.is_member else 'ext' }}">{{ 'member' if at.is_member else 'external' }}</span>
+      {% if at.identity_confidence %}<span class="chip idc"{% if at.identity_evidence %} data-tip="{{at.identity_evidence}}"{% endif %}>{{at.identity_confidence}}</span>{% endif %}
+      {% if pf.rank %}<span class="chip rk" data-tip="rank by commits in this period">#{{pf.rank}} of {{pf.n_people}}</span>{% endif %}
+    </div>
+    {% if p.emails %}<div class="pemails">{{p.emails}}</div>{% endif %}
+  </div>
+</div>
+
+{% set ghp = p.gh_profile or {} %}
+{% if ghp %}
+<div class="pcard ghprof" data-tip="Straight from the person's GitHub profile — free text they wrote about themselves, not our resolved identity.">
+  <div class="ghprof-h">GitHub profile <span class="mut">— as they state it, not our resolved identity</span></div>
+  <div class="ghprof-rows">
+    {% if ghp.name %}<div><span class="ghl">Name</span>{{ghp.name}}</div>{% endif %}
+    {% if ghp.company %}<div><span class="ghl">Company</span>{{ghp.company}}</div>{% endif %}
+    {% if ghp.location %}<div><span class="ghl">Location</span>{{ghp.location}}</div>{% endif %}
+    {% if ghp.bio %}<div class="ghbio"><span class="ghl">Bio</span>{{ghp.bio}}</div>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% set dl = pf.deltas or {} %}{% set sp = pf.spark or {} %}
+<div class="kpis pkpis">
+  {{ kpi_tile(t.commits|num, 'commits', (pf.shares.commits|pct) ~ '% of org this period', icon='commit', delta=dl.commits, spark=sp.commits_pts, spark_color='var(--c-commit)', drill=({'drill':'commit','author':pf.login,'scope':'none'} if t.commits else none)) }}
+  {{ kpi_tile(t.meaningful_additions|compact, 'meaningful LOC', (pf.shares.meaningful_additions|pct) ~ '% of org', icon='loc', delta=dl.meaningful_additions, spark=sp.loc_pts, spark_color='var(--c-loc)', drill=({'drill':'commit','author':pf.login,'scope':'none'} if t.commits else none), tip=(t.meaningful_additions|loc) ~ ' meaningful lines') }}
+  {{ kpi_tile(t.prs|num, 'PRs opened', (t.prs_merged|num) ~ ' merged · ' ~ (pf.shares.prs|pct) ~ '% of org', icon='pr', delta=dl.prs, drill=({'drill':'pr','author':pf.login,'scope':'none'} if t.prs else none)) }}
+  {{ kpi_tile(t.specs|num, 'spec edits', (pf.shares.specs|pct) ~ '% of org', icon='spec', delta=dl.specs, drill=({'drill':'commit','flag':'is_spec','author':pf.login,'scope':'none'} if t.specs else none)) }}
+  {{ kpi_tile(t.bugs|num, 'bugs opened', 'issues categorised as bug', icon='bug', delta=dl.bugs, drill=({'drill':'issue','flag':'is_bug','author':pf.login,'scope':'none'} if t.bugs else none)) }}
+  {{ kpi_tile(t.get('epics', 0)|num, 'epics opened', 'issues categorised as epic', icon='epic', delta=dl.epics, drill=({'drill':'issue','flag':'is_epic','author':pf.login,'scope':'none'} if t.get('epics') else none)) }}
+  {{ kpi_tile(t.features|num, 'features opened', 'issues categorised as feature', icon='feature', delta=dl.features, drill=({'drill':'issue','flag':'is_feature','author':pf.login,'scope':'none'} if t.features else none)) }}
+</div>
+
+<h3 class="psec">Activity by week</h3>
+{{ heatstrip(p.heat) }}
+{{ panel_person_weekly(p.weekly) }}
+
+<h3 class="psec">Where the work goes</h3>
+<div class="pgrid">
+  <div class="pcard"><h4>Top repositories</h4>
+    {% if pf.repos %}{% set rmx = (pf.repos|map(attribute='commits')|max) or 1 %}
+    {% for r in pf.repos %}<div class="row" data-drill="commit" data-author="{{pf.login}}" data-scope="repo:{{r.repo}}"><div class="nm" data-tip="{{r.repo}}">{{r.name}}</div>
+      <div class="bb"><div class="bar"><i style="width:{{ (100*r.commits/rmx)|round }}%;background:var(--acc)"></i></div></div>
+      <div class="vv">{{ r.commits|num }} · <span class="pw-add">+{{ r.add|compact }}</span></div></div>{% endfor %}
+    {% else %}<p class="hint">No commits in period.</p>{% endif %}
+  </div>
+  <div class="pcard"><h4>Repo types</h4>
+    {% if pf.split.total %}
+    <div class="split2">{% for t in pf.split.types %}{% if t.commits %}<i style="width:{{ (100*t.commits/pf.split.total)|round(1) }}%;background:{{ t.color }}" data-tip="{{ t.name }}: {{ t.commits }}"></i>{% endif %}{% endfor %}</div>
+    <div class="leg2">{% for t in pf.split.types %}{% if t.commits %}<span><span class="sw" style="background:{{ t.color }}"></span>{{ t.name }} <b>{{ (100*t.commits/pf.split.total)|round }}%</b></span>{% endif %}{% endfor %}</div>
+    {% else %}<p class="hint">No commits in period.</p>{% endif %}
+  </div>
+  <div class="pcard"><h4>Code vs specs</h4>
+    {{ split2(pf.mix.code, pf.mix.specs, 'code', 'specs', 'var(--acc)', 'var(--app)') }}
+  </div>
+  {% if pf.elements %}<div class="pcard"><h4>By Element</h4>
+    {% set emx = (pf.elements|map(attribute='commits')|max) or 1 %}
+    {% for e in pf.elements %}<div class="row" data-drill="commit" data-author="{{pf.login}}" data-scope="element:{{e.element}}"><div class="nm">{{e.element}}</div>
+      <div class="bb"><div class="bar"><i style="width:{{ (100*e.commits/emx)|round }}%;background:var(--good)"></i></div></div>
+      <div class="vv">{{ e.commits|num }} · {{ e.loc|compact }} LOC</div></div>{% endfor %}
+  </div>{% endif %}
+  {% if pf.work_type %}<div class="pcard"><h4>Work type — conventional commits</h4>
+    {% set wmx = (pf.work_type|map(attribute='count')|max) or 1 %}
+    {% for w in pf.work_type %}<div class="row" data-drill="commit" data-author="{{pf.login}}" data-commit-type="{{w.type}}" data-scope="none"><div class="nm">{{w.type}}</div>
+      <div class="bb"><div class="bar"><i style="width:{{ (100*w.count/wmx)|round }}%;background:var(--warn)"></i></div></div>
+      <div class="vv">{{ w.count|num }}</div></div>{% endfor %}
+  </div>{% endif %}
+</div>
+
+<h3 class="psec">Lasting impact &amp; collaboration <span class="alltime-tag">all-time</span></h3>
+<div class="pgrid">
+  <div class="pcard"><h4>Code alive in the tree today</h4>
+    {{ statrow('Human-written LOC', (at.surv_code_human or 0)|compact, 'still present in HEAD, git blame') }}
+    {{ statrow('AI-assisted LOC', (at.surv_code_ai or 0)|compact, 'surviving lines on AI-marked commits') }}
+    {{ statrow('Spec LOC', (at.surv_spec or 0)|compact, 'surviving lines in spec docs') }}
+    {% set sc = (at.surv_code_human or 0) + (at.surv_code_ai or 0) %}
+    {% if sc %}<div class="split2" style="margin-top:8px"><i style="width:{{ (100*(at.surv_code_human or 0)/sc)|round }}%;background:var(--good)" data-tip="human"></i><i style="width:{{ (100*(at.surv_code_ai or 0)/sc)|round }}%;background:var(--app)" data-tip="AI-assisted"></i></div>{% endif %}
+  </div>
+  <div class="pcard"><h4>Review &amp; delivery</h4>
+    {{ statrow('Reviews given', at.reviews or 0) }}
+    {{ statrow('Approvals given', at.approvals or 0) }}
+    {{ statrow('PRs merged', at.merged_prs or 0) }}
+    {{ statrow('Merge rate', ((100*(at.merged_prs or 0)/at.prs)|round ~ '%') if at.prs else '—', 'merged / opened, all-time') }}
+    {{ statrow('Median time-to-merge', (at.ttm ~ ' h') if at.ttm else '—') }}
+  </div>
+  <div class="pcard"><h4>AI-assisted work</h4>
+    {{ statrow('AI-marked commits', at.ai_commits or 0, 'commits carrying an AI-tool marker') }}
+    {{ statrow('Marked LOC (blame)', (at.cpt_lines or 0)|compact) }}
+    {{ statrow('Commits (all-time)', at.commits|num if at.commits else '—') }}
+  </div>
+</div>
+<p class="conc">Activity blocks honour the selected period; <b>lasting impact</b> is all-time by nature — surviving LOC is a git-blame of today's tree, reviews and merge stats are cumulative.</p>
+
+{% if p.score and p.score.board %}{% set sc = p.score.self %}
+<details class="dsc">
+  <summary><span class="dsc-exp">Experimental</span> Developer score <span class="mut">— compound, org-relative · click to open</span></summary>
+  <div class="dsc-body">
+    {% set plabels = {'engagement':('Engagement','output + reviews & specs'),'delivery':('Delivery','time-to-merge · PR size'),'craft':('Craft & rework','review rounds · merge rate'),'flow':('Flow','forward-flow through stages')} %}
+    {% if sc and sc.score is not none %}{% set dv = sc.drivers %}{% set C = 326.726 %}
+    <div class="dsc-top">
+      <div class="dsc-gauge">
+        <svg width="128" height="128" viewBox="0 0 128 128">
+          <circle cx="64" cy="64" r="52" fill="none" stroke="var(--panel2)" stroke-width="11"/>
+          <circle cx="64" cy="64" r="52" fill="none" stroke="{{ scol(sc.score) }}" stroke-width="11"
+            stroke-linecap="round" transform="rotate(-90 64 64)"
+            stroke-dasharray="{{C}}" stroke-dashoffset="{{ (C*(1-sc.score/100))|round(1) }}"/>
+          <text x="64" y="60" text-anchor="middle" class="dsc-val">{{sc.score}}</text>
+          <text x="64" y="78" text-anchor="middle" class="dsc-of">/ 100</text>
+        </svg>
+        <div class="dsc-band" style="color:{{ scol(sc.score) }}">{{sc.band}}</div>
+        <div class="mut" style="font-size:11.5px">#{{sc.rank}} of {{ p.score.n_ranked or p.score.n_eligible }}</div>
+      </div>
+      <div class="dsc-pillars">
+        {% set active = p.score.active_pillars or ['engagement','delivery','craft','flow'] %}
+        {% set aw = namespace(s=0) %}{% for k in active %}{% set aw.s = aw.s + p.score.weights[k] %}{% endfor %}{% set wsum = aw.s or 1 %}
+        {{ whyrank_above(sc, plabels) }}
+        {{ score_chain(sc, active, p.score.weights, p.score.team_medians, plabels, wsum) }}
+        <div class="dsc-ctx"><span class="dsc-chip">AI leverage {{dv.ai_share}}%</span> share of AI-marked commits — context, not scored.</div>
+      </div>
+    </div>
+    {% else %}
+    <p class="conc" style="margin-top:0"><b>{{ p.name or p.login }}</b> had under {{p.score.min_activity}} commits+PRs in the selected period, so no individual score is computed for them here. The team ranking below still applies.</p>
+    {% endif %}
+
+    {% if p.score.board %}
+    {% set active = p.score.active_pillars or ['engagement','delivery','craft','flow'] %}
+    {% set pcolor = {'engagement':'#5b5bf0','delivery':'#06b6d4','craft':'#10b981','flow':'#f59e0b'} %}
+    {% set aw = namespace(s=0) %}{% for k in active %}{% set aw.s = aw.s + p.score.weights[k] %}{% endfor %}{% set wsum = aw.s or 1 %}
+    {% set youWord = 'you' if p.score.is_self_view else ((p.self.name or p.login).split(' ')[0] if p.self else p.login) %}
+    <div class="dsc-board">
+      <div class="dsc-board-h">Team <span class="mut">— everyone active is ranked, and each row is measured against {{ youWord }}: click to see how to catch up (above) or where {{ youWord }} lead{{ 's' if not p.score.is_self_view }} (below). The bar shows what each score is made of.</span></div>
+      <div class="dsc-leg">{% for key in ['engagement','delivery','craft','flow'] %}{% if key in active %}<span class="dsc-legi"><i style="background:{{pcolor[key]}}"></i>{{ plabels[key][0] }}</span>{% endif %}{% endfor %}</div>
+      <div class="dsc-rows{{ ' capped' if p.score.board|length > 15 }}">
+      {% for r in p.score.board %}
+      <details class="dsc-drow{{ ' me' if r.login==p.login }}">
+        <summary>
+          <span class="rk">{{ r.rank }}</span>
+          <span class="nm">{{ r.name }}</span>
+          <span class="comp" data-tip="score {{r.score}} = {% for key in ['engagement','delivery','craft','flow'] %}{% if key in active and r.contributions.get(key) %}{{plabels[key][0]}} {{r.contributions.get(key)}}{% if not loop.last %} + {% endif %}{% endif %}{% endfor %}">{% for key in ['engagement','delivery','craft','flow'] %}{% set pts=r.contributions.get(key) %}{% if key in active and pts %}<i style="flex:{{ pts }};background:{{ pcolor[key] }}"></i>{% endif %}{% endfor %}</span>
+          <span class="sc">{{ r.score }}</span>
+        </summary>
+        <div class="dsc-drow-body">{{ vs_self_line(r.vs_self, youWord, plabels) }}{{ score_chain(r, active, p.score.weights, p.score.team_medians, plabels, wsum) }}</div>
+      </details>
+      {% endfor %}
+      </div>
+      {% if p.score.board|length > 15 %}<button type="button" class="dsc-showall" data-dsc-showall>Show all {{ p.score.board|length }}</button>{% endif %}
+    </div>
+    {% endif %}
+
+    <p class="conc" style="margin-top:12px"><b>Experimental v0.</b> Each signal is a percentile within the {{p.score.n_eligible}} people active this window (≥{{p.score.min_activity}} commits+PRs); pillars are averaged, weighted, and normalised. <b>Everyone active is ranked</b> — a scored pillar you have no data for (e.g. no PRs opened) counts as <b>0</b>, a real minus, rather than dropping you from the board. A pillar with too little data across the team (a collection gap, not a person's shortfall) is shown <i>not scored</i> and left out for everyone. It's a transparent heuristic to calibrate against outcomes — not a verdict, and no ML. Known proxies: no true code-complexity signal, and quality is read from review rounds / merge rate, not blame.</p>
+  </div>
+</details>
+{% endif %}
+{% endif %}
+{% endmacro %}

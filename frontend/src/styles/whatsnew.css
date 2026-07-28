@@ -1,0 +1,40 @@
+/* /whats-new page-specific styles — verbatim from the pre-migration changelog.py
+   render_page() inline <style>, MINUS the rules already covered by base.css/shell.css
+   (imported globally via render_spa_page's <head>). Two deltas from a literal copy,
+   both because this stylesheet loads via a page <link> AFTER the shared BASE_CSS/
+   SHELL_CSS <style> block (later in the document = wins on equal specificity), so a
+   naive verbatim copy would fight the shared chrome instead of layering on top of it:
+
+   1. :root — the old page defined its OWN --bg/--panel/--line/--ink/--mut/--acc/
+      --good/--warn/--app. In the pre-migration page shell.BASE_CSS was interpolated
+      LAST in the same <style> block, so it already won on every name it also defines
+      (--bg, --ink, --line, --mut, --acc, --good, --warn) — those are dead weight here.
+      Only --app has no BASE_CSS equivalent, so only it needs restating.
+   2. body — the old rule used the `font` shorthand (`font:15px/1.55 <system stack>`),
+      which set font-family too. BASE_CSS's later `font-family: Jakarta...` already
+      overrode that in the original page, so the resolved font-family was Jakarta, not
+      the system stack. Copying the shorthand verbatim here (loading even later) would
+      re-clobber Jakarta with the system stack. Restate only the longhand size/line-height
+      the shorthand carried, and leave font-family alone.
+*/
+:root{--app:#8250df}
+*{box-sizing:border-box}
+body{margin:0;font-size:15px;line-height:1.55}
+.wrap{padding:20px 24px 80px;max-width:820px}
+h1{font-size:24px;margin:0 0 4px}
+.sub{color:var(--mut);font-size:13px;margin:0 0 22px}
+.release{margin:0 0 30px}
+.rdate{font-size:15px;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line);
+  display:flex;align-items:baseline;gap:10px}
+.rcount{color:var(--mut);font-weight:600;font-size:12px}
+.clist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.citem{display:flex;gap:12px;align-items:flex-start}
+.cpill{flex:0 0 auto;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+  padding:3px 9px;border-radius:999px;margin-top:2px;min-width:64px;text-align:center}
+.cpill.sec{background:rgba(154,103,0,.15);color:var(--warn)}
+.cpill.fix{background:rgba(26,127,55,.14);color:var(--good)}
+.cpill.feat{background:rgba(9,105,218,.12);color:var(--acc)}
+.cpill.des{background:rgba(130,80,223,.14);color:var(--app)}
+.ctext{min-width:0}
+.ctitle{font-weight:700;font-size:14px}
+.cdetail{color:var(--mut);font-size:13px;margin:3px 0 0}

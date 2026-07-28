@@ -1,0 +1,445 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Identity & company editor — Constructor Insight</title>
+<style>
+ :root{--acc-bg:#eeeefe;--warn-bg:#fbf3e2;--dup:#5b5bf0}
+ *{box-sizing:border-box}
+ /*SHELL_CSS*/
+ .wrap{padding:22px 26px 90px}
+ @media(max-width:900px){ .wrap{padding:16px} }
+ .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spacing:.1em;
+   text-transform:uppercase;color:var(--acc);margin:0 0 4px} .sub{color:var(--ink2);font-size:13px;margin:5px 0 0;max-width:62ch}
+ .savebar{display:flex;align-items:center;gap:10px}
+ #status{font-size:12.5px;color:var(--good);max-width:34ch}
+ #status.warn{color:var(--warn)} #status.bad{color:var(--bad)}
+ .toolbar{position:sticky;top:0;z-index:20;margin:16px 0 12px;padding:11px 0;
+   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px) saturate(160%);
+   border-bottom:1px solid var(--line)}
+ .search{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line2);
+   border-radius:10px;padding:6px 12px;max-width:520px}
+ .search svg{width:16px;height:16px;color:var(--mut);flex:none}
+ .search input{border:0;background:transparent;width:100%;font-size:14px;padding:2px 0;box-shadow:none}
+ .search input:focus{outline:none;box-shadow:none}
+ .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+ .chip{border:1px solid var(--line2);background:var(--panel);color:var(--ink2);font-weight:600;font-size:12.5px;
+   padding:6px 12px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:7px;box-shadow:none}
+ .chip:hover{border-color:var(--acc)} .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+ .chip .n{font-variant-numeric:tabular-nums;background:color-mix(in srgb,var(--ink) 8%,transparent);
+   border-radius:999px;padding:0 7px;font-size:11px} .chip.on .n{background:rgba(255,255,255,.25)}
+ .chip.warn:not(.on){color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line2))}
+ .layout{display:grid;grid-template-columns:1fr 400px;gap:20px;align-items:start}
+ @media(max-width:920px){ .layout{grid-template-columns:1fr} .detail-wrap{position:static!important} }
+ .grouphead{display:flex;align-items:center;gap:9px;margin:16px 0 8px;font-size:12px;font-weight:700;
+   letter-spacing:.04em;text-transform:uppercase;color:var(--ink2)}
+ .grouphead .dot{width:8px;height:8px;border-radius:50%} .grouphead .c{color:var(--mut);font-weight:600;text-transform:none;letter-spacing:0}
+ .list{display:flex;flex-direction:column;gap:7px}
+ .row{display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:center;background:var(--panel);
+   border:1px solid var(--line);border-radius:12px;padding:10px 13px;cursor:pointer;box-shadow:var(--sh);transition:.1s}
+ .row:hover{border-color:var(--line2)} .row.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+ .row.attn{border-left:3px solid var(--warn)} .row.dup{border-left:3px solid var(--dup)}
+ .cbox{width:17px;height:17px;border:1.5px solid var(--line2);border-radius:5px;cursor:pointer;
+   display:grid;place-items:center;background:var(--panel)}
+ .cbox.on{background:var(--acc);border-color:var(--acc)}
+ .cbox.on::after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;transform:rotate(-45deg) translateY(-1px)}
+ .who{min-width:0} .who .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+ .who .nm{font-weight:700} .who .lg{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut)}
+ .who .meta{font-size:12px;color:var(--ink2);margin-top:2px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+ .tag{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px}
+ .tag.ext{background:var(--panel2);color:var(--ink2)} .tag.bot{background:var(--panel2);color:var(--mut)}
+ .tag.other{background:var(--warn-bg);color:var(--warn)} .tag.dup{background:var(--acc-bg);color:var(--acc-ink)}
+ .co-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600}
+ .co-dot{width:7px;height:7px;border-radius:2px} .rt{text-align:right;color:var(--mut);font-size:12px}
+ .rt .k{font-size:11px}
+ .gh{color:var(--acc-ink);text-decoration:none} .gh:hover{text-decoration:underline}
+ .detail-wrap{position:sticky;top:112px}  /* below the sticky toolbar; refined by JS to its real height */
+ .detail{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
+ .d-head{padding:15px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center}
+ .avatar{width:42px;height:42px;border-radius:12px;background:var(--acc-bg);color:var(--acc-ink);
+   display:grid;place-items:center;font-weight:800;font-size:16px;flex:none}
+ .d-id{min-width:0} .d-id .nm{font-size:16px;font-weight:800} .d-id .lg{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut)}
+ .d-body{padding:15px 16px;display:flex;flex-direction:column;gap:14px}
+ .field label{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);margin-bottom:6px}
+ .field .ctl,.field select,.field input{width:100%}
+ .ghint{font-size:11.5px;color:var(--ink2);margin-top:6px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+ .ghint b{color:var(--ink)} .ghint button{padding:3px 9px;font-size:11px;box-shadow:none}
+ .seg{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden}
+ .seg button{border:0;border-radius:0;background:var(--panel);color:var(--ink2);padding:7px 16px;box-shadow:none}
+ .seg button.on{background:var(--acc);color:#fff}
+ .emails{display:flex;flex-direction:column;gap:5px}
+ .erow{display:flex;align-items:center;gap:8px;font-size:13px;background:var(--panel2);border-radius:8px;padding:6px 9px}
+ .erow .x{color:var(--mut);cursor:pointer;font-weight:700} .erow .x:hover{color:var(--bad)}
+ .erow.alias{color:var(--mut)} .erow .kind{font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase}
+ .addrow{display:flex;gap:7px;margin-top:2px} .addrow input{flex:1}
+ .dup-card{border:1px solid var(--acc);background:var(--acc-bg);border-radius:12px;padding:12px 13px}
+ .dup-card .h{font-size:12px;font-weight:700;color:var(--acc-ink);margin-bottom:7px}
+ .dup-card .body{font-size:13px} .dup-card .prev{font-size:12px;color:var(--ink2);margin:7px 0 10px;line-height:1.5}
+ .dup-card .prev code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+ .dup-card .acts{display:flex;gap:8px} .dup-card button{padding:6px 11px;font-size:12.5px}
+ .confpill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+ .conf-good{background:var(--good-bg);color:var(--good)} .conf-mid{background:var(--acc-bg);color:var(--acc-ink)}
+ .conf-low{background:var(--warn-bg);color:var(--warn)} .evid{font-size:11.5px;color:var(--mut);margin-top:6px}
+ .empty{color:var(--mut);font-size:13px;text-align:center;padding:48px 20px}
+ .legendnote{font-size:11.5px;color:var(--mut);margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}
+ .bulk{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:40;background:var(--ink);color:var(--bg);
+   border-radius:13px;box-shadow:var(--sh-lift);display:flex;align-items:center;gap:12px;padding:10px 15px;font-size:13px;font-weight:600}
+ .bulk.hidden{display:none}
+ .bulk select{background:transparent;color:var(--bg);border:1px solid color-mix(in srgb,var(--bg) 35%,transparent);
+   border-radius:8px;padding:6px 9px;box-shadow:none} .bulk select option{color:#111}
+ .bulk .bb{border:1px solid color-mix(in srgb,var(--bg) 35%,transparent);background:transparent;color:var(--bg);
+   border-radius:8px;padding:6px 11px;box-shadow:none} .bulk .bb:hover{background:color-mix(in srgb,var(--bg) 15%,transparent)}
+ .bulk .clear{color:color-mix(in srgb,var(--bg) 70%,transparent);cursor:pointer}
+</style></head><body>
+<div class="app">
+<!--SIDEBAR-->
+<main class="wrap">
+<div class="head">
+  <div>
+    <p class="eyebrow">Constructor Insight</p>
+    <h1>Identity &amp; company</h1>
+    <p class="sub">Resolve who's who: assign companies, merge duplicate accounts, mark bots.
+      Work the <b>Needs attention</b> queue first — everything else is already settled.
+      <b>Save &amp; apply</b> writes to the database and the report updates immediately.</p>
+  </div>
+  <div class="savebar">
+    <span id="status"></span>
+    <button class="primary" onclick="save()">Save &amp; apply</button>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="q" placeholder="Search login, name, email, company…" oninput="render()">
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<div class="layout">
+  <div>
+    <div id="list"></div>
+    <p class="legendnote"><b>Needs attention</b> = no company, a likely duplicate, or a low-confidence
+      identity. Bots are folded in here (toggle Human/Bot in the panel), not a separate table.
+      Tick rows to assign a company or mark bots in bulk.</p>
+  </div>
+  <div class="detail-wrap"><div class="detail" id="detail"></div></div>
+</div>
+</main></div>
+
+<div class="bulk hidden" id="bulk">
+  <span id="bulk-n">0 selected</span>
+  <select id="bulk-co"><option value="">Assign company…</option></select>
+  <button class="bb" data-act="bulk-bot">Mark as bot</button>
+  <span class="clear" data-act="bulk-clear">Clear</span>
+</div>
+
+<script>
+const D = /*DATA*/;
+let roster = {};
+D.people.forEach(p => roster[p.login] = {name:p.name||"", company:p.company, emails:p.emails.slice(),
+  aliases:(p.aliases||[]).slice(), is_bot:(p.is_bot===undefined?null:p.is_bot),
+  // carried but not editable here: this fallback must not silently drop the
+  // contact handles set in the React editor when someone saves from it
+  discord:p.discord||"", telegram:p.telegram||"",
+  commits:p.commits, is_member:p.is_member, identity_confidence:p.identity_confidence||"unknown",
+  identity_evidence:p.identity_evidence||[], gh:p.gh||{}});
+const COMPANIES = D.companies.slice();
+// Canonical company colours from the server — the SAME mapping the report uses, so
+// the dots here match every other company colour in the UI. Session-added companies
+// (not in the map yet) fall back to a neutral grey until the next save/refresh.
+const CO_COLORS = D.company_colors || {};
+function coColor(co){ return CO_COLORS[co] || "#8b949e"; }
+const DBOTS = ((D.bots||{}).rows)||[];
+const state = {filter:"attn", selected:new Set(), active:null};
+
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function githubLink(login){ return `<a class="gh" href="https://github.com/${encodeURIComponent(login)}" target="_blank" rel="noopener noreferrer">${esc(login)}</a>`; }
+function initials(p){ return ((p.name||p.login||"?")+"").trim().slice(0,2).toUpperCase()||"?"; }
+function isBot(p){ return p.is_bot===true; }
+function confClass(c){ c=(c||"").split(" ")[0];
+  if(["manual","verified","pr"].includes(c)) return "conf-good";
+  if(["github","name","email"].includes(c)) return "conf-mid"; return "conf-low"; }
+function lowConf(c){ return confClass(c)==="conf-low"; }
+
+// best still-present duplicate partner for a login, from the precomputed suggestions
+function dupPartner(l){
+  let best=null;
+  (D.suggestions||[]).forEach(s=>{
+    let o=null; if(s.a===l&&roster[s.b]) o=s.b; else if(s.b===l&&roster[s.a]) o=s.a;
+    if(o && (!best||s.score>best.score)) best={login:o,score:s.score};
+  });
+  return best;
+}
+function needsAttention(l){ const p=roster[l]; if(!p||isBot(p)) return false;
+  return p.company==="Other" || !!dupPartner(l) || lowConf(p.identity_confidence); }
+
+// unified display items: roster people + detected bots not yet in the roster
+function items(){
+  const out=Object.keys(roster).map(l=>({login:l, p:roster[l], detected:false}));
+  DBOTS.forEach(b=>{ if(!roster[b.login]) out.push({login:b.login, detected:true, bot:b,
+    p:{name:"", company:"Other", emails:[], aliases:[], discord:"", telegram:"", is_bot:true, commits:b.commits||0,
+       is_member:false, identity_confidence:"", identity_evidence:[b.kind||"detected bot"], gh:{}}}); });
+  return out;
+}
+function matches(it){
+  const q=(document.getElementById("q").value||"").toLowerCase().trim();
+  const p=it.p;
+  if(q){ const hay=(it.login+" "+(p.name||"")+" "+p.company+" "+p.emails.join(" ")).toLowerCase();
+    if(!q.split(/\s+/).every(t=>hay.includes(t))) return false; }
+  if(state.filter==="attn") return needsAttention(it.login);
+  if(state.filter==="other") return p.company==="Other" && !isBot(p);
+  if(state.filter==="ext") return !p.is_member && !isBot(p);
+  if(state.filter==="bots") return isBot(p);
+  return true;
+}
+function counts(){
+  const all=items();
+  return { all:all.length,
+    attn:Object.keys(roster).filter(needsAttention).length,
+    other:all.filter(it=>it.p.company==="Other"&&!isBot(it.p)).length,
+    ext:all.filter(it=>!it.p.is_member&&!isBot(it.p)).length,
+    bots:all.filter(it=>isBot(it.p)).length };
+}
+function renderChips(){
+  const c=counts();
+  const defs=[["attn","Needs attention",c.attn,true],["all","All",c.all,false],
+    ["other","No company",c.other,false],["ext","External",c.ext,false],["bots","Bots",c.bots,false]];
+  document.getElementById("chips").innerHTML=defs.map(([k,lbl,n,warn])=>
+    `<button class="chip ${state.filter===k?"on":""} ${warn?"warn":""}" data-act="filter" data-k="${k}">${lbl}<span class="n">${n}</span></button>`).join("");
+}
+function coPill(co){ return `<span class="co-pill"><span class="co-dot" style="background:${coColor(co)}"></span>${esc(co)}</span>`; }
+function rowHTML(it){
+  const l=it.login, p=it.p, sel=state.selected.has(l), active=state.active===l, dp=dupPartner(l);
+  const cls=["row", active?"sel":"", (!isBot(p)&&dp)?"dup":((!isBot(p)&&needsAttention(l))?"attn":"")].join(" ");
+  const tags=[];
+  if(isBot(p)) tags.push('<span class="tag bot">bot</span>');
+  else if(!p.is_member) tags.push('<span class="tag ext">external</span>');
+  if(!isBot(p)&&dp) tags.push('<span class="tag dup">duplicate?</span>');
+  else if(!isBot(p)&&p.company==="Other") tags.push('<span class="tag other">no company</span>');
+  return `<div class="${cls}" data-act="pick" data-login="${esc(l)}">
+    <div class="cbox ${sel?"on":""}" data-act="sel" data-login="${esc(l)}"></div>
+    <div class="who"><div class="top"><span class="nm">${esc(p.name||l)}</span><span class="lg">${esc(l)}</span>${tags.join("")}</div>
+      <div class="meta">${coPill(p.company)}<span>·</span><span>${esc(p.emails[0]||"—")}</span></div></div>
+    <div class="rt"><div class="num">${(p.commits||0).toLocaleString()}</div><div class="k">commits</div></div>
+  </div>`;
+}
+function render(){
+  renderChips();
+  const rows=items().filter(matches);
+  const list=document.getElementById("list");
+  if(state.filter==="attn"){
+    const dups=rows.filter(it=>dupPartner(it.login)), rest=rows.filter(it=>!dupPartner(it.login));
+    dups.sort((a,b)=>(b.p.commits||0)-(a.p.commits||0));
+    rest.sort((a,b)=>(b.p.commits||0)-(a.p.commits||0));
+    let h="";
+    if(dups.length) h+=`<div class="grouphead"><span class="dot" style="background:var(--dup)"></span>Likely duplicates <span class="c">${dups.length} to review</span></div><div class="list">${dups.map(rowHTML).join("")}</div>`;
+    if(rest.length) h+=`<div class="grouphead"><span class="dot" style="background:var(--warn)"></span>Missing / uncertain <span class="c">${rest.length} to classify</span></div><div class="list">${rest.map(rowHTML).join("")}</div>`;
+    list.innerHTML = rows.length ? h : '<div class="empty">🎉 Nothing needs attention — every identity is resolved.</div>';
+  } else {
+    rows.sort((a,b)=>(b.p.commits||0)-(a.p.commits||0));
+    list.innerHTML = rows.length ? `<div class="list">${rows.map(rowHTML).join("")}</div>` : '<div class="empty">No matches.</div>';
+  }
+  renderBulk();
+  // never let one person's detail throw and freeze list switching
+  try { renderDetail(); }
+  catch(e){ document.getElementById("detail").innerHTML='<div class="empty">Could not render this person — '+esc(e.message)+'</div>'; }
+}
+function pick(l){ state.active=l; render(); }
+
+// ---- selection / bulk -------------------------------------------------------
+function toggleSel(l){ if(state.selected.has(l)) state.selected.delete(l); else state.selected.add(l); render(); }
+function renderBulk(){
+  const b=document.getElementById("bulk");
+  if(!state.selected.size){ b.classList.add("hidden"); return; }
+  b.classList.remove("hidden");
+  document.getElementById("bulk-n").textContent=state.selected.size+" selected";
+  const sel=document.getElementById("bulk-co");
+  if(sel.options.length<=1) COMPANIES.forEach(c=>{ const o=document.createElement("option"); o.value=c; o.textContent=c; sel.appendChild(o); });
+}
+function bulkCompany(co){ if(!co) return;
+  state.selected.forEach(l=>{ if(roster[l]){ roster[l].company=co; if(co!=="Other"&&lowConf(roster[l].identity_confidence)) roster[l].identity_confidence="manual"; } });
+  state.selected.clear(); document.getElementById("bulk-co").value=""; render(); status("Assigned company to selection"); }
+function bulkBot(){ state.selected.forEach(l=>{ if(roster[l]) roster[l].is_bot=true; }); state.selected.clear(); render(); status("Marked selection as bots"); }
+
+// ---- detail panel -----------------------------------------------------------
+function renderDetail(){
+  const d=document.getElementById("detail");
+  if(state.active==null || (!roster[state.active] && !DBOTS.find(b=>b.login===state.active))){
+    d.innerHTML='<div class="empty">Select a person to edit their company, emails, aliases, and merges.</div>'; return; }
+  const l=state.active;
+  if(!roster[l]){ // a detected bot not yet in the roster
+    const b=DBOTS.find(x=>x.login===l)||{};
+    d.innerHTML=`<div class="d-head"><div class="avatar">${esc(initials({login:l}))}</div>
+      <div class="d-id"><div class="nm">${esc(l)}</div><div class="lg">detected bot · ${esc(b.kind||"automation")}</div></div></div>
+      <div class="d-body">
+        <div class="field"><label>Activity</label><div class="sub" style="margin:0">${(b.commits||0).toLocaleString()} commits · ${(b.reviews_given||0)} reviews · ${esc((b.repos||[]).slice(0,4).join(", ")||"—")}</div></div>
+        <div class="field"><label>Type</label>
+          <div class="seg"><button class="on" data-act="unbot" data-login="${esc(l)}">Human</button><button data-act="noop">Bot</button></div>
+          <div class="ghint">Detected from <code>bot_logins</code>. “Human” restores it as a person (excluded no more) on Save.</div>
+        </div>
+      </div>`; return;
+  }
+  const p=roster[l], dp=dupPartner(l), dpp=dp?roster[dp.login]:null;
+  d.innerHTML=`
+    <div class="d-head"><div class="avatar">${esc(initials({name:p.name, login:l}))}</div>
+      <div class="d-id"><div class="nm">${esc(p.name||l)}</div><div class="lg">${githubLink(l)}${p.is_member?"":" · external"}</div></div></div>
+    <div class="d-body">
+      ${dpp?`<div class="dup-card">
+        <div class="h">⇄ Possible duplicate</div>
+        <div class="body"><b>${esc(p.name||l)}</b> also appears as <b>${githubLink(dp.login)}</b> <span class="sub" style="margin:0">(${esc(dpp.emails[0]||"no email")})</span>.</div>
+        <div class="prev">Merge folds <code>${esc(dp.login)}</code> into <code>${esc(l)}</code>: combines
+          <b>${((p.commits||0)+(dpp.commits||0)).toLocaleString()}</b> commits and ${p.emails.length+dpp.emails.length} email(s) under one identity, and survives the next collect.</div>
+        <div class="acts"><button class="primary" data-act="merge" data-login="${esc(l)}" data-src="${esc(dp.login)}">Merge these two</button>
+          <button data-act="dismiss-dup" data-a="${esc(l)}" data-b="${esc(dp.login)}">Not the same</button></div>
+      </div>`:""}
+
+      <div class="field"><label>Name</label>
+        <input class="nm" data-login="${esc(l)}" value="${esc(p.name||"")}" placeholder="name…">
+        ${(p.gh&&p.gh.name&&p.gh.name!==(p.name||""))?`<div class="ghint">GitHub: <b>${esc(p.gh.name)}</b> <button data-act="use-nm" data-login="${esc(l)}">use</button></div>`:""}
+      </div>
+
+      <div class="field"><label>Company</label>
+        <select class="co" data-login="${esc(l)}">${COMPANIES.map(c=>`<option value="${esc(c)}" ${c===p.company?"selected":""}>${esc(c)}</option>`).join("")}<option value="__new" ${COMPANIES.includes(p.company)?"":"selected"}>+ custom…</option></select>
+        ${(p.gh&&p.gh.company&&p.gh.company!==p.company)?`<div class="ghint">GitHub says: <b>${esc(p.gh.company)}</b> <button data-act="use-co" data-login="${esc(l)}">use</button></div>`:""}
+      </div>
+
+      <div class="field"><label>Type</label>
+        <div class="seg"><button class="${isBot(p)?"":"on"}" data-act="human" data-login="${esc(l)}">Human</button><button class="${isBot(p)?"on":""}" data-act="bot" data-login="${esc(l)}">Bot</button></div>
+      </div>
+
+      <div class="field"><label>Emails &amp; aliases</label>
+        <div class="emails">
+          ${p.emails.map(e=>`<div class="erow"><span class="x" data-act="rm-email" data-login="${esc(l)}" data-email="${esc(e)}">×</span> <span>${esc(e)}</span></div>`).join("")||'<div class="sub" style="margin:0">no commit-email</div>'}
+          ${(p.aliases||[]).map(a=>`<div class="erow alias"><span class="x" data-act="rm-alias" data-login="${esc(l)}" data-alias="${esc(a)}">×</span> <span class="kind">alias</span> ${esc(a)}</div>`).join("")}
+          <div class="addrow"><input class="ae" data-login="${esc(l)}" placeholder="add email or alias…"><button data-act="add-email" data-login="${esc(l)}">Add</button></div>
+        </div>
+      </div>
+
+      <div class="field"><label>Merge another account into this one</label>
+        <div class="addrow"><input class="mergepick" data-login="${esc(l)}" list="all-logins" placeholder="type a login…"><button data-act="merge-pick" data-login="${esc(l)}">Merge</button></div>
+      </div>
+
+      <div class="field"><label>Identity confidence</label>
+        <span class="confpill ${confClass(p.identity_confidence)}">${esc(p.identity_confidence||"unknown")}</span>
+        <div class="evid">${(p.identity_evidence||[]).map(esc).join(" · ")||"—"}</div>
+      </div>
+    </div>
+    <datalist id="all-logins">${Object.keys(roster).filter(x=>x!==l).map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
+}
+
+// ---- mutations (same data model; save posts the roster as JSON) --------------
+function findOwner(email){ for(const l in roster) if(roster[l].emails.includes(email)) return l; return null; }
+function aeInput(l){ return Array.from(document.querySelectorAll("input.ae")).find(i=>i.dataset.login===l)||null; }
+function addEmail(l){ const inp=aeInput(l); if(!inp) return; let e=(inp.value||"").trim().toLowerCase(); if(!e) return;
+  const owner=findOwner(e);
+  if(owner&&owner!==l){ if(!confirm(e+" already belongs to "+owner+". Move it to "+l+"?")) return;
+    roster[owner].emails=roster[owner].emails.filter(x=>x!==e); }
+  if(!roster[l].emails.includes(e)){ roster[l].emails.push(e); roster[l].emails.sort(); }
+  render(); const f=aeInput(l); if(f)f.focus(); status("added "+e+" → "+l); }
+function rmEmail(l,e){ roster[l].emails=roster[l].emails.filter(x=>x!==e); render(); }
+function rmAlias(l,a){ roster[l].aliases=(roster[l].aliases||[]).filter(x=>x!==a); render(); }
+function setname(l,v){ if(roster[l]) roster[l].name=v.trim(); }
+function setco(l,selEl){ let v=selEl.value;
+  if(v==="__new"){ v=prompt("Company name:",""); if(!v){render();return;} if(!COMPANIES.includes(v))COMPANIES.push(v); }
+  roster[l].company=v; render(); }
+function useGhCo(l){ const g=roster[l].gh||{}; if(!g.company) return; if(!COMPANIES.includes(g.company))COMPANIES.push(g.company); roster[l].company=g.company; render(); status(`Set ${l} company → ${g.company}`); }
+function useGhName(l){ const g=roster[l].gh||{}; if(!g.name) return; roster[l].name=g.name; render(); status(`Set ${l} name → ${g.name}`); }
+function setBot(l,v){ if(roster[l]) roster[l].is_bot=v; render(); }
+// fold src into target: target keeps its rows, gains src's emails + src (and its aliases)
+// as aliases so collect folds src's PRs/issues/reviews too. Survives re-collect.
+function doMerge(target, src){ if(!roster[target]||!roster[src]||target===src) return;
+  const t=roster[target], s=roster[src];
+  t.emails=Array.from(new Set(t.emails.concat(s.emails))).sort();
+  t.aliases=Array.from(new Set((t.aliases||[]).concat([src], s.aliases||[]))).sort();
+  t.commits=(t.commits||0)+(s.commits||0);
+  delete roster[src]; if(state.active===src) state.active=target; render(); status(`Merged ${src} → ${target}`); }
+function mergePick(l){ const inp=Array.from(document.querySelectorAll("input.mergepick")).find(i=>i.dataset.login===l);
+  const src=(inp&&inp.value||"").trim(); if(!src) return;
+  if(!roster[src]){ status("No such login: "+src); return; }
+  if(src===l){ status("Pick a different account"); return; }
+  // keep the higher-commit account as primary
+  if((roster[src].commits||0)>(roster[l].commits||0)) doMerge(src,l); else doMerge(l,src); }
+function dismissDup(a,b){ D.suggestions=(D.suggestions||[]).filter(s=>!((s.a===a&&s.b===b)||(s.a===b&&s.b===a))); render(); }
+function unbot(login){ const b=DBOTS.find(x=>x.login===login)||{};
+  roster[login]={name:"",company:"Other",emails:[],aliases:[],discord:"",telegram:"",is_bot:false,commits:b.commits||0,
+    is_member:false,identity_confidence:"manual",identity_evidence:["restored: not a bot"]};
+  state.active=login; render(); status(login+" → will be restored as a human on Save"); }
+function status(t,cls){ const s=document.getElementById("status"); s.textContent=t; s.className=cls||""; setTimeout(()=>{s.textContent="";s.className="";},4500); }
+
+// The save payload: the roster as data, serialised by JSON.stringify. This used to be
+// a hand-built people.yaml (`out+="    company: "+p.company`), which silently corrupted
+// anything the YAML scanner treats as syntax — a company of "Acme #1" stored as "Acme"
+// ('#' opened a comment), "yes" as the boolean True, "Foo: bar" failed the save outright.
+function savePayload(){
+  const people={};
+  Object.keys(roster).forEach(l=>{ const p=roster[l];
+    people[l]={name:p.name||"",company:p.company,emails:p.emails.slice().sort(),
+      aliases:(p.aliases||[]).slice().sort(),discord:p.discord||"",telegram:p.telegram||"",
+      is_bot:p.is_bot}; });
+  return {people};
+}
+async function save(){
+  const text=JSON.stringify(savePayload());
+  if(location.protocol==="http:"||location.protocol==="https:"){
+    try{
+      const r=await fetch(location.origin+"/api/people-yaml",{method:"POST",
+        headers:{"Content-Type":"application/json;charset=utf-8","X-Override-Version":String(D.version||"")},body:text});
+      if(r.status===409){ status("⚠ Another session saved since you opened this page. Reload to avoid overwriting (your edits are NOT saved).","warn"); return; }
+      const j=await r.json();
+      if(!r.ok||!j.ok) throw new Error(j.error||"save failed");
+      if(j.version!==undefined) D.version=j.version;
+      if(j.applied) status("Saved ✓ — companies, bots and merges apply now; email changes take effect on the next Collect.");
+      else status("Saved ✓ — but auto-apply failed"+(j.apply_error?(": "+j.apply_error):"")+". Run a rebuild to apply.","warn");
+      return;
+    }catch(e){ status("Server save failed: "+e.message,"bad"); return; }
+  }
+  // file:// — no server to save to. Hand the edits back as the exact body the portal
+  // accepts so nothing is stranded; writing people.yaml in place only worked while
+  // this editor emitted YAML.
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type:"application/json"}));
+  a.download="people.json"; a.click(); status("Downloaded people.json — POST it to /api/people-yaml on the portal to apply");
+}
+
+// ---- delegated events (no inline JS carries user data → no script injection) --
+document.body.addEventListener("click", ev=>{
+  const t=ev.target.closest("[data-act]"); if(!t) return;
+  const a=t.dataset.act, l=t.dataset.login;
+  if(a==="filter"){ state.filter=t.dataset.k; state.selected.clear(); render(); }
+  else if(a==="sel"){ ev.stopPropagation(); toggleSel(l); }
+  else if(a==="pick"){ pick(l); }
+  else if(a==="bulk-clear"){ state.selected.clear(); render(); }
+  else if(a==="bulk-bot"){ bulkBot(); }
+  else if(a==="rm-email"){ rmEmail(l,t.dataset.email); }
+  else if(a==="rm-alias"){ rmAlias(l,t.dataset.alias); }
+  else if(a==="add-email"){ addEmail(l); }
+  else if(a==="use-co"){ useGhCo(l); }
+  else if(a==="use-nm"){ useGhName(l); }
+  else if(a==="human"){ setBot(l,false); }
+  else if(a==="bot"){ setBot(l,true); }
+  else if(a==="merge"){ doMerge(l,t.dataset.src); }
+  else if(a==="merge-pick"){ mergePick(l); }
+  else if(a==="dismiss-dup"){ dismissDup(t.dataset.a,t.dataset.b); }
+  else if(a==="unbot"){ unbot(l); }
+});
+document.body.addEventListener("change", ev=>{
+  const t=ev.target;
+  if(t.classList.contains("co")) setco(t.dataset.login,t);
+  else if(t.classList.contains("nm")) setname(t.dataset.login,t.value);
+});
+document.body.addEventListener("input", ev=>{
+  if(ev.target.classList.contains("nm")) setname(ev.target.dataset.login, ev.target.value);
+});
+document.body.addEventListener("keydown", ev=>{
+  if(ev.key!=="Enter") return;
+  if(ev.target.classList.contains("ae")) addEmail(ev.target.dataset.login);
+  else if(ev.target.classList.contains("mergepick")) mergePick(ev.target.dataset.login);
+});
+document.getElementById("bulk-co").addEventListener("change", function(){ bulkCompany(this.value); });
+// Pin the detail panel just below the sticky toolbar. The toolbar's height changes
+// when the filter chips wrap (narrow windows), so measure it rather than hard-code.
+function syncSticky(){ const tb=document.querySelector(".toolbar"), dw=document.querySelector(".detail-wrap");
+  if(tb&&dw) dw.style.top=(tb.offsetHeight+14)+"px"; }
+window.addEventListener("resize", syncSticky);
+render(); syncSticky();
+</script>
+</body></html>

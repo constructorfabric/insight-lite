@@ -1,0 +1,50 @@
+/* Page CSS for the React /update route. Ported from the page rules in
+   server.portal_html()'s inline style block. That page appends shell.BASE_CSS
+   after its page rules (then two card overrides), so base.css WINS every tie: its
+   palette overrides the template's :root (all of --bg/--acc/--good/... exist in
+   base, so the template's :root contributes nothing), its body wins bg/color/
+   font-family, and its button/code rules win over the template's bare
+   button/a.btn/code. So here we add ONLY what base.css does NOT set: the
+   box-sizing reset, body margin + font-size/line-height (14px/1.5 here — base
+   sets only font-family), and every class/id-scoped page rule (higher specificity
+   than base's element rules → wins regardless of order). The bare button/a.btn/
+   button.primary/button:disabled/code rules are intentionally omitted (base
+   provides them, exactly as the legacy page computed). The two card rules that the
+   legacy page placed AFTER BASE_CSS are kept last here too, so they still win. */
+*{box-sizing:border-box}
+body{margin:0;font-size:14px;line-height:1.5}
+/* base.css's button `font:600 13.5px/1.4 inherit` shorthand is INVALID (`inherit`
+   is not a valid family) so browsers drop it — the legacy page's buttons therefore
+   took `font:inherit` (14px/1.5/400) from the template's now-omitted button rule,
+   with the box (padding/radius/border/colour) coming from base. Restore just those:
+   font:inherit for every button/a.btn, and the 600 weight base's button.primary
+   lacks (a.btn.primary stays 400, matching the legacy computed value). */
+button,a.btn{font:inherit}
+button.primary{font-weight:600}
+main.wrap{padding:24px 28px 56px} h1{font-size:24px;margin:0 0 4px} h2{font-size:16px;margin:28px 0 10px}
+@media(max-width:900px){main.wrap{padding:16px}}
+.sub{color:var(--mut);margin:0} .hero{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}
+.hero-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.status-strip{display:grid;grid-template-columns:1.2fr repeat(3,1fr);gap:10px;margin:16px 0 18px}
+.status-card,.op-card,.link-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:13px 14px}
+.status-card.good{border-color:#a0d8b0} .status-card.warn{border-color:#e8d8a0} .status-card.bad{border-color:#e6a0a0}
+.label{font-size:12px;color:var(--mut)} .value{font-weight:700;margin-top:3px} .fine{color:var(--mut);font-size:12px;margin-top:4px}
+.ok{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+.ops{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:10px 0 18px}
+.op-card{display:flex;flex-direction:column;gap:10px} .op-card h3{font-size:14px;margin:0} .op-card p{color:var(--mut);font-size:12px;margin:0;min-height:36px}
+.op-meta{font-size:12px;color:var(--mut)} .op-card button{align-self:flex-start}
+.quick-links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 18px}
+.link-card{display:block;color:var(--ink);text-decoration:none;transition:border-color .12s}
+.link-card:hover{border-color:var(--acc)} .link-card b{display:block;margin-bottom:3px} .link-card span{color:var(--mut);font-size:12px}
+.jobbar{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:11px 14px;margin:4px 0 8px;font-size:13px}
+.jobbar .dot{width:9px;height:9px;border-radius:50%;background:var(--mut);flex:none}
+.jobbar.run{border-color:#a9c7ea;background:#f0f6fc} .jobbar.run .dot{background:var(--acc);animation:pulse 1.2s infinite}
+.jobbar.ok .dot{background:var(--good)} .jobbar.bad{border-color:#e6a0a0} .jobbar.bad .dot{background:var(--bad)}
+.jobbar b{font-weight:700} .jobbar .jmsg{color:var(--mut)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+details.log{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-top:10px} details.log summary{cursor:pointer;padding:12px 14px;font-weight:700}
+pre{margin:0;border-top:1px solid var(--line);background:#1f2328;color:#fff;padding:12px;overflow:auto;max-height:340px;font-size:12px}
+@media(max-width:780px){.hero{display:block}.hero-actions{justify-content:flex-start;margin-top:12px}.status-strip,.ops,.quick-links{grid-template-columns:1fr}}
+.status-card,.op-card,.link-card{border-radius:var(--r-sm);box-shadow:var(--sh)}
+.status-card.good{border-color:var(--good)} .status-card.warn{border-color:var(--warn)} .status-card.bad{border-color:var(--bad)}

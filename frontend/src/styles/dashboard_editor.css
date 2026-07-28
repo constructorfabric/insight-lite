@@ -1,0 +1,110 @@
+/* Page CSS for the React /dashboard/<id>/edit route. Ported VERBATIM from the
+   page rules in templates/dashboard_editor.j2's style block. Unlike the other
+   manage templates, this one emits base_css/shell_css/chart_css FIRST and its own
+   page rules LAST, so the page rules already win the cascade normally — the React
+   bundle order (base, shell, chart, then this file) reproduces that exactly, with
+   no base-wins ties to reconcile. The template sets no body rule (body stays the
+   base default: font-family only, UA 16px / 8px margin) and no bare-button font
+   (base's invalid font shorthand is dropped → buttons use the UA font), both of
+   which the React shell reproduces, so nothing extra is added here. */
+*{box-sizing:border-box}
+main.wrap{padding:24px 28px 56px}
+@media(max-width:900px){ main.wrap{padding:16px} }
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.top{justify-content:space-between;margin-bottom:18px}
+#dash-title{font-size:17px;font-weight:700;min-width:280px}
+.status{font-size:12px;min-width:5em}
+.status.ok{color:var(--good)}
+.status.err{color:var(--bad)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px;box-shadow:var(--sh);margin-bottom:18px}
+.card-head{display:flex;justify-content:space-between;align-items:center;margin:0 0 14px}
+.card-head h2{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+.panel-row{display:flex;gap:14px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px}
+.panel-row.drag-over{border-color:var(--acc);border-style:dashed}
+.handle{cursor:grab;color:var(--mut);padding:4px 2px;user-select:none;font-size:16px;line-height:1}
+.panel-meta{flex:0 0 240px}
+.panel-meta .t{font-weight:700;font-size:13.5px}
+.panel-meta .s{font-size:12px;color:var(--mut);margin-top:2px}
+.panel-ctrls{display:flex;flex-direction:column;gap:6px;flex:0 0 84px}
+.panel-ctrls label{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.panel-ctrls input{width:100%}
+.preview{flex:1;min-width:0;border:1px dashed var(--line2);border-radius:var(--r-sm);
+  padding:8px;min-height:60px;overflow:auto;font-size:12px}
+.dp-err{color:var(--bad);font-size:12px}
+.empty{color:var(--mut);font-size:13px;padding:10px 0}
+
+/* segmented control — same convention as the report's period presets */
+.pseg{display:inline-flex;border:1px solid var(--line2);border-radius:999px;background:var(--panel);
+  padding:4px;gap:2px;box-shadow:var(--sh)}
+.pchip{border:none;background:transparent;color:var(--ink2);border-radius:999px;padding:6px 14px;
+  font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:none}
+.pchip:hover{background:var(--panel2);color:var(--ink)}
+.pchip.active{background:var(--acc);color:#fff;box-shadow:0 2px 8px rgba(91,91,240,.35)}
+
+/* viz-type selector (#wp-viz) — a wrapping row of pchip buttons with a glyph +
+   label; incompatible types (see SHAPE_VIZ gating in the script) are disabled. */
+.viz-row{display:flex;flex-wrap:wrap;gap:6px}
+.viz-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px}
+.viz-btn .vg{font-size:14px;line-height:1}
+.viz-btn .vl{font-size:12.5px}
+.viz-btn:disabled{opacity:.35;cursor:not-allowed;pointer-events:none;box-shadow:none}
+
+/* series/measures shelf (#wp-series) — chips for the chosen measures */
+.series-shelf{display:flex;flex-wrap:wrap;gap:6px;min-height:34px;padding:6px;
+  border:1px dashed var(--line2);border-radius:var(--r-sm)}
+.chip{display:inline-flex;align-items:center;gap:4px;background:var(--panel2);
+  border-radius:999px;padding:5px 4px 5px 12px;font-size:12.5px;font-weight:600;color:var(--ink)}
+.chip-x{border:none;background:transparent;color:var(--mut);cursor:pointer;box-shadow:none;
+  font-size:15px;line-height:1;padding:0 6px;border-radius:999px}
+.chip-x:hover{background:var(--line2);color:var(--ink)}
+.wp-note{font-size:12px;color:var(--bad);margin:2px 0 0}
+.wp-row.disabled{opacity:.4;cursor:not-allowed}
+.wp-row.disabled:hover{background:transparent}
+
+/* widget picker modal — .dov/.dbox overlay convention (see usage insights page) */
+.dov{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-start;
+  justify-content:center;padding:5vh 16px;z-index:200}
+.dov[hidden]{display:none}
+.dbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  width:100%;max-width:860px;max-height:90vh;display:flex;flex-direction:column;
+  box-shadow:0 14px 50px rgba(0,0,0,.3)}
+.dhead{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 16px;border-bottom:1px solid var(--line)}
+.dhead b{font-size:14.5px}
+.dhead button{border:none;background:transparent;font-size:20px;line-height:1;cursor:pointer;
+  color:var(--mut);box-shadow:none;padding:2px 4px}
+.wp-body{display:flex;gap:0;min-height:0;flex:1}
+.wp-col{padding:14px 16px;overflow:auto}
+.wp-list{flex:1 1 46%;border-right:1px solid var(--line);min-width:0}
+.wp-detail{flex:1 1 54%;min-width:0;display:flex;flex-direction:column;gap:12px}
+#wp-search{width:100%;margin-bottom:10px}
+.wp-group{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--mut);margin:14px 0 6px}
+.wp-group:first-child{margin-top:0}
+.wp-row{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;cursor:pointer}
+.wp-row:hover{background:var(--panel2)}
+.wp-row.sel{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--acc)}
+.wp-row .wi{flex:none;width:22px;height:22px;border-radius:6px;background:var(--panel2);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--acc-ink)}
+.wp-row .wt{min-width:0;flex:1}
+.wp-row .wt .l{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wp-row .wt .h{font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wp-empty{color:var(--mut);font-size:13px;padding:10px 2px}
+.wp-field{display:flex;flex-direction:column;gap:5px}
+.wp-field label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--mut)}
+.wp-field input,.wp-field select{width:100%}
+.wp-hint{font-size:12px;color:var(--mut);margin:-4px 0 0}
+details.wp-advanced{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg)}
+details.wp-advanced summary{cursor:pointer;color:var(--acc-ink);font-weight:600;font-size:13px;
+  padding:9px 12px;list-style:none}
+details.wp-advanced summary::-webkit-details-marker{display:none}
+details.wp-advanced summary::before{content:"\25B8 ";color:var(--acc)}
+details.wp-advanced[open] summary::before{content:"\25BE "}
+details.wp-advanced > div{padding:2px 12px 12px;display:flex;flex-direction:column;gap:10px}
+#wp-preview{border:1px dashed var(--line2);border-radius:var(--r-sm);padding:10px;
+  min-height:70px;overflow:auto;font-size:12px}
+.dfoot{display:flex;align-items:center;justify-content:flex-end;gap:8px;
+  padding:12px 16px;border-top:1px solid var(--line)}
+@media(max-width:760px){ .wp-body{flex-direction:column} .wp-list{border-right:none;border-bottom:1px solid var(--line)} }

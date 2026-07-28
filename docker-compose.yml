@@ -1,0 +1,100 @@
+services:
+  report:
+    image: insight-report:latest
+    restart: unless-stopped
+    ports:
+      # Loopback only by default. To expose it on the network, change this to
+      # "8080:8080" AND set PORTAL_PASSWORD below so the portal requires a login.
+      - "127.0.0.1:8080:8080"
+    # Secrets come from the environment / a local .env file — never hardcode here.
+    # Create .env (gitignored) with:  GH_TOKEN=ghp_xxx
+    environment:
+      GH_TOKEN: ${GH_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Inside the container the server must bind 0.0.0.0 for the port mapping.
+      PORTAL_HOST: 0.0.0.0
+      # Set PORTAL_PASSWORD (and optionally PORTAL_USER, default "insight") to
+      # require HTTP Basic auth on every request. Strongly recommended whenever
+      # the port is reachable beyond localhost.
+      PORTAL_USER: ${PORTAL_USER:-insight}
+      PORTAL_PASSWORD: ${PORTAL_PASSWORD:-}
+    env_file:
+      - .env
+    # ALL runtime state (report.db, caches, clones, history/,
+    # exports/, generated report.html/data.json) lives on this volume, never
+    # in the image — that's what makes an image-swap deploy safe. Code +
+    # templates + the baked React frontend come from the image (built by
+    # `docker build .`; see the Dockerfile's frontend stage). Shared with
+    # `mcp` below since both read/write the same SQLite store.
+    volumes:
+      - report-data:/work/data
+    command: python reportctl.py serve --port 8080
+
+  # Read-only MCP server over the same DB. Loopback-published; front it with the
+  # same reverse proxy as the portal. Set MCP_TOKEN in .env so clients must send
+  # `Authorization: Bearer <token>` (the server refuses unauthenticated otherwise
+  # only on localhost). Connect a client to  https://<host>/mcp .
+  mcp:
+    image: insight-report:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:8082"
+    environment:
+      GH_TOKEN: ${GH_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8082
+      MCP_TOKEN: ${MCP_TOKEN:-}
+    env_file:
+      - .env
+    volumes:
+      - report-data:/work/data
+    command: python mcp_server.py
+
+  # Optional GitHub-OAuth gate in front of the portal (compose profile "oauth").
+  # Members of the connected GitHub org are let in; everyone else is refused.
+  # Basic-auth stays as a break-glass fallback via an htpasswd file. It sits between
+  # nginx and the portal ( nginx -> oauth2-proxy:4180 -> report:8080 ); /mcp is NOT
+  # routed through it (that stays on its bearer token). Off by default — enable with:
+  #   docker compose --profile oauth up -d
+  # See deploy/oauth/README.md for the one-time GitHub OAuth App setup.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    profiles: ["oauth"]
+    restart: unless-stopped
+    depends_on: [report]
+    ports:
+      - "127.0.0.1:4180:4180"
+    environment:
+      OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_UPSTREAMS: "http://report:8080"
+      OAUTH2_PROXY_PROVIDER: "github"
+      OAUTH2_PROXY_SCOPE: "user:email read:org"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"           # github provider requires a value; * = any
+      # Forward the signed-in identity to the upstream app (X-Forwarded-User /
+      # -Email / -Preferred-Username) so /calibrate can attribute ground-truth
+      # labels to the actual rater instead of "anon".
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_GITHUB_ORG: ${OAUTH_GITHUB_ORG:-}
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH_CLIENT_ID:-}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET:-}
+      OAUTH2_PROXY_REDIRECT_URL: ${OAUTH_REDIRECT_URL:-https://insight.example.com/oauth2/callback}
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      # Branded sign-in / error pages (deploy/oauth/sign_in.html, error.html). Set
+      # OAUTH_TEMPLATES_DIR="" in .env to fall back to oauth2-proxy's built-in pages.
+      OAUTH2_PROXY_CUSTOM_TEMPLATES_DIR: ${OAUTH_TEMPLATES_DIR-/etc/oauth2-proxy}
+      # Break-glass basic-auth fallback: point this at an htpasswd file (bcrypt) to
+      # allow Basic-auth logins that bypass GitHub. Leave empty to disable.
+      OAUTH2_PROXY_HTPASSWD_FILE: ${OAUTH_HTPASSWD_FILE:-}
+    env_file:
+      - .env
+    volumes:
+      - ./deploy/oauth:/etc/oauth2-proxy:ro
+
+# One persistent volume for ALL runtime state, shared by report + mcp. Survives
+# `docker compose up -d` after loading a freshly-built image (image swap ==
+# code/asset swap only; the volume is untouched) — see deploy.sh.
+volumes:
+  report-data:

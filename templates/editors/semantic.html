@@ -1,0 +1,267 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taxonomy — Constructor Insight</title>
+<style>
+  :root{--bg:#f6f8fa;--panel:#fff;--panel2:#eaeef2;--line:#d0d7de;--ink:#1f2328;
+    --mut:#656d76;--acc:#0969da;--good:#1a7f37;--warn:#9a6700}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  /*SHELL_CSS*/
+  .wrap{padding:20px 24px 90px;max-width:940px}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--mut);font-size:13px;margin:0 0 14px}
+  .scopebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 6px}
+  .scopebar b{font-size:13px}
+  .bar{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0;display:flex;
+    gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+  .bar input[type=text]{flex:1;min-width:150px;padding:7px 10px;border:1px solid var(--line);
+    border-radius:8px;background:var(--panel);color:var(--ink)}
+  button{border:1px solid var(--line);background:var(--panel);color:var(--ink);
+    border-radius:8px;padding:7px 12px;font:inherit;font-weight:600;cursor:pointer}
+  button:hover{background:var(--panel2)} button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+  .lbl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mut)}
+  h2{font-size:15px;margin:22px 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+  h2 .c{color:var(--mut);font-weight:600;font-size:12px}
+  h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:12px 0 4px}
+  .row{display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:7px}
+  .row:hover{background:var(--panel2)}
+  .row.overridden{background:rgba(9,105,218,.07)}
+  .row.unassigned{background:rgba(154,103,0,.09)}
+  .nm{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;flex:1;
+    min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ct{font-size:11px;color:var(--mut);min-width:30px;text-align:right}
+  select{padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);
+    color:var(--ink);font:inherit;font-size:12px;min-width:150px}
+  .status{font-size:12px;color:var(--good);min-height:16px;margin-left:6px}
+  .empty{color:var(--mut);font-size:12px;padding:6px 8px}
+  select{background-image:none}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;padding:6px 12px}
+  .seg button.on{background:var(--acc);color:#fff}
+  .chain{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:8px 0 4px}
+  .chain .pill{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--mut)}
+  .chain .pill.act{border-color:var(--acc);background:rgba(9,105,218,.10);color:var(--acc)}
+  .chain i{color:var(--mut);font-style:normal}
+  .bkt{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;min-width:74px;text-align:center;
+    background:var(--panel2);color:var(--ink)}
+  .bkt.un{background:rgba(154,103,0,.14);color:var(--warn)}
+  .frm{font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap;
+    background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
+  .frm.ov{background:rgba(9,105,218,.10);color:var(--acc);border-color:transparent}
+</style></head>
+<body><div class="app"><!--SIDEBAR--><main class="wrap">
+<h1>Taxonomy — advanced editor</h1>
+<p class="sub">Map GitHub's Issue Types, labels, board statuses and CI workflows onto
+the report's categories, flow stages and CI roles. Pick a scope — narrower scopes
+override individual items on top of what they inherit, so the same label can mean
+different things in different elements or repos.
+&nbsp;<a href="/semantic" style="color:var(--acc);font-weight:600;text-decoration:none">← Guided setup</a></p>
+
+<div class="scopebar">
+  <span class="seg"><button id="mEdit" class="on">Edit</button><button id="mInspect">Inspect</button></span>
+  <b>Scope</b>
+  <select id="scope" style="min-width:320px"></select>
+  <span class="lbl" id="scopehint"></span>
+</div>
+
+<div class="bar">
+  <input type="text" id="q" placeholder="filter items…" autocomplete="off">
+  <label class="lbl" id="onlyUwrap"><input type="checkbox" id="onlyU"> only unset / overridden</label>
+  <button id="reset"></button>
+  <button class="primary" id="save">Save</button>
+  <span class="status" id="st"></span>
+</div>
+
+<div id="body"></div>
+</main></div>
+<script>
+let D = /*DATA*/;
+let A;                                   // working overrides (edit mode)
+let E = null;                            // effective data (inspect mode)
+let MODE = "edit";
+let TARGETS = D.targets, SCOPE = D.scope;
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+
+function suggestionToA(){ const s=D.suggestion;
+  return {categories:{labels:{...s.categories.labels},types:{...s.categories.types}},
+          stages:{statuses:{...s.stages.statuses}}, ci:{roles:{...s.ci.roles}}}; }
+function emptyMaps(a){ return !Object.keys(a.categories.labels).length &&
+  !Object.keys(a.categories.types).length && !Object.keys(a.stages.statuses).length &&
+  !Object.keys(a.ci.roles).length; }
+function loadScopeState(){
+  TARGETS=D.targets; SCOPE=D.scope;
+  A = JSON.parse(JSON.stringify(D.own));   // {categories:{labels,types}, stages:{statuses}, ci:{roles}}
+  if(D.is_global && emptyMaps(A)) A = suggestionToA();   // first time → seed from scan
+  document.getElementById("reset").textContent = D.is_global ? "Reset to suggestion" : "Clear overrides";
+  renderScopeSelect(); renderHint(); render();
+}
+function renderScopeSelect(){
+  const sel=document.getElementById("scope"); const cur=SCOPE; D.targets=TARGETS;
+  let h=`<option value="global::" ${cur.level==="global"?"selected":""}>Global (default)</option>`;
+  const groups=[["org","Organizations"],["element","Elements"],["repo","Repositories"],["project","Projects"]];
+  for(const [lv,label] of groups){
+    const items=(D.targets[lv]||[]); if(!items.length) continue;
+    h+=`<optgroup label="${esc(label)}">`+items.map(t=>{
+      const v=lv+":"+t; const on=(cur.level===lv&&cur.target===t)?"selected":"";
+      return `<option value="${esc(v)}" ${on}>${esc(label.slice(0,-1))}: ${esc(t)}</option>`;
+    }).join("")+`</optgroup>`;
+  }
+  sel.innerHTML=h;
+}
+function renderHint(){
+  const h=document.getElementById("scopehint");
+  if(MODE==="inspect"){ h.textContent="resolved config — the chip shows which scope set each value"; return; }
+  h.textContent = SCOPE.level==="global" ? "the base everyone inherits"
+    : "overrides on top of the inherited value — leave “inherit” to keep the parent";
+}
+
+function inh(axis, mk, name){ return (D.inherited[axis][mk]||{})[name] || ""; }
+function optionsFor(axis, sel, inherited){
+  const opts=D.buckets[axis].slice();
+  if(sel && !opts.includes(sel)) opts.push(sel);
+  const zeroLabel = D.is_global ? "—" : (inherited ? "inherit ("+inherited+")" : "inherit (unset)");
+  let h=`<option value="" ${sel?"":"selected"}>${esc(zeroLabel)}</option>`;
+  h+=opts.map(b=>`<option value="${esc(b)}" ${b===sel?"selected":""}>${esc(b)}</option>`).join("");
+  h+=`<option value="__new">+ custom…</option>`;
+  return h;
+}
+function rowHtml(axis, mk, name, count){
+  const own=(A[axis][mk]||{})[name]||"";
+  const inherited=inh(axis,mk,name);
+  const effective = own || inherited;
+  let cls="row";
+  if(own) cls+=" overridden";
+  else if(!effective) cls+=" unassigned";
+  return `<div class="${cls}" data-nm="${esc(name.toLowerCase())}" data-eff="${effective?1:0}" data-own="${own?1:0}">`+
+    `<span class="nm" title="${esc(name)}">${esc(name)}</span><span class="ct">${count||""}</span>`+
+    `<select data-axis="${axis}" data-mk="${mk}" data-name="${esc(name)}">`+
+    optionsFor(axis, own, inherited)+`</select></div>`;
+}
+function listRows(rows){ return rows.join("")||'<div class="empty">nothing here at this scope</div>'; }
+function render(){
+  const S=D.scan;
+  document.getElementById("body").innerHTML =
+    `<h2>Categories <span class="c">${S.issue_types.length+S.labels.length} items</span></h2>`+
+      `<h3>Native issue types</h3>`+listRows(S.issue_types.map(t=>rowHtml("categories","types",t.name,t.count)))+
+      `<h3>Labels</h3>`+listRows(S.labels.map(l=>rowHtml("categories","labels",l.name,l.count)))+
+    `<h2>Flow stages <span class="c">${S.statuses.length} items</span></h2>`+
+      listRows(S.statuses.map(s=>rowHtml("stages","statuses",s.name,s.count)))+
+    `<h2>CI workflows <span class="c">${S.workflows.length} items</span></h2>`+
+      listRows(S.workflows.map(w=>rowHtml("ci","roles",w.name,w.count)));
+  applyFilter();
+}
+function applyFilter(){
+  const q=document.getElementById("q").value.toLowerCase();
+  const onlyU=document.getElementById("onlyU").checked;
+  document.querySelectorAll(".row").forEach(r=>{
+    const hit=!q||r.dataset.nm.includes(q);
+    const flag=!onlyU || r.dataset.own==="1" || r.dataset.eff==="0";
+    r.style.display=(hit&&flag)?"":"none";
+  });
+}
+function setVal(axis, mk, name, val){
+  if(val==="__new"){ val=(prompt("New "+axis+" bucket:","")||"").trim(); if(!val){render();return;} }
+  A[axis][mk]=A[axis][mk]||{};
+  if(val) A[axis][mk][name]=val; else delete A[axis][mk][name];
+  render();
+}
+
+async function fetchScope(level,target){
+  const st=document.getElementById("st"); st.style.color="var(--mut)"; st.textContent="loading…";
+  try{
+    const r=await fetch(`/api/semantic/scope?level=${encodeURIComponent(level)}&target=${encodeURIComponent(target)}`);
+    const j=await r.json();
+    if(!j.ok){ st.style.color="var(--warn)"; st.textContent=j.error||"load failed"; return; }
+    D=j.data; st.textContent=""; loadScopeState();
+  }catch(e){ st.style.color="var(--warn)"; st.textContent="load failed"; }
+}
+
+// ---- inspect mode ----
+function fromLabel(f){ return f && f!=="?" ? f : "unset"; }
+function inspRow(it){
+  const un=!it.bucket, ov=it.from && it.from!=="global";
+  return `<div class="row" data-nm="${esc(it.name.toLowerCase())}" data-eff="${it.bucket?1:0}" data-own="${ov?1:0}">`+
+    `<span class="nm" title="${esc(it.name)}">${esc(it.name)}</span>`+
+    `<span class="bkt${un?" un":""}">${esc(it.bucket||"—")}</span>`+
+    `<span class="frm${ov?" ov":""}">from ${esc(fromLabel(it.from))}</span></div>`;
+}
+function inspSection(title, groups){
+  const n=groups.reduce((a,g)=>a+g[1].length,0);
+  let h=`<h2>${title} <span class="c">${n} items</span></h2>`;
+  for(const [sub,arr] of groups){
+    if(sub) h+=`<h3>${esc(sub)}</h3>`;
+    h+= arr.length ? arr.map(inspRow).join("") : '<div class="empty">none</div>';
+  }
+  return h;
+}
+function renderInspect(){
+  const ch=E.chain.map((c,i)=>{
+    const label=c.level==="global"?"global":(c.level+": "+c.target);
+    const act=(c.level===E.scope.level && c.target===E.scope.target)?" act":"";
+    return `<span class="pill${act}">${esc(label)}</span>`+(i<E.chain.length-1?'<i>›</i>':"");
+  }).join("");
+  document.getElementById("body").innerHTML =
+    `<div class="chain">${ch}</div>`+
+    inspSection("Categories",[["Native issue types",E.categories.types],["Labels",E.categories.labels]])+
+    inspSection("Flow stages",[[null,E.stages.statuses]])+
+    inspSection("CI workflows",[[null,E.ci.roles]]);
+  applyFilter();
+}
+async function fetchEffective(level,target){
+  const st=document.getElementById("st"); st.style.color="var(--mut)"; st.textContent="loading…";
+  try{
+    const r=await fetch(`/api/semantic/effective?level=${encodeURIComponent(level)}&target=${encodeURIComponent(target)}`);
+    const j=await r.json();
+    if(!j.ok){ st.style.color="var(--warn)"; st.textContent=j.error||"load failed"; return; }
+    E=j.data; TARGETS=E.targets; SCOPE=E.scope; st.textContent="";
+    renderScopeSelect(); renderHint(); renderInspect();
+  }catch(e){ st.style.color="var(--warn)"; st.textContent="load failed"; }
+}
+function reload(){
+  const [level,target]=document.getElementById("scope").value.split(/:(.*)/s);
+  if(MODE==="edit") fetchScope(level, target||""); else fetchEffective(level, target||"");
+}
+function setMode(m){
+  MODE=m;
+  document.getElementById("mEdit").classList.toggle("on", m==="edit");
+  document.getElementById("mInspect").classList.toggle("on", m==="inspect");
+  const show = m==="edit" ? "" : "none";
+  ["reset","save","onlyUwrap"].forEach(id=>{document.getElementById(id).style.display=show;});
+  reload();
+}
+document.getElementById("mEdit").addEventListener("click", ()=>{ if(MODE!=="edit") setMode("edit"); });
+document.getElementById("mInspect").addEventListener("click", ()=>{ if(MODE!=="inspect") setMode("inspect"); });
+
+document.getElementById("scope").addEventListener("change", reload);
+document.getElementById("body").addEventListener("change", e=>{
+  const s=e.target.closest("select"); if(!s) return;
+  setVal(s.dataset.axis, s.dataset.mk, s.dataset.name, s.value);
+});
+document.getElementById("q").addEventListener("input", applyFilter);
+document.getElementById("onlyU").addEventListener("change", applyFilter);
+document.getElementById("reset").addEventListener("click", ()=>{
+  if(D.is_global){
+    A={categories:{labels:{...D.suggestion.categories.labels},types:{...D.suggestion.categories.types}},
+       stages:{statuses:{...D.suggestion.stages.statuses}}, ci:{roles:{...D.suggestion.ci.roles}}};
+    document.getElementById("st").textContent="reset to suggestion (not saved)";
+  }else{
+    A={categories:{labels:{},types:{}},stages:{statuses:{}},ci:{roles:{}}};
+    document.getElementById("st").textContent="cleared overrides (not saved)";
+  }
+  render();
+});
+document.getElementById("save").addEventListener("click", async ()=>{
+  const st=document.getElementById("st"); st.style.color="var(--mut)"; st.textContent="saving…";
+  try{
+    const r=await fetch("/api/semantic",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({level:D.scope.level,target:D.scope.target,assignments:A,_version:D.version})});
+    const j=await r.json();
+    if(r.status===409){ st.style.color="var(--warn)"; st.textContent="another tab saved — reload"; return; }
+    if(!j.ok){ st.style.color="var(--warn)"; st.textContent=j.error||"save failed"; return; }
+    D.version=j.version; st.style.color="var(--good)"; st.textContent="saved ✓";
+  }catch(e){ st.style.color="var(--warn)"; st.textContent="save failed"; }
+});
+loadScopeState();
+</script>
+</body></html>

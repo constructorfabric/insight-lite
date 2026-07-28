@@ -1,0 +1,41 @@
+.git/
+.venv/
+__pycache__/
+_site/
+.DS_Store
+.claude/
+.playwright-mcp/
+.env
+.env.example
+
+# --- runtime state: never bake into the image. Lives on the DATA_DIR volume ---
+report.db
+report.db-shm
+report.db-wal
+history/
+.cache/
+.repos/
+.runtime/
+clones/
+exports/
+data.json
+report.html
+config-editor.html
+identity-editor.html
+identity_suggestions.yaml
+
+# --- dead files, still excluded ---
+# Nothing reads or writes these since 2026-07-28 (the override table is the only source
+# of truth for identity + config). A developer checkout still has the leftovers, full of
+# real names and addresses; keep them out of the build context.
+people.yaml
+config.local.yaml
+
+# --- frontend: build tooling + generated output, not runtime state ---
+frontend/node_modules/
+frontend/visual/baseline/
+frontend/visual/candidate/
+frontend/visual/diff/
+# built by the frontend Docker stage; COPY --from=frontend supplies the real
+# one so a stale host-side build never gets baked instead.
+assets/app/

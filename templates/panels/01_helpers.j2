@@ -1,0 +1,162 @@
+
+{% macro gh(login) -%}
+<a class="gh" href="#person" data-person="{{login|e}}" title="Open {{login|e}}'s Person page">{{login}}</a>
+{%- endmacro %}
+
+{# ---- filterable panels: single source used by the build-time report AND the
+   /api/period fragment. Each takes a period block `pr` (store.aggregate output
+   or build_model's all_block). Wrapped in [data-period-panel] by the callers. #}
+{% macro sparkline(pts, color) %}{% if pts %}<svg class="spark" viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{pts}}" fill="none" stroke="{{color}}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>{% endif %}{% endmacro %}
+{# `lower_better` flips the colour (not the arrow) for metrics where up is bad —
+   defect/abandon rate, reverts, time-to-merge/close, review time, CI duration. #}
+{# ---- segbar: a horizontal stacked proportional bar built from segments — one
+   primitive for band splits, score make-up, any part-of-whole distribution. Each
+   segment is {value, color, label?, tip?}; widths are value-proportional (zero-value
+   segments are skipped in the bar). `legend=true` renders an inline swatch legend
+   below (all segments, including zeros). Needs the .segbar / .segleg CSS. #}
+{% macro segbar(segments, height=14, legend=false) -%}
+<span class="segbar" style="height:{{ height }}px" role="img">{% for s in segments if s.value %}<i style="flex:{{ s.value }};background:{{ s.color }}" data-tip="{{ (s.tip or (s.label ~ ': ' ~ s.value))|e }}"></i>{% endfor %}</span>{% if legend %}<span class="segleg">{% for s in segments %}<span><i style="background:{{ s.color }}"></i>{{ s.label }} <b>{{ s.value }}</b></span>{% endfor %}</span>{% endif %}
+{%- endmacro %}
+
+{% macro deltachip(d, lower_better=false) %}{% if d %}{% if d.pct is not none %}{% set cls = 'flat' if d.dir=='flat' else (('down' if d.dir=='up' else 'up') if lower_better else d.dir) %}<span class="dlt {{cls}}" data-tip="vs previous equal period (was {{ d.prev|num }})">{{ '▲' if d.dir=='up' else ('▼' if d.dir=='down' else '±') }} {{ (d.pct|abs)|pct }}%</span>{% elif d.diff %}<span class="dlt {{ 'down' if lower_better else 'up' }}" data-tip="nothing in the previous equal period">▲ new</span>{% endif %}{% endif %}{% endmacro %}
+{# category icon chip: colored rounded square + white line-icon #}
+{% macro kchip(cat) %}
+{% set ic = {
+  'commit':'<circle cx="12" cy="12" r="3.2"/><path d="M3 12h5.6M15.4 12H21"/>',
+  'loc':'<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  'pr':'<circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M6 8.6v6.8"/><circle cx="18" cy="18" r="2.6"/><path d="M18 15.4V11a2.5 2.5 0 0 0-2.5-2.5H10"/><path d="M12.5 6 10 8.5 12.5 11"/>',
+  'spec':'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/><path d="M8.5 13h7M8.5 17h7"/>',
+  'bug':'<rect x="8" y="8" width="8" height="11" rx="4"/><path d="M12 8V6"/><path d="m9.5 6.5-1.5-1.5M14.5 6.5 16 5"/><path d="M8 11H4.5M16 11h3.5M8 15H4.5M16 15h3.5"/>',
+  'story':'<path d="M2 4h6a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H2Z"/><path d="M22 4h-6a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5H22Z"/>',
+  'epic':'<path d="m12 2 3 6 6 .9-4.5 4.3 1 6-5.5-2.8L6.5 19l1-6L3 8.9 9 8Z"/>',
+  'feature':'<path d="M12 3v18M3 12h18"/><path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/>',
+  'people':'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+} %}
+<span class="ico" style="background:var(--c-{{cat}})"><svg class="i" viewBox="0 0 24 24">{{ ic.get(cat, '')|safe }}</svg></span>
+{% endmacro %}
+
+{# ---- the KPI tile: ONE reusable component for every dashboard number. -------
+   `value` is passed pre-formatted (num/pct/dur/…/'—') so the tile stays format-
+   agnostic. `icon` = kchip category (omit for the delta-only Delivery style, where
+   the delta right-aligns). `delta` = a delta dict (deltachip inside); `lower_better`
+   flips its colour. `drill` = a dict of data-* attrs ({'drill':'issue','flag':
+   'is_bug'} → data-drill data-flag), omit for a non-drillable tile. `tip` = a
+   tooltip on the value. Callers: panel_kpis / panel_people / panel_delivery_*. #}
+{% macro kpi_tile(value, label, sub='', icon=none, delta=none, lower_better=false,
+                  spark=none, spark_color='var(--c-people)', drill=none, tip=none) -%}
+<div class="kpi"{% if drill %}{% for k, v in drill.items() %} data-{{ k }}="{{ v|e }}"{% endfor %}{% endif %}>{% if icon or delta %}<div class="ktop"{% if not icon %} style="justify-content:flex-end"{% endif %}>{% if icon %}{{ kchip(icon) }}{% endif %}{{ deltachip(delta, lower_better) }}</div>{% endif %}<div class="n num"{% if tip %} data-tip="{{ tip|e }}"{% endif %}>{{ value }}</div><div class="l">{{ label }}</div>{% if sub %}<div class="l2">{{ sub }}</div>{% endif %}{{ sparkline(spark, spark_color) }}</div>
+{%- endmacro %}
+
+{# ---- bar_cell: a table cell with an in-cell horizontal bar. `width` is the fill
+   percent (0-100, independent of the shown text); `content` is the pre-rendered
+   cell value. Optional drill (data-* dict) and tip. Used for LOC%, share, review
+   volume, etc. Needs the .db CSS (background driven by --w). #}
+{% macro bar_cell(width, content, drill=none, tip=none, sort=none) -%}
+<td class="db"{% if drill %}{% for k, v in drill.items() %} data-{{ k }}="{{ v|e }}"{% endfor %}{% endif %}{% if tip %} data-tip="{{ tip|e }}"{% endif %}{% if sort is not none %} data-sort="{{ sort }}"{% endif %} style="--w:{{ width }}%">{{ content }}</td>
+{%- endmacro %}
+
+{# ---- cat_table: a categorical breakdown table — label · value · share-bar. Each
+   row is {label, value, pct, drill?}: `pct` is the share 0-100 (drives the bar and
+   is shown as %); `value` is the raw count (pre-rendered); `drill` (optional) is a
+   data-* dict on the value cell. `mono` renders labels as <code>. `empty` is the
+   message when there are no rows. A generic way to show a distribution. #}
+{% macro cat_table(rows, label_head='Category', value_head='Count', share_head='Share',
+                   share_tip=none, mono=true, empty='No data.') -%}
+{% if rows %}
+<table style="width:100%">
+  <tr><th>{{ label_head }}</th><th class="num">{{ value_head }}</th><th{% if share_tip %} data-tip="{{ share_tip|e }}"{% endif %}>{{ share_head }}</th></tr>
+  {% for r in rows %}
+  <tr><td>{% if mono %}<code>{{ r.label|e }}</code>{% else %}{{ r.label|e }}{% endif %}</td><td class="num"{% if r.drill %}{% for k, v in r.drill.items() %} data-{{ k }}="{{ v|e }}"{% endfor %}{% endif %}>{{ r.value }}</td>{{ bar_cell(r.pct|round(1), (r.pct|pct) ~ '%') }}</tr>
+  {% endfor %}
+</table>
+{% else %}<p class="hint">{{ empty }}</p>{% endif %}
+{%- endmacro %}
+
+{# ---- data_table: a schema-driven table. `columns` is a list of column specs;
+   `rows` is a list of row dicts (domain objects). Each column has:
+     label, tip?            header text + header tooltip
+     kind                   'num'|'loc'|'pctp' (value cell, formatted) ·
+                            'text' (+ swatch_key for a colour dot) ·
+                            'bar' (in-cell bar, width from width_key) ·
+                            'heatmap' (alpha shading from alpha_key)
+     key / width_key / alpha_key / swatch_key   which row field to read
+     drill?                 data-* dict; a value '@field' resolves to row[field]
+     drill_if?              row field that must be truthy to emit the drill
+     celltip?               {key, fmt, suffix} → a data-tip built from a row field
+   One place for table markup + per-cell drill/bar/heatmap; the panel just declares
+   columns. Covers the regular breakdown tables; the most bespoke ones stay hand-
+   written. Sortable by default: every column header sorts by the cell's raw value
+   (data-sort — so LOC sorts by the true number, not "3.49M"); opt out with
+   sort:false on a column. See the sortable-table JS in report.j2. #}
+{% macro _dt_fmt(v, fmt) -%}
+{%- if fmt == 'loc' -%}{{ v|loc }}{%- elif fmt == 'pctp' -%}{{ v|pct }}%{%- elif fmt == 'dur' -%}{{ v|dur }}{%- elif fmt == 'hours' -%}{{ v|hours }}{%- elif fmt == 'raw' -%}{{ v }}{%- else -%}{{ v|num }}{%- endif -%}
+{%- endmacro %}
+{% macro _dt_drill(col, row) -%}
+{%- if col.drill and (col.drill_if is not defined or row.get(col.drill_if)) %}{% for k, v in col.drill.items() %} data-{{ k }}="{{ (row.get(v[1:], '') if (v is string and v.startswith('@')) else v)|e }}"{% endfor %}{% endif -%}
+{%- endmacro %}
+{# per-cell tooltip from a row field: tip_key → data-tip #}
+{% macro _dt_tip(col, row) -%}
+{%- if col.tip_key %} data-tip="{{ row.get(col.tip_key, '')|e }}"{% endif -%}
+{%- endmacro %}
+{# conditional tags after a label: [{if_key, text?/text_key?, prefix?, suffix?, cls?, tip?}] #}
+{% macro _dt_tags(col, row) -%}
+{%- for t in (col.tags or []) if row.get(t.if_key) %}<span class="tag{{ ' ' ~ t.cls if t.cls }}"{% if t.tip %} data-tip="{{ t.tip|e }}"{% endif %}>{{ t.prefix|default('') }}{{ (row.get(t.text_key)|num) if t.text_key else t.text }}{{ t.suffix|default('') }}</span>{% endfor -%}
+{%- endmacro %}
+{# raw data-sort value for a cell (numeric where possible; '—'/None sorts last) #}
+{% macro _dt_sort(col, row) -%}
+{%- if col.sort_key is defined -%}{{ row.get(col.sort_key, '') }}
+{%- elif col.kind == 'bar' -%}{{ row.get(col.content_key, row.get(col.width_key, 0)) }}
+{%- elif col.kind in ('text', 'link') -%}{{ row.get(col.key, '')|e }}
+{%- elif col.kind == 'bool' -%}{{ 1 if row.get(col.key) else 0 }}
+{%- elif col.kind == 'html' -%}{# never sort by (or leak) raw markup — use sort_key for an html cell #}
+{%- elif col.dash and row.get(col.key) is none -%}-1
+{%- else -%}{{ row.get(col.key, 0) }}{%- endif -%}
+{%- endmacro %}
+{# render one value (fmt + optional unit; '—' when dash and None) #}
+{% macro _dt_value(col, row) -%}
+{%- set v = row.get(col.key) -%}
+{%- set fmt = col.fmt|default(col.kind|default('num')) -%}
+{%- if col.dash and v is none -%}—{%- else -%}{{ _dt_fmt(v if v is not none else 0, fmt) }}{{ col.unit|default('') }}{%- endif -%}
+{%- endmacro %}
+{# class="" attr for a cell: optional base (kind class) + num-align + col.cls (extra,
+   e.g. 'g' group-separator). Emits nothing when there is no class to set. #}
+{% macro _dt_clsattr(col, base='') -%}
+{%- set parts = [] -%}
+{%- if base -%}{% set _ = parts.append(base) %}{% endif -%}
+{%- if col.align == 'num' -%}{% set _ = parts.append('num') %}{% endif -%}
+{%- if col.cls -%}{% set _ = parts.append(col.cls) %}{% endif -%}
+{%- if parts %} class="{{ parts|join(' ') }}"{% endif -%}
+{%- endmacro %}
+{% macro _dt_cell(col, row) -%}
+{%- set kind = col.kind|default('num') -%}
+{%- if kind == 'bar' -%}<td class="db{{ ' ' ~ col.cls if col.cls }}"{{ _dt_drill(col, row) }}{{ _dt_tip(col, row) }} data-sort="{{ _dt_sort(col, row) }}" style="--w:{{ row.get(col.width_key)|pct }}%">{{ _dt_fmt(row.get(col.content_key), col.fmt|default('num')) if col.content_key is defined else (row.get(col.width_key)|pct ~ '%') }}</td>
+{%- elif kind == 'heatmap' -%}<td class="hm{{ ' ' ~ col.cls if col.cls }}" style="--a:{{ ([row.get(col.alpha_key, 0) / 30, 1]|min * 0.32)|round(3) }}"{{ _dt_drill(col, row) }}{% if col.celltip %} data-tip="{{ (_dt_fmt(row.get(col.celltip.key), col.celltip.fmt)|string ~ (col.celltip.suffix|default('')))|e }}"{% endif %} data-sort="{{ _dt_sort(col, row) }}">{{ _dt_fmt(row.get(col.key), col.fmt|default('pctp')) }}</td>
+{%- elif kind == 'link' -%}<td{{ _dt_clsattr(col) }}{{ _dt_drill(col, row) }}{{ _dt_tip(col, row) }} data-sort="{{ _dt_sort(col, row) }}">{{ gh(row.get(col.key)) }}{{ _dt_tags(col, row) }}</td>
+{%- elif kind == 'pair' -%}<td{{ _dt_clsattr(col) }}{{ _dt_drill(col, row) }}{{ _dt_tip(col, row) }} data-sort="{{ _dt_sort(col, row) }}">{{ _dt_fmt(row.get(col.key, 0), col.fmt|default('num')) }}{{ col.sep|default(' / ') }}{{ _dt_fmt(row.get(col.key2, 0), col.fmt|default('num')) }}</td>
+{%- elif kind == 'bool' -%}<td{{ _dt_clsattr(col) }}{{ _dt_drill(col, row) }}{{ _dt_tip(col, row) }} data-sort="{{ _dt_sort(col, row) }}">{{ col.bool_map.true if row.get(col.key) else col.bool_map.false }}</td>
+{%- elif kind == 'html' -%}<td{{ _dt_clsattr(col) }}{{ _dt_drill(col, row) }}{{ _dt_tip(col, row) }} data-sort="{{ _dt_sort(col, row) }}">{{ row.get(col.key)|safe }}</td>
+{%- elif kind == 'text' -%}<td{{ _dt_clsattr(col) }}{{ _dt_drill(col, row) }}{{ _dt_tip(col, row) }} data-sort="{{ _dt_sort(col, row) }}">{% if col.swatch == 'edot' %}<span class="edot" style="background:{{ ecolor(row.get(col.key)) }}"></span>{% elif col.swatch == 'dot' %}<span style="background:{{ row.get(col.color_key) }};display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px"></span>{% endif %}{{ row.get(col.key) }}{{ _dt_tags(col, row) }}</td>
+{%- else -%}<td{{ _dt_clsattr(col) }}{{ _dt_drill(col, row) }}{{ _dt_tip(col, row) }} data-sort="{{ _dt_sort(col, row) }}">{{ _dt_value(col, row) }}{{ _dt_tags(col, row) }}</td>
+{%- endif -%}
+{%- endmacro %}
+{# `groups` (optional): a two-row header. [{label, span, tip?}] renders a group band
+   above the column headers (colspan per group; every group after the first gets the
+   'g' separator, mark the matching first column with cls:'g' to carry it into the
+   body) and switches the table to grouped mode — sticky first column + group borders.
+   In grouped mode the cap uses .extra rows revealed by an external toggle (the sorter
+   reveals them on sort), not the built-in "+N more" row. #}
+{% macro data_table(columns, rows, empty='No data.', cap=none, groups=none) -%}
+{% if rows %}
+{%- set capd = cap and rows|length > cap %}
+<table class="dt{{ ' grouped' if groups }}{{ ' capped' if capd and not groups }}">
+<thead>{% if groups %}<tr class="grp">{% for g in groups %}<th colspan="{{ g.span }}"{% if not loop.first %} class="g"{% endif %}{% if g.tip %} data-tip="{{ g.tip|e }}"{% endif %}>{{ g.label|safe }}</th>{% endfor %}</tr>
+{% endif %}<tr>{% for col in columns %}<th class="{{ 'num ' if col.align == 'num' }}{{ 'sortable' if col.sort != false }}{{ ' ' ~ col.cls if col.cls }}"{% if col.tip %} data-tip="{{ col.tip|e }}"{% endif %}>{% if col.label_html %}{{ col.label_html|safe }}{% else %}{{ col.label }}{% endif %}</th>{% endfor %}</tr></thead>
+<tbody>
+{% for row in rows %}<tr{{ ' class="extra"' if capd and loop.index > cap }}>{% for col in columns %}{{ _dt_cell(col, row) }}{% endfor %}</tr>
+{% endfor %}
+{% if capd and not groups %}<tr class="more" data-more="▸ Show all {{ rows|length }}" data-less="▾ Show top {{ cap }} only"><td colspan="{{ columns|length }}">▸ Show all {{ rows|length }}</td></tr>{% endif %}
+</tbody>
+</table>
+{% else %}<p class="hint">{{ empty }}</p>{% endif %}
+{%- endmacro %}
+

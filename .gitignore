@@ -1,0 +1,54 @@
+.venv/
+__pycache__/
+.cache/
+.DS_Store
+data.json
+report.html
+# Generated at runtime and full of real names and email addresses. Treat every file in
+# this group as personal data: after a collect run it can hold the identity of everyone
+# in your org. Check `git status` before committing.
+#
+# Worth knowing, because it is the reason this block is so emphatic: people.yaml was
+# TRACKED in an earlier, internal history of this tool, and the app rewrote it at
+# runtime — so a test fixture got committed over it, and was then imported back into the
+# override table as if it were curated data. Nothing reads or writes that file now.
+identity_suggestions.yaml
+other-people.md
+people.yaml
+config.local.yaml
+config-editor.html
+identity-editor.html
+history/people/
+history/config/
+_site/
+.repos/
+.runtime/
+exports/
+.env
+.claude/
+.playwright-mcp/
+# SQLite store lives on the docker bind-mount (persists across restarts).
+history/report.db
+history/report.db-shm
+history/report.db-wal
+
+# Collected aggregates. These were TRACKED internally as a "text backup of the DB" and
+# that was a mistake for a public repo: snapshots.jsonl carries per-company commit / LOC
+# / headcount figures and traffic.jsonl carries private repo names. Both are collected
+# output about your org, not source — back them up outside git.
+history/*.jsonl
+
+# oauth2-proxy break-glass basic-auth (secret) — keep the .example only
+deploy/oauth/htpasswd
+
+# React frontend (frontend/) — Vite build output is baked by the Docker frontend
+# stage, not committed. Keep assets/app/.gitkeep so the dir exists pre-build.
+frontend/node_modules/
+assets/app/*
+!assets/app/.gitkeep
+
+# Screenshot-diff harness (frontend/visual/) — screenshots are generated
+# artifacts, not committed. Keep the scripts + routes manifest + README.
+frontend/visual/baseline/
+frontend/visual/candidate/
+frontend/visual/diff/

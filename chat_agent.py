@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""In-process metrics chat — a Gemini agent grounded in the report's own data.
+
+Answers questions about the report ("why did contribution drop for Insight last
+week?") by letting Gemini call the READ-ONLY tools in ``tooldefs`` (the same
+functions the MCP server exposes) and explaining the numbers it gets back. Every
+figure in an answer comes from a tool result, never from the model's memory.
+
+    GEMINI_API_KEY=…  python chat_agent.py "why did PR merge rate fall in June?"
+    GEMINI_API_KEY=…  python chat_agent.py            # interactive REPL
+
+Model access (env):
+  GEMINI_API_KEY        Google AI Studio key (default path)
+  GEMINI_MODEL          model id (default 'gemini-2.5-flash')
+  GOOGLE_GENAI_USE_VERTEXAI=1 + GOOGLE_CLOUD_PROJECT/LOCATION  → Vertex AI instead
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+import tooldefs
+
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MAX_HOPS = 8                       # safety bound on tool round-trips per turn
+
+_SYSTEM = """You are the Constructor Insight metrics assistant. You explain the \
+contribution/delivery report using ONLY live data fetched through the provided tools.
+
+Hard rules:
+- Every number you state MUST come from a tool result in THIS turn. Never invent,
+  estimate, or recall figures. If a tool didn't return it, say the data isn't available.
+- When you explain what a metric means, cite its definition/formula from
+  metrics_catalog — don't describe metrics from general knowledge.
+- Dates are 'YYYY-MM-DD', UTC. A scope is '<org|element|repo|project>:<target>'
+  (e.g. 'element:Insight'). Discover valid targets with list_dimension. There is NO
+  person scope: 'person:<login>' is invalid and will error. For ONE person use
+  person(login=…) for their profile/all-time dimension, list_items(author=<login>) to
+  count or list their items, or sql_query — never scope=person:…
+- sql_query: call describe_schema() FIRST and use the exact table/column names it
+  returns — do not guess (e.g. the PR table is 'pull_request', not 'pr'). If a query
+  errors, fix it from the schema rather than retrying variants blindly.
+- Prefer trend() for "how did X change over time" and list_items() to show the
+  rows behind a number (each row has a GitHub URL you can cite).
+- Exclude bots/migration rows unless the user asks for them.
+- First person: if the report context carries `asking_as=<login>`, then I/me/my/mine
+  refer to that signed-in person — use that login (e.g. person(login), or list_items
+  author=<login>). If `asking_as` is absent and the question is first-person, ask who
+  they mean rather than guessing.
+- Be concise. Show the concrete numbers, then a short 'why'. Don't dump raw JSON."""
+
+
+def _build_client():
+    """Construct the genai Client from env. Raises RuntimeError (never exits) so the
+    server can turn a missing key into an error event instead of crashing."""
+    from google import genai                       # imported lazily so --help works
+    if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI") in ("1", "true", "True"):
+        return genai.Client(
+            vertexai=True,
+            project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
+        )
+    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        raise RuntimeError("Set GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1 for Vertex).")
+    return genai.Client(api_key=key)
+
+
+def _tools_config():
+    from google.genai import types
+    decls = [types.FunctionDeclaration(**d) for d in tooldefs.declarations()]
+    return types.GenerateContentConfig(
+        system_instruction=_SYSTEM,
+        tools=[types.Tool(function_declarations=decls)],
+        temperature=0,
+    )
+
+
+_NOTOOLS = None
+
+
+def _notools_config():
+    """Config with NO tools — used to force a final text answer when a turn exhausts
+    its tool-call hops without finishing."""
+    global _NOTOOLS
+    if _NOTOOLS is None:
+        from google.genai import types
+        _NOTOOLS = types.GenerateContentConfig(system_instruction=_SYSTEM, temperature=0)
+    return _NOTOOLS
+
+
+# ---- explicit context caching (opt-in) -------------------------------------
+# The stable prefix — system instruction + tool declarations, ~1.7k tokens — is
+# re-sent on every hop of every turn. Caching it explicitly bills those tokens at the
+# cache-read rate instead of full input. It carries a storage cost ($/token/hour), so
+# it only pays off above a traffic threshold — hence opt-in via GEMINI_CACHE_TTL
+# (seconds; unset/0 = off). The cache is keyed by model + a hash of the prefix, so a
+# prompt/tool/model change rebuilds it; creation failure (too small / unsupported)
+# degrades silently to uncached.
+_CACHE = {"name": None, "key": None, "expire": 0.0}
+
+
+def _cache_ttl() -> int:
+    try:
+        return int((os.environ.get("GEMINI_CACHE_TTL") or "").strip() or 0)
+    except ValueError:
+        return 0
+
+
+def _cache_key() -> str:
+    import hashlib
+    blob = MODEL + "\n" + _SYSTEM + "\n" + json.dumps(tooldefs.declarations(), sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def _get_cache(client):
+    """Name of a CachedContent holding the system+tools prefix, or None when caching
+    is off/unavailable. Lazily (re)creates on key change or near expiry."""
+    ttl = _cache_ttl()
+    if ttl <= 0:
+        return None
+    import time
+    from google.genai import types
+    key, now = _cache_key(), time.time()
+    if _CACHE["key"] == key and now < _CACHE["expire"] - 60:
+        return _CACHE["name"]                      # valid, or a cached "None" backoff
+    try:
+        decls = [types.FunctionDeclaration(**d) for d in tooldefs.declarations()]
+        cache = client.caches.create(model=MODEL, config=types.CreateCachedContentConfig(
+            system_instruction=_SYSTEM,
+            tools=[types.Tool(function_declarations=decls)],
+            ttl=f"{ttl}s", display_name="insight-metrics-assistant"))
+        _CACHE.update(name=cache.name, key=key, expire=now + ttl)
+    except Exception:                              # noqa: BLE001 — run uncached, retry in 5m
+        _CACHE.update(name=None, key=key, expire=now + 300)
+    return _CACHE["name"]
+
+
+def _cached_config(name):
+    from google.genai import types
+    # cached_content supplies system_instruction + tools; must NOT repeat them here.
+    return types.GenerateContentConfig(cached_content=name, temperature=0)
+
+
+def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
+        tool_log=None) -> str:
+    """Run one user turn to completion: stream text, execute any tool calls, loop
+    until the model stops calling tools. `contents` is the running conversation
+    (list of types.Content); it is mutated in place so multi-turn REPL keeps history.
+    `on_text(delta)` receives streamed text; `on_tool(names)` is called once per
+    round with the tool names about to run. If `usage_acc` (a dict) is given, token
+    counts are accumulated into it across every model call in the turn. Returns the
+    final answer text."""
+    from google.genai import types
+    answer = []
+    # A fresh cache is valid for its whole TTL (>> a turn), so resolve once per turn;
+    # when set, the config carries only cached_content (system+tools come from cache).
+    cache_name = _get_cache(client)
+    eff_config = _cached_config(cache_name) if cache_name else config
+    for _ in range(MAX_HOPS):
+        calls, text_parts, model_parts, last_um = [], [], [], None
+        for chunk in client.models.generate_content_stream(
+                model=MODEL, contents=contents, config=eff_config):
+            if getattr(chunk, "usage_metadata", None):
+                last_um = chunk.usage_metadata        # cumulative for THIS call
+            for cand in (chunk.candidates or []):
+                for part in (cand.content.parts if cand.content else []):
+                    model_parts.append(part)          # keep raw parts (thought_signature)
+                    if getattr(part, "text", None):
+                        text_parts.append(part.text)
+                        if on_text:
+                            on_text(part.text)
+                    if getattr(part, "function_call", None):
+                        calls.append(part.function_call)
+        if usage_acc is not None and last_um is not None:
+            pin = getattr(last_um, "prompt_token_count", 0) or 0
+            out = (getattr(last_um, "candidates_token_count", 0) or 0) \
+                + (getattr(last_um, "thoughts_token_count", 0) or 0)   # thoughts billed as output
+            cached = getattr(last_um, "cached_content_token_count", 0) or 0
+            usage_acc["input"] = usage_acc.get("input", 0) + pin
+            usage_acc["output"] = usage_acc.get("output", 0) + out
+            usage_acc["cached"] = usage_acc.get("cached", 0) + cached
+            usage_acc["total"] = usage_acc.get("total", 0) \
+                + (getattr(last_um, "total_token_count", 0) or (pin + out))
+        if text_parts:
+            answer.append("".join(text_parts))
+        if not calls:
+            break
+        if on_tool:
+            on_tool([c.name for c in calls])
+        # Record the model's turn using the ORIGINAL parts — Gemini 3 requires the
+        # thought_signature carried on each function_call part to be echoed back, so
+        # rebuilding from bare function_call values fails with 400 INVALID_ARGUMENT.
+        contents.append(types.Content(role="model", parts=model_parts))
+        results = []
+        for c in calls:
+            fn = tooldefs.DISPATCH.get(c.name)
+            args = dict(c.args or {})
+            ok = True
+            try:
+                out = fn(**args) if fn else {"error": f"unknown tool {c.name}"}
+                ok = fn is not None and not (isinstance(out, dict) and "error" in out)
+            except Exception as exc:               # noqa: BLE001 — surface to the model
+                out = {"error": f"{type(exc).__name__}: {exc}"}
+                ok = False
+            if tool_log is not None:
+                tool_log.append({"name": c.name, "args": args, "result": out, "ok": ok})
+            results.append(types.Part.from_function_response(name=c.name, response=out))
+        contents.append(types.Content(role="user", parts=results))
+    else:
+        # Loop ran the full MAX_HOPS without ever finishing (kept calling tools). If no
+        # answer text was produced, force ONE final reply with tools disabled so the
+        # user gets a response instead of an empty/failed turn.
+        if not "".join(answer).strip():
+            try:
+                last_um = None
+                for chunk in client.models.generate_content_stream(
+                        model=MODEL, contents=contents, config=_notools_config()):
+                    if getattr(chunk, "usage_metadata", None):
+                        last_um = chunk.usage_metadata
+                    for cand in (chunk.candidates or []):
+                        for part in (cand.content.parts if cand.content else []):
+                            if getattr(part, "text", None):
+                                answer.append(part.text)
+                                if on_text:
+                                    on_text(part.text)
+                if usage_acc is not None and last_um is not None:
+                    pin = getattr(last_um, "prompt_token_count", 0) or 0
+                    out = (getattr(last_um, "candidates_token_count", 0) or 0) \
+                        + (getattr(last_um, "thoughts_token_count", 0) or 0)
+                    usage_acc["input"] = usage_acc.get("input", 0) + pin
+                    usage_acc["output"] = usage_acc.get("output", 0) + out
+                    usage_acc["cached"] = usage_acc.get("cached", 0) \
+                        + (getattr(last_um, "cached_content_token_count", 0) or 0)
+                    usage_acc["total"] = usage_acc.get("total", 0) \
+                        + (getattr(last_um, "total_token_count", 0) or (pin + out))
+            except Exception:                          # noqa: BLE001 — best-effort finaliser
+                pass
+    return "".join(answer)
+
+
+# ---- server-facing entry point ---------------------------------------------
+_CLIENT = None
+_CONFIG = None
+
+
+def _ensure():
+    """Lazily build and cache the client + tool config (shared across requests)."""
+    global _CLIENT, _CONFIG
+    if _CLIENT is None:
+        client = _build_client()                   # may raise RuntimeError (no key)
+        _CLIENT, _CONFIG = client, _tools_config()
+    return _CLIENT, _CONFIG
+
+
+def _price(name):
+    v = (os.environ.get(name) or "").strip()
+    try:
+        return float(v) if v else None
+    except ValueError:
+        return None
+
+
+def _cost(tokens_in, tokens_out, cached=0):
+    """USD cost from configured per-1M-token prices, or None when unpriced. Prices are
+    model-specific and MUST come from env — never guessed, so cost is exact or absent.
+    `cached` input tokens (served from an explicit cache) are billed at the cache-read
+    rate GEMINI_PRICE_CACHED_PER_M when set; otherwise they fall back to the input
+    rate (no discount assumed). Cache storage ($/token/hour) is a background charge,
+    not folded into per-message cost."""
+    pin, pout = _price("GEMINI_PRICE_IN_PER_M"), _price("GEMINI_PRICE_OUT_PER_M")
+    pcached = _price("GEMINI_PRICE_CACHED_PER_M")
+    if pin is None and pout is None and pcached is None:
+        return None
+    cached = max(0, min(cached, tokens_in))
+    fresh_in = tokens_in - cached
+    return round(fresh_in / 1e6 * (pin or 0)
+                 + cached / 1e6 * (pcached if pcached is not None else (pin or 0))
+                 + tokens_out / 1e6 * (pout or 0), 6)
+
+
+def answer(history, message, on_event) -> dict:
+    """Drive one chat turn for the HTTP endpoint. `history` is a list of
+    {role: 'user'|'assistant'|'model', text: str}; `message` is the new user text,
+    already carrying any server-built context/identity annotations. `on_event(dict)`
+    receives frames: {type:'text', text}, {type:'tool', tools:[…]}, {type:'error',
+    error}, and always a final {type:'done'}. Never raises. Returns a usage dict
+    {tokens_in, tokens_out, tokens, tokens_cached, cost_usd} for server accounting."""
+    from google.genai import types
+
+    acc = {"input": 0, "output": 0, "total": 0, "cached": 0}
+    tool_log = []
+
+    def usage():
+        return {"tokens_in": acc["input"], "tokens_out": acc["output"],
+                "tokens": acc["total"] or (acc["input"] + acc["output"]),
+                "tokens_cached": acc["cached"], "tool_calls": tool_log,
+                "cost_usd": _cost(acc["input"], acc["output"], acc["cached"])}
+
+    try:
+        client, config = _ensure()
+    except Exception as exc:                       # noqa: BLE001 — e.g. missing key
+        _safe(on_event, {"type": "error", "error": str(exc)})
+        _safe(on_event, {"type": "done"})
+        return usage()
+
+    contents = []
+    for h in (history or []):
+        role = "model" if h.get("role") in ("assistant", "model") else "user"
+        contents.append(types.Content(role=role,
+                                       parts=[types.Part(text=str(h.get("text", "")))]))
+    contents.append(types.Content(role="user", parts=[types.Part(text=message)]))
+    try:
+        ask(client, config, contents,
+            on_text=lambda t: on_event({"type": "text", "text": t}),
+            on_tool=lambda names: on_event({"type": "tool", "tools": names}),
+            usage_acc=acc, tool_log=tool_log)
+    except Exception as exc:                        # noqa: BLE001 — incl. broken pipe
+        _safe(on_event, {"type": "error", "error": f"{type(exc).__name__}: {exc}"})
+    finally:
+        _safe(on_event, {"type": "done"})
+    return usage()
+
+
+def _safe(fn, arg) -> None:
+    try:
+        fn(arg)
+    except Exception:                               # noqa: BLE001 — client may be gone
+        pass
+
+
+def main() -> None:
+    from google.genai import types
+    try:
+        client, config = _build_client(), _tools_config()
+    except RuntimeError as exc:
+        sys.exit(str(exc))
+    contents: list = []
+
+    def turn(q: str) -> None:
+        contents.append(types.Content(role="user", parts=[types.Part(text=q)]))
+        ask(client, config, contents, on_text=lambda t: print(t, end="", flush=True))
+        print()
+
+    if len(sys.argv) > 1:
+        turn(" ".join(sys.argv[1:]))
+        return
+    print(f"Metrics chat ({MODEL}). Ask about the report; Ctrl-D to exit.\n")
+    try:
+        while True:
+            q = input("› ").strip()
+            if q:
+                turn(q)
+                print()
+    except (EOFError, KeyboardInterrupt):
+        print()
+
+
+if __name__ == "__main__":
+    main()

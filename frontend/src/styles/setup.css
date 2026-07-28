@@ -1,0 +1,31 @@
+/* Page CSS for the React /setup first-run wizard. Ported from server.SETUP_HTML's
+   style block. That page appends shell.BASE_CSS after its page rules (then a .step
+   override), so base.css WINS every tie: its palette overrides the template's
+   :root (all tokens exist in base), its body wins bg/color/font-family, and its
+   input/.btn/code/a rules win over the template's. So here we add ONLY what base
+   does NOT provide: the box-sizing + [hidden] resets, body margin + 15px/1.55
+   (base sets only font-family), `input{width:100%}` (the one input prop base
+   lacks — border/radius/padding/bg/colour come from base), and the class/id-scoped
+   layout rules. The bare .btn/.btn.primary/.btn:disabled rules are omitted — base
+   provides the box, and BOTH the template's and base's button `font:… inherit`
+   shorthands are INVALID (inherit isn't a valid family) so they're dropped, leaving
+   the buttons on the UA default font (13.33px) exactly as the legacy page computed
+   (verified). code/a are omitted too (base wins those). The .step rule that the
+   legacy page placed AFTER BASE_CSS is kept last here so it still wins. */
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font-size:15px;line-height:1.55}
+.wrap{max-width:720px;margin:0 auto;padding:32px 20px 80px}
+h1{font-size:24px;margin:0 0 4px} .lead{color:var(--mut);margin:0 0 24px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:0 0 16px}
+.step h2{font-size:16px;margin:0 0 4px} .step.done{border-color:var(--good)}
+.snum{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--panel2);
+  color:var(--mut);text-align:center;font-size:12px;font-weight:700;line-height:22px;margin-right:8px}
+.step.done .snum{background:var(--good);color:#fff}
+.hint{color:var(--mut);font-size:13px;margin:4px 0 12px}
+label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+input{width:100%}
+.row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.msg{font-size:13px} .msg.ok{color:var(--good)} .msg.err{color:var(--bad)}
+pre{background:#0d1117;color:#c9d1d9;border-radius:8px;padding:12px;overflow:auto;font-size:12px;max-height:220px}
+.step{border-radius:var(--r-sm);box-shadow:var(--sh)} .step.done{border-color:var(--good)}

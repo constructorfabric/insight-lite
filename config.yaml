@@ -1,0 +1,347 @@
+# Insight — Contribution & Usage Report config
+#
+# This is a working EXAMPLE. Every org, repository, element, company and person
+# below is invented — replace them with your own. The comments explain WHY each
+# knob exists, which is the part worth reading before changing it.
+#
+# Most of this can also be edited from the UI (Manage → Config), which writes to
+# the database rather than to this file, and the database wins. This file is the
+# bootstrap default for a fresh install.
+
+org: your-org                 # primary org: source of CODE/SPEC clones (its git
+                              # history is the superset commits are measured from)
+
+# If your project was migrated between orgs, git history usually travels with it
+# but PRs/issues are GitHub metadata that stay in the OLD org. List old orgs here:
+# PRs/issues/forks/members/identity are collected from ALL of them, while
+# commits/specs come only from the primary org (otherwise you double-count).
+extra_orgs: []
+#   - your-old-org
+
+# Individual external repos (org/name) to include WITHOUT scanning their whole
+# org — e.g. a deployment/packaging repo living in a third-party org. Cloned for
+# commits/LOC and swept for PRs/issues like any other repo.
+extra_repos: []
+#   - some-vendor/your-packaging-repo
+
+# Lookback window in days for "activity" (commits, PRs, issues).
+lookback_days: all     # integer = rolling window in days; "all"/0 = entire history
+
+# ---------------------------------------------------------------------------
+# Repo classification — Lens A (platform vs app)
+#   platform  = the shared framework/platform itself (contributing here = giving back)
+#   app       = products built ON the platform (active here but not on platform =
+#               "using, not giving back")
+#   ignore    = meta/infra repos excluded from the analysis
+# Any repo not listed is auto-classified as the default type (the one marked
+# `default: true` below) and surfaced in the report under "unclassified" so you
+# can move it.
+#
+# repo_types defines the configurable set of types (the "platform vs app" axis,
+# open-ended). Each drives one colour in the report's split. Exactly one type is
+# the default (the fallback for unlisted repos). "ignore" is always available and
+# excludes a repo from the analysis. Add/rename/recolour types here or in the
+# Config editor.
+# ---------------------------------------------------------------------------
+repo_types:
+  - {id: platform, name: Platform, color: "#5b5bf0"}
+  - {id: app, name: App, color: "#8b5cf6", default: true}
+# ---------------------------------------------------------------------------
+repos:
+  platform:
+    - example-core
+    - example-sdk
+    - example-cli
+  app:
+    - example-web
+    - example-api
+    - example-docs
+  ignore:
+    - .github
+    - demo-repository
+    # A bulk migration/sync repo belongs here: cross-org copy commits (100k+ LOC)
+    # inflate contribution and surface phantom authors (accounts that no longer
+    # exist), which is noise rather than work.
+    # - example-migration-sync
+
+# ---------------------------------------------------------------------------
+# Product "Element" grouping (orthogonal to platform/app). Every repo maps to
+# exactly one element: exact names first, then trailing-'*' prefix globs, else
+# `default`. The same map applies to every org (useful when names mirror across
+# a migration). LOC/size are only computable for cloned primary-org repos;
+# old-org repos still roll their PR/people metadata into their element.
+# ---------------------------------------------------------------------------
+elements:
+  Core:
+    - example-core
+    - example-sdk
+  Web:
+    - example-web
+    - example-api
+  Docs:
+    - example-docs
+  Tooling:
+    - example-cli
+  default: Other
+
+# ---------------------------------------------------------------------------
+# LABELS — deliberately NOT configured here.
+# Label -> work-type mapping lives in the DB-backed semantic taxonomy (/semantic,
+# docs/semantic-config.md), which resolves per repo/element/org so one label can
+# mean different things in different scopes. collect.py materializes
+# is_bug/is_feature/is_epic from that ONE resolver and nothing else.
+#
+# A `labels: {bugs: [...], user_stories: [...]}` map used to duplicate it, and the
+# two diverged in silence: a rename of is_user_story -> is_feature in the code left
+# the category key here as `user_stories`, so the collector tested for a category
+# name this file never produced and wrote is_feature=0 on every issue. Invisible,
+# because the resolver overwrote the column right after. Removed rather than
+# renamed — the second source of truth is what hid the bug.
+#
+# (specs are not labels either — they are markdown files, see `specs:` below.)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# SPECS — broad/denylist model.
+# Every markdown file is treated as a spec EXCEPT files that match an exclusion
+# below. This deliberately counts the whole structured-doc corpus (PRD, DESIGN,
+# DECOMPOSITION, FEATURE/feature-*, ADRs, E2E scenarios, plans, docs/**) and
+# drops only boilerplate, tooling/agent files, vendored framework and fixtures.
+# A "spec contribution" = a commit in the window touching such a file,
+# attributed to its GitHub author (deduped by commit sha).
+# ---------------------------------------------------------------------------
+specs:
+  exclude_segments:           # any path segment equal to one of these → not a spec
+    - spec-templates          # templates, not specs
+    - .bootstrap
+    - .core
+    - .cursor
+    - .claude
+    - .windsurf
+    - .github
+    - .agents
+    - .ai
+    - skills                  # agent skill definitions, not specs
+    - agents
+    - prompts                 # prompt corpora
+    - testdata                # test fixtures
+    - fixtures
+    - node_modules
+    - examples
+    - example
+  exclude_basenames:          # filenames that are never specs (case-insensitive)
+    # README IS treated as a spec -> intentionally NOT excluded.
+    - CLAUDE.md               # agent/tooling files, not product specs
+    - AGENTS.md
+    - SKILL.md
+    - SECRETS.md
+    - LICENSE.md
+    - CODE_OF_CONDUCT.md
+  exclude_name_prefixes: []   # filename starts with → not a spec
+
+# ---------------------------------------------------------------------------
+# Meaningful LOC filter.
+# Raw git additions/deletions stay in data.json, but report-facing LOC excludes
+# generated, vendored, dependency, fixture, lockfile, and binary-heavy paths.
+# ---------------------------------------------------------------------------
+meaningful_loc:
+  exclude_segments:
+    - .git
+    - .github
+    - .bootstrap
+    - .core
+    - .cursor
+    - .claude
+    - .windsurf
+    - .agents
+    - .ai
+    - node_modules
+    - vendor
+    - vendors
+    - dist
+    - build
+    - target
+    - generated
+    - gen
+    - fixtures
+    - fixture
+    - testdata
+    - snapshots
+    - snapshot
+  exclude_basenames:
+    - package-lock.json
+    - yarn.lock
+    - pnpm-lock.yaml
+    - Cargo.lock
+    - poetry.lock
+    - uv.lock
+    - go.sum
+  exclude_name_prefixes: []
+  exclude_suffixes:
+    - .lock
+    - .min.js
+    - .min.css
+    - .map
+    - .png
+    - .jpg
+    - .jpeg
+    - .gif
+    - .webp
+    - .svg
+    - .pdf
+    - .zip
+    - .gz
+    - .tar
+
+# ---------------------------------------------------------------------------
+# AI-tool usage markers (commit-message / trailer regexes, case-insensitive).
+# A commit is attributed to a tool if its message matches.
+# This is a FLOOR: only commits that KEPT the marker are counted (stripped
+# markers and private repos are invisible — that would need telemetry).
+# A commit may match several tools.
+# ---------------------------------------------------------------------------
+ai_tools:
+  # each marker: {pattern, precision: exact|heuristic}. exact = authenticated
+  # bot co-author / explicit tool stamp; heuristic = bare word mention. Both
+  # kept and shown side by side, badged in the report.
+  markers:
+    Claude Code: {pattern: '🤖 generated with \[claude code\]', precision: exact}
+    Claude (mention): {pattern: 'claude code', precision: heuristic}
+    Devin: {pattern: 'devin-ai-integration\[bot\]|generated with \[devin\]', precision: exact}
+    Copilot (bot): {pattern: 'copilot autofix|copilot-swe-agent\[bot\]', precision: exact}
+    Copilot (mention): {pattern: 'copilot', precision: heuristic}
+    # Add your own in-house assistant, e.g.:
+    # Your Assistant: {pattern: 'your-assistant\[bot\]', precision: exact}
+
+# ---------------------------------------------------------------------------
+# Provenance scanning — read from FULL repo content (git grep over the
+# default-branch tree), not commit messages. Clones are full (with blobs) so
+# this is exact. Each marker is a `git grep -E` regex; matching files and lines
+# are counted per repo. Snapshot of current content, not windowed.
+#
+# Use this to answer "how much of the codebase carries marker X" — generated
+# code, a spec frontmatter flag, traceability annotations.
+# ---------------------------------------------------------------------------
+studio_provenance:
+  enabled: false
+  # A marker is a regex (string) or {pattern, paths, exclude}. The marker named
+  # by blame_marker is blame-attributed to people/companies (who wrote it).
+  markers:
+    Generated specs:
+      pattern: '^generated: true$'              # spec frontmatter marker
+      paths: ['*.md']
+    Traceability annotations: '@trace-(begin|end)'
+  # which marker's lines get blame-attributed to authors:
+  blame_marker: Traceability annotations
+
+# ---------------------------------------------------------------------------
+# Framework usage — repos/files that DEPEND ON your shared framework (as opposed
+# to the framework's own repos). Scanned from full content like the block above.
+# ---------------------------------------------------------------------------
+gears_usage:
+  enabled: false
+  markers:
+    Frontend framework: '@your-org/(api|framework|i18n|react|state|cli)'
+    Rust crates: 'your-crate-prefix-'
+
+# ---------------------------------------------------------------------------
+# Generic trackers — each is scanned from full content (mode: content via git
+# grep) or by file path (mode: files via ls-tree). Add new ones here without
+# code changes. exclude_repos drops noisy/provider repos (a tool's own repo is
+# the provider of the marker and would always match).
+# ---------------------------------------------------------------------------
+fabric_trackers:
+  exclude_repos: []
+  trackers: {}
+  #  SDLC kit installed:
+  #    markers:
+  #      Kit files:
+  #        pattern: '(^|/)\.bootstrap/|kit-manifest'
+  #        mode: files
+
+# Parallelism for the spec-attribution pass (per-file commits API calls).
+spec_fetch_workers: 8
+
+# Disk-cache TTL for API responses (hours). Re-runs within the TTL hit .cache/
+# instead of the API, so iterating on the tool doesn't burn the rate limit.
+# Set env NO_CACHE=1 to bypass, or delete .cache/ to force-refresh.
+cache_ttl_hours: 24
+
+# Longer TTL for historical windows that cannot change any more.
+historical_cache_ttl_hours: 720
+
+# Give up on a single API call after this long.
+api_max_wait_seconds: 90
+
+# ---------------------------------------------------------------------------
+# Company attribution. Commit-email domain decides affiliation; `overrides` is
+# for people who commit from a personal address, and `default` catches the rest.
+#
+# NOTE: `overrides` maps a GitHub login to a company, i.e. it is personal data.
+# Keep real people OUT of a file you publish — use the UI (Manage → Identity),
+# which stores them in the database, not here.
+# ---------------------------------------------------------------------------
+companies:
+  domains:
+    example.com: Example Inc
+    partner.example: Partner Ltd
+  overrides: {}          # login -> company
+  default: Other
+
+# Identity bridging: map a commit email to the GitHub login it belongs to, for
+# cases automatic matching cannot reach (someone whose corporate commits and
+# GitHub-linked account use different names, and who has no PRs to bridge them).
+# Personal data, same as above — prefer the Identity editor, which keeps these
+# in the database.
+identity_overrides: {}
+#   someone@example.com: their-github-login
+
+# Migration-recreated items: a cross-org migration tool may re-file every original
+# PR as a NEW pr/issue titled "[PR #NNN] <original title>". Those duplicate the
+# originals, so PR/issue counts skip any item whose title starts with one of these.
+migration_title_prefixes:
+  - "[PR #"
+
+# Bot / service accounts to exclude from people metrics (substring match on login).
+# Substring, so "[bot]" catches every GitHub App; add plain-named services by hand.
+bot_logins:
+  - "[bot]"
+  - coderabbitai
+  - dependabot
+  - github-actions
+  - "ci@"
+  # AI agents committing directly. Anchored so they do NOT catch real humans whose
+  # login merely contains the word. AI *usage* stays tracked via the ai_tools
+  # markers on real contributors' commits, not via a bot identity.
+  - "=claude"
+  # automated code-review services that otherwise leak into review stats as people:
+  - qodo-code-review
+  - aikido-pr-checks
+  - copilot-pull-request-reviewer
+  - github-advanced-security
+  - snyk-bot
+  - step-security-bot     # plain "-bot", not "[bot]", so the bracket rule misses it
+  # Careful with this list: an account NAMED like a service can still be a real
+  # person. Verify before adding — a wrongly listed human silently vanishes from
+  # every people metric.
+
+# ---------------------------------------------------------------------------
+# Developer score (experimental) — pillar weights for the per-person compound
+# score on the Person tab. Relative only (the total is normalised at scoring),
+# tunable live in Config. See store.developer_scores().
+# ---------------------------------------------------------------------------
+developer_score_weights:      # normalised at scoring, so these needn't sum to 100
+  engagement: 20        # output + participation (commits/LOC/PRs + reviews/specs)
+  delivery: 25          # time-to-merge, PR size
+  craft: 25             # review rounds, merge rate
+  flow: 35              # timeline forward-flow / friction
+
+# ---------------------------------------------------------------------------
+# Email delivery (sender intentionally stubbed — see email_report.py).
+# Recipients edited here; SMTP creds come from the environment, never this file.
+# ---------------------------------------------------------------------------
+email:
+  enabled: false          # flip to true once SMTP is wired
+  subject: "Insight — weekly contribution & usage report"
+  from_addr: "insight-report@example.com"
+  recipients: []          # e.g. ["team@example.com"]

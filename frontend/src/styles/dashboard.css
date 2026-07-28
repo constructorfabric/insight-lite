@@ -1,0 +1,51 @@
+/* Dashboard VIEW page chrome — the page-specific rules the server render
+   (templates/dashboard.j2's inline <style>) adds ON TOP of base+shell+chart.
+   render_spa_page ships base/shell/chart (inline + via the entry's imports);
+   this file is the byte-for-byte port of dashboard.j2's remaining rules so the
+   React /dashboard/<id> matches the ?legacy=1 baseline (grid, panel cell chrome,
+   the scope/period control row, the h1 size, and the .dp-err tile).
+
+   NOTE: report.css is intentionally NOT imported here — the legacy dashboard
+   page never loaded it either (its .kpi/.dt/.db styling lives in report.j2),
+   so the KPI tiles / data tables render with the same minimal styling on both
+   paths. Adopting the report look is a later step (WS2-T6) that re-baselines. */
+* {
+  box-sizing: border-box;
+}
+main.wrap {
+  padding: 24px 28px 56px;
+}
+@media (max-width: 900px) {
+  main.wrap {
+    padding: 16px;
+  }
+}
+h1 {
+  font-size: 22px;
+  margin: 0 0 8px;
+}
+.ctrls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 14px;
+}
+.cell {
+  grid-column: span var(--w, 2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 12px;
+  min-height: 80px;
+  box-shadow: var(--sh);
+}
+.dp-err {
+  color: var(--bad);
+  font-size: 12px;
+}

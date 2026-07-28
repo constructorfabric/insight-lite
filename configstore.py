@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+"""Server-owned config overlay.
+
+`config.yaml` in the repo is the documented *base* (deployed as code, keeps its
+comments). Portal edits — repo classification (platform/app/ignore), per-repo
+element, new elements, and new orgs/repos — are the ONLY runtime source of truth,
+in the DB `override` table: `load_overlay()` reads them from the DB and
+`apply_overlay()` layers them over the base, keeping the heavily-commented base
+config intact.
+
+There used to be a `config.local.yaml` mirror, written from the DB after every save
+and seeded back into it on first run. Both roles are gone (2026-07-28): the file was
+a projection of these same scopes, so it stored nothing new, and the seed that read
+it back is how a fixture repo classification (`repo/o/lib -> {"classification":
+"sdk"}`, for a repo that does not exist) reached the prod override table.
+
+Overlay shape (all keys optional):
+    repo_class:       {repo_name: platform|app|ignore}
+    repo_element:     {repo_name: ElementName}
+    elements_extra:   [NewElement, ...]         # element names with no repos yet
+    extra_orgs:       [org, ...]                # appended to base extra_orgs
+    extra_repos:      [org/name, ...]           # appended to base extra_repos
+"""
+from __future__ import annotations
+
+import os
+
+import yaml
+
+import paths
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _asset(name: str) -> str:
+    """Raw editor-HTML page from templates/editors/ (extracted from the inline
+    r-strings; consumed via .replace('/*DATA*/', ...))."""
+    with open(os.path.join(ROOT, "templates", "editors", name), encoding="utf-8") as fh:
+        return fh.read()
+
+
+CLASSES = ("platform", "app", "ignore")
+# override scopes the config editor owns — used for its concurrency token.
+# "semantic" holds the scoped taxonomy/flow patches (see semantic.py); it is part
+# of the config editor's domain so its version token covers taxonomy edits too.
+CONFIG_SCOPES = ("repo", "repo_type", "element_extra", "extra_org", "extra_repo",
+                 "company_domain", "setting", "semantic")
+
+
+def load_overlay() -> dict:
+    """Config overlay assembled from the DB override table (source of truth):
+    repo class/element, extra elements, extra orgs/repos, company-domain rules.
+    Returns {} if the store is unavailable (base config.yaml still works)."""
+    try:
+        import store
+        conn = store.connect()
+        repo = store.read_overrides(conn, "repo")
+        elems_extra = list(store.read_overrides(conn, "element_extra").keys())
+        extra_orgs = list(store.read_overrides(conn, "extra_org").keys())
+        extra_repos = list(store.read_overrides(conn, "extra_repo").keys())
+        domains = {k: v.get("company") for k, v in
+                   store.read_overrides(conn, "company_domain").items() if v.get("company")}
+        repo_type_ov = store.read_overrides(conn, "repo_type")
+        settings = store.read_overrides(conn, "setting")
+        conn.close()
+    except Exception:                # noqa: BLE001 — overlay is optional
+        return {}
+    ov: dict = {}
+    if (settings.get("org") or {}).get("value"):
+        ov["org"] = settings["org"]["value"]
+    if (settings.get("lookback_days") or {}).get("value") is not None:
+        ov["lookback_days"] = settings["lookback_days"]["value"]
+    if (settings.get("dev_score_weights") or {}).get("value"):
+        ov["dev_score_weights"] = settings["dev_score_weights"]["value"]
+    rc = {n: v["classification"] for n, v in repo.items() if v.get("classification")}
+    re_ = {n: v["element"] for n, v in repo.items() if v.get("element")}
+    if rc:
+        ov["repo_class"] = rc
+    if re_:
+        ov["repo_element"] = re_
+    if elems_extra:
+        ov["elements_extra"] = elems_extra
+    if extra_orgs:
+        ov["extra_orgs"] = extra_orgs
+    if extra_repos:
+        ov["extra_repos"] = extra_repos
+    if domains:
+        ov["company_domains"] = domains
+    if repo_type_ov:                          # configurable repository types
+        types = [{"id": tid, "name": v.get("name") or tid,
+                  "color": v.get("color"), "default": bool(v.get("default")),
+                  "order": v.get("order", 0)} for tid, v in repo_type_ov.items()]
+        types.sort(key=lambda t: t.get("order", 0))
+        for t in types:
+            t.pop("order", None)
+        ov["repo_types"] = types
+    return ov
+
+
+def apply_overlay(cfg: dict, ov: dict | None = None) -> dict:
+    """Layer the overlay onto a base config dict IN PLACE and return it.
+    Pure and idempotent: same inputs -> same merged config."""
+    ov = ov or {}
+    import collect
+    # overlay-defined repo types (Config editor) win over the base set
+    if ov.get("repo_types"):
+        cfg["repo_types"] = ov["repo_types"]
+    type_ids = [t["id"] for t in collect.repo_types(cfg)]
+    default_type = collect.default_repo_type(cfg)
+    repos = cfg.setdefault("repos", {})
+    for c in type_ids + ["ignore"]:
+        repos.setdefault(c, [])
+
+    # repo classification overrides: move the repo into its type's list. The default
+    # type is the fallback for unlisted repos, so it simply drops from every list.
+    valid = set(type_ids) | {"ignore"}
+    for name, cls in (ov.get("repo_class") or {}).items():
+        for c in list(repos.keys()):
+            if isinstance(repos[c], list) and name in repos[c]:
+                repos[c].remove(name)
+        if cls in valid and cls != default_type:
+            repos.setdefault(cls, []).append(name)
+
+    # element overrides: add the repo as an EXACT match under the chosen element
+    # (exact wins over glob in make_element), removing it from any other bucket.
+    elems = cfg.setdefault("elements", {})
+    for name in (ov.get("elements_extra") or []):
+        elems.setdefault(name, [])
+    for repo, elem in (ov.get("repo_element") or {}).items():
+        for k, lst in elems.items():
+            if k != "default" and isinstance(lst, list) and repo in lst:
+                lst.remove(repo)
+        if elem and elem != "default":
+            elems.setdefault(elem, [])
+            if isinstance(elems[elem], list) and repo not in elems[elem]:
+                elems[elem].append(repo)
+
+    for key in ("extra_orgs", "extra_repos"):
+        base = cfg.setdefault(key, []) or []
+        cfg[key] = base
+        for v in (ov.get(key) or []):
+            if v not in base:
+                base.append(v)
+
+    # company-domain rules layered over the base companies.domains map
+    dom = ov.get("company_domains") or {}
+    if dom:
+        comp = cfg.setdefault("companies", {})
+        comp.setdefault("domains", {}).update(dom)
+
+    # first-run wizard settings: primary org + lookback window
+    if ov.get("org"):
+        cfg["org"] = ov["org"]
+    if ov.get("lookback_days") is not None:
+        cfg["lookback_days"] = ov["lookback_days"]
+
+    # developer-score pillar weights (experimental) — overlay wins per key
+    if ov.get("dev_score_weights"):
+        w = cfg.setdefault("developer_score_weights", {})
+        w.update(ov["dev_score_weights"])
+
+    return cfg
+
+
+def base_config() -> dict:
+    """The base config.yaml WITHOUT the overlay (for computing minimal diffs and
+    showing the documented defaults)."""
+    with open(os.path.join(ROOT, "config.yaml")) as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def editor_data() -> dict:
+    """Everything the /config editor needs: every known repo with its current
+    classification + element, the element vocabulary, and org/repo wiring."""
+    import collect
+    import ghclient
+    import store
+
+    cfg = ghclient.load_config()                 # merged (base + overlay)
+    element_of = collect.make_element(cfg)
+    ov = load_overlay()
+    conn = store.connect()
+    counts = {r["repo"]: r["n"] for r in conn.execute(
+        "SELECT repo, COUNT(*) n FROM commits WHERE is_bot=0 GROUP BY repo")}
+    rows = conn.execute("SELECT key, name, org, classification, element FROM repo "
+                        "ORDER BY name COLLATE NOCASE").fetchall()
+    version = store.overrides_version(conn, CONFIG_SCOPES)
+    conn.close()
+
+    rc_ov = ov.get("repo_class") or {}
+    re_ov = ov.get("repo_element") or {}
+    default_type = collect.default_repo_type(cfg)
+    repos = []
+    for r in rows:
+        name = r["name"]
+        repos.append({
+            "key": r["key"], "name": name, "org": r["org"] or "",
+            "classification": r["classification"] or _norm_cls(collect.classify(name, cfg), default_type),
+            "element": r["element"] or element_of(name),
+            "commits": counts.get(r["key"], 0),
+            "class_overridden": name in rc_ov,
+            "element_overridden": name in re_ov,
+        })
+
+    elems = cfg.get("elements", {}) or {}
+    element_names = sorted({k for k in elems if k != "default"} | {"Other"})
+
+    # company-domain rules: base config.yaml defaults + DB overrides, tagged by source
+    base = base_config()
+    base_domains = (base.get("companies") or {}).get("domains") or {}
+    ov_domains = ov.get("company_domains") or {}
+    domains = []
+    for d in sorted(set(base_domains) | set(ov_domains)):
+        domains.append({"domain": d, "company": ov_domains.get(d, base_domains.get(d)),
+                        "source": "override" if d in ov_domains else "base"})
+    companies = sorted({v["company"] for v in domains}
+                       | {"Constructor", "Example Inc", "Partner Ltd", "Other"})
+    return {
+        "repos": repos,
+        "repo_types": collect.repo_types(cfg),
+        "default_type": default_type,
+        "classes": list(CLASSES),
+        "elements": element_names,
+        "elements_extra": list(ov.get("elements_extra") or []),
+        "org": cfg.get("org", ""),
+        "extra_orgs": list(cfg.get("extra_orgs") or []),
+        "extra_repos": list(cfg.get("extra_repos") or []),
+        "domains": domains,
+        "companies": companies,
+        "version": version,
+    }
+
+
+def _norm_cls(cls: str, default_type: str = "app") -> str:
+    return default_type if cls == "unclassified" else cls
+
+
+def overlay_from_post(payload: dict) -> dict:
+    """Turn the editor's full selection into a MINIMAL overlay: only repos whose
+    class/element differ from the base config are stored, so the overlay stays a
+    small, readable diff (and base changes still flow through). Repository type
+    definitions (repo_types) are stored in full — they're small and user-owned."""
+    import collect
+
+    base = base_config()
+    # repo types the editor is saving define the valid type ids + base default
+    post_types = payload.get("repo_types")
+    valid_ids = ({t["id"] for t in post_types if t.get("id")} if post_types
+                 else {t["id"] for t in collect.repo_types(base)})
+    base_default = collect.default_repo_type({**base, **({"repo_types": post_types} if post_types else {})})
+    base_elem = collect.make_element(base)
+    rc, re_ = {}, {}
+    for name, cls in (payload.get("repo_class") or {}).items():
+        if (cls in valid_ids or cls == "ignore") and \
+                cls != _norm_cls(collect.classify(name, base), base_default):
+            rc[name] = cls
+    for name, elem in (payload.get("repo_element") or {}).items():
+        if elem and elem != base_elem(name):
+            re_[name] = elem
+    ov = {}
+    if rc:
+        ov["repo_class"] = rc
+    if re_:
+        ov["repo_element"] = re_
+    extra_elems = [e for e in (payload.get("elements_extra") or []) if e and e != "default"]
+    if extra_elems:
+        ov["elements_extra"] = sorted(set(extra_elems))
+    # org/repo additions are preserved from whatever the overlay already had plus
+    # any the editor kept in its lists beyond the base
+    base_orgs = set(base.get("extra_orgs") or [])
+    base_repos = set(base.get("extra_repos") or [])
+    add_orgs = sorted({o for o in (payload.get("extra_orgs") or []) if o and o not in base_orgs})
+    add_repos = sorted({r for r in (payload.get("extra_repos") or []) if r and r not in base_repos})
+    if add_orgs:
+        ov["extra_orgs"] = add_orgs
+    if add_repos:
+        ov["extra_repos"] = add_repos
+    # company-domain rules: store only those that differ from the base map
+    base_dom = (base.get("companies") or {}).get("domains") or {}
+    dom = {}
+    for d, c in (payload.get("company_domains") or {}).items():
+        d = (d or "").strip().lower()
+        c = (c or "").strip()
+        if d and c and base_dom.get(d) != c:
+            dom[d] = c
+    if dom:
+        ov["company_domains"] = dom
+    # repository types: stored in full only when they differ from the built-in defaults
+    if post_types and post_types != collect.repo_types(base):
+        clean = []
+        for t in post_types:
+            if t.get("id"):
+                clean.append({"id": t["id"], "name": t.get("name") or t["id"],
+                              "color": t.get("color"), "default": bool(t.get("default"))})
+        if clean and not any(t.get("default") for t in clean):
+            clean[-1]["default"] = True         # always have exactly one fallback type
+        if clean:
+            ov["repo_types"] = clean
+    # NOTE: developer-score pillar weights are NOT handled here. They're owned by
+    # the Calibrate page (save_score_weights) and live independently in the setting
+    # scope, so a Config save never touches — or silently wipes — them.
+    return ov
+
+
+def render_page(active: str = "config") -> str:
+    """Render the config editor live from the current DB config. This is what the
+    portal serves at /config — no baked file, so it always reflects the latest
+    overrides, concurrency token, and shared sidebar."""
+    return render_editor_html(editor_data())
+
+
+def refresh_editor() -> str:
+    """(Re)write config-editor.html from the current data + config — the only file
+    this module writes. Returns the path written."""
+    path = str(paths.data_path("config-editor.html"))
+    with open(path, "w") as fh:
+        fh.write(render_page())
+    return path
+
+
+def render_editor_html(data: dict) -> str:
+    import json
+    import shell
+    blob = (json.dumps(data).replace("</", "<\\/")
+            .replace(" ", "\\u2028").replace(" ", "\\u2029"))
+    return (CONFIG_EDITOR_HTML.replace("/*DATA*/", blob)
+            .replace("/*SHELL_CSS*/", shell.SHELL_CSS)
+            .replace("</style>", shell.BASE_CSS + "</style>", 1)
+            .replace("<!--SIDEBAR-->", shell.sidebar_html("config")))
+
+
+def save_overlay(ov: dict) -> None:
+    """Persist a config overlay into the DB override table — the only place it lives
+    (atomic per scope). Only the config-editor scopes are touched (repo class/element,
+    extra elements, extra orgs/repos) — company_domain / person overrides are owned
+    elsewhere and are NOT wiped here."""
+    import store
+    conn = store.connect()
+    try:
+        repo: dict = {}
+        for n, c in (ov.get("repo_class") or {}).items():
+            repo.setdefault(n, {})["classification"] = c
+        for n, e in (ov.get("repo_element") or {}).items():
+            repo.setdefault(n, {})["element"] = e
+        store.replace_overrides(conn, "repo", repo)
+        rt = {}
+        for i, t in enumerate(ov.get("repo_types") or []):
+            if t.get("id"):
+                rt[t["id"]] = {"name": t.get("name") or t["id"], "color": t.get("color"),
+                               "default": bool(t.get("default")), "order": i}
+        store.replace_overrides(conn, "repo_type", rt)
+        store.replace_overrides(conn, "element_extra", {n: {} for n in (ov.get("elements_extra") or [])})
+        store.replace_overrides(conn, "extra_org", {o: {} for o in (ov.get("extra_orgs") or [])})
+        store.replace_overrides(conn, "extra_repo", {r: {} for r in (ov.get("extra_repos") or [])})
+        store.replace_overrides(conn, "company_domain",
+                                {d: {"company": c} for d, c in (ov.get("company_domains") or {}).items()})
+        # developer-score weights are owned by the Calibrate page (save_score_weights)
+        # and are deliberately NOT written or cleared here — a Config save leaves the
+        # `setting/dev_score_weights` override exactly as it was.
+    finally:
+        conn.close()
+
+
+def save_score_weights(weights: dict) -> dict:
+    """Persist the developer-score pillar weights (Calibrate page). Owned here,
+    independent of the big config overlay: coerces the four pillars to non-negative
+    integers and upserts the single `setting/dev_score_weights` override. When the
+    values are all back at the base defaults the override is cleared instead of
+    pinned, so "reset to defaults" truly resets. Returns the effective weights."""
+    import store
+    defaults = store._SCORE_WEIGHTS
+    w = {}
+    for k in ("engagement", "delivery", "craft", "flow"):
+        if k in (weights or {}):
+            try:
+                w[k] = max(0, round(float(weights[k])))
+            except (TypeError, ValueError):
+                pass
+    if sum(w.values()) <= 0:
+        raise ValueError("weights must include at least one positive pillar")
+    conn = store.connect()
+    try:
+        if all(w.get(k) == defaults[k] for k in defaults):
+            store.delete_override(conn, "setting", "dev_score_weights")
+        else:
+            store.write_override(conn, "setting", "dev_score_weights", {"value": w})
+    finally:
+        conn.close()
+    return store._score_weights()
+
+
+CONFIG_EDITOR_HTML = _asset("config.html")

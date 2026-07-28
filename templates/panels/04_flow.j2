@@ -1,0 +1,94 @@
+{# Flow tab: explains "friction" and reports the timeline-derived flow metrics
+   (reopen / back-to-draft / re-review rates + lifecycle cycle-times + per person). #}
+{% macro fcolor(v) %}{{ '#10b981' if v < 0.5 else ('#f59e0b' if v < 1.5 else '#ef4444') }}{% endmacro %}
+{% macro panel_flow(pr) %}
+{% set f = pr.flow or {} %}
+{% if not f.has_data %}
+<p class="hint">No lifecycle timeline events collected yet. Run a collection to backfill issue/PR
+  timeline events (reopens, back-to-draft, review requests) — Flow metrics appear here once they land.</p>
+{% else %}
+<div class="card flow-explain">
+  <h3>What “friction” means</h3>
+  <p>Friction scores how much <b>rework and churn</b> a person's work items pick up on the way to done —
+    higher means more items bounced backward instead of flowing forward. For every issue or PR they own:</p>
+  <p class="flow-formula"><b>friction / item</b> = 2 × (back-to-draft + reopened) + extra review requests + reassignments</p>
+  <ul>
+    <li><b>back to draft</b> — a PR marked ready, then pulled back to draft (weight&nbsp;×2)</li>
+    <li><b>reopened</b> — an issue or PR closed, then reopened (weight&nbsp;×2)</li>
+    <li><b>extra review requests</b> — review re-requested on the same PR (beyond the first ask)</li>
+    <li><b>reassignments</b> — ownership handed on after the first assignee</li>
+  </ul>
+  <p class="mut" style="margin-bottom:0">Lower is smoother — it's the <b>Flow</b> pillar of the <a href="#person">Developer&nbsp;score</a>.
+    Worked example: a PR reopened once and re-reviewed twice&nbsp;= 2×1&nbsp;+&nbsp;1&nbsp;= <b>3</b> friction on that item.
+    All timing below comes from real lifecycle events, not board-column dwell (GitHub keeps no status-change history).</p>
+</div>
+
+<h3 class="sub">Flow health <span class="mut">— {{ f.n_items|num }} items created in this period · {{ f.n_prs|num }} PRs, {{ f.n_issues|num }} issues</span></h3>
+<div class="flow-cards">
+  <div class="fcard"><div class="fc-n">{{ f.cr_rate|pct }}%</div><div class="fc-l">sent back for changes</div><div class="fc-s">{{ f.cr_prs|num }} PRs · {{ f.cr_rounds|num }} rework rounds</div></div>
+  <div class="fcard"><div class="fc-n">{{ f.reopen_rate|pct }}%</div><div class="fc-l">reopened</div><div class="fc-s">{{ f.reopened_n|num }} items came back</div></div>
+  <div class="fcard"><div class="fc-n">{{ f.bounce_rate|pct }}%</div><div class="fc-l">back to draft</div><div class="fc-s">{{ f.bounced_n|num }} PRs pulled back</div></div>
+  <div class="fcard"><div class="fc-n">{{ f.rereq_rate|pct }}%</div><div class="fc-l">re-reviewed</div><div class="fc-s">{{ f.rereq_n|num }} PRs asked again</div></div>
+</div>
+<p class="conc" style="margin-top:8px"><b>Rework rounds</b> = the number of times a reviewer explicitly submitted a
+  “changes requested” review — the closest proxy we have to review→fix cycles (we don't yet track the exact
+  comment↔push cadence). A plain comment or an approval does not count.</p>
+
+<h3 class="sub">Cycle-time <span class="mut">— median lifecycle segments</span></h3>
+{% set cy = f.cycle %}
+{% set segs = [('ttfr','Open → first review','how fast work enters review'),
+               ('review_to_merge','Review → merge','the review-and-land leg'),
+               ('ttm','Open → merge','total PR lead time'),
+               ('draft_to_ready','Draft → ready','time spent in draft'),
+               ('ttc','Open → close','issue resolution time')] %}
+<div class="flow-cards">
+  {% for key,label,sub in segs %}{% set c = cy[key] %}{% if c.h is not none %}
+  <div class="fcard"><div class="fc-n">{{ c.h|hours }}</div><div class="fc-l">{{ label }}</div><div class="fc-s">{{ sub }} · n={{ c.n|num }}</div></div>
+  {% endif %}{% endfor %}
+</div>
+
+<h3 class="sub">By person <span class="mut">— owners with ≥{{ f.min_items }} items this period, most friction first</span></h3>
+{% if f.people %}
+<div class="card flow-tbl" style="overflow-x:auto">
+<table class="grouped">
+  <thead><tr>
+    <th>Person</th><th data-tip="Issues + PRs this person owns that were created in the period">Items</th>
+    <th data-tip="2×(back-to-draft + reopened) + review-request &amp; assignment churn, per owned item. Click to see the items.">Friction / item</th>
+    <th data-tip="Share of this person's items reopened at least once">Reopened</th>
+    <th data-tip="Share of this person's PRs sent back to draft at least once">Back to draft</th>
+    <th data-tip="Rework rounds — the count of CHANGES_REQUESTED reviews across their PRs. One PR can be sent back more than once, so this can exceed the number of PRs.">Rework rounds</th>
+    <th data-tip="Count of extra review requests across their PRs">Extra reviews</th>
+    <th data-tip="Median open→merge for this person's merged PRs">Med lead</th>
+    <th data-tip="Median open→first-review-request for this person's PRs">Med to review</th>
+  </tr></thead>
+  <tbody>
+  {% for r in f.people %}
+  <tr>
+    <td>{{ gh(r.login) }}</td>
+    <td>{{ r['items']|num }}</td>
+    <td class="fr">{% if r.friction is not none %}<span class="dr" data-drill="flowitems" data-author="{{ r.login }}" data-scope="none" style="color:{{ fcolor(r.friction) }}">{{ r.friction }}</span>{% else %}<span class="mut">—</span>{% endif %}</td>
+    <td>{{ r.reopen_pct }}%</td>
+    <td>{{ r.bounce_pct }}%</td>
+    <td data-tip="{{ r.cr_rounds }} rework round(s) across {{ r.cr_prs }} PR(s) — a PR can be sent back more than once">{{ r.cr_rounds|num }}</td>
+    <td>{{ r.extra_reqs|num }}</td>
+    <td>{% if r.ttm_med is not none %}{{ r.ttm_med|hours }}{% else %}<span class="mut">—</span>{% endif %}</td>
+    <td>{% if r.ttfr_med is not none %}{{ r.ttfr_med|hours }}{% else %}<span class="mut">—</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="conc">Friction/item matches the <b>Flow</b> pillar on each person's score. “Med lead” and “Med to review” are
+  medians over items created in this period; “—” means too few data points to be meaningful.</p>
+{% else %}<p class="hint">No owner has ≥{{ f.min_items }} items with lifecycle events in this period yet.</p>{% endif %}
+{% endif %}
+
+<h3 class="sub" style="margin-top:24px">Board movement <span class="mut">— how work moves through the stages over time</span></h3>
+<div class="dsub">Cumulative flow over time</div>
+<div class="card">{{ panel_cfd(f.cfd) }}</div>
+<div class="dsub" style="margin-top:14px">Time in stage <span class="alltime-tag">between statuses</span></div>
+<div class="card">{{ panel_dwell(f.dwell) }}</div>
+<div class="dsub" style="margin-top:14px">Returned to dev from testing <span class="alltime-tag">QA → dev</span></div>
+<div class="card">{{ panel_rewinds(f.rewinds) }}</div>
+{% endmacro %}
+

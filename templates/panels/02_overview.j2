@@ -1,0 +1,394 @@
+{% macro panel_kpis(pr) %}
+{% set dl = pr.deltas or {} %}{% set sp = pr.spark or {} %}
+<div class="kpis">
+  {{ kpi_tile(pr.totals.commits|num, 'commits', 'vs prev period' if dl.commits else 'in period', icon='commit', delta=dl.commits, spark=sp.commits_pts, spark_color='var(--c-commit)', drill={'drill':'commit'}) }}
+  {{ kpi_tile(pr.totals.get('meaningful_additions', pr.loc_added_h)|compact, 'meaningful LOC', pr.loc_added_h ~ ' · code volume', icon='loc', delta=dl.meaningful_additions, spark=sp.loc_pts, spark_color='var(--c-loc)', drill={'drill':'commit'}, tip=pr.loc_added_h ~ ' meaningful lines added') }}
+  {{ kpi_tile(pr.totals.prs|num, 'PRs opened', (pr.totals.prs_merged|num) ~ ' merged', icon='pr', delta=dl.prs, spark=sp.prs_pts, spark_color='var(--c-pr)', drill={'drill':'pr'}) }}
+  {{ kpi_tile(pr.totals.specs|num, 'spec edits', 'commits to spec docs', icon='spec', delta=dl.specs, spark=sp.specs_pts, spark_color='var(--c-spec)', drill={'drill':'commit','flag':'is_spec'}) }}
+  {{ kpi_tile(pr.totals.bugs|num, 'bugs opened', 'issues categorised as bug', icon='bug', delta=dl.bugs, spark=sp.bugs_pts, spark_color='var(--c-bug)', drill={'drill':'issue','flag':'is_bug'}) }}
+  {{ kpi_tile(pr.totals.get('epics', 0)|num, 'epics opened', 'issues categorised as epic', icon='epic', delta=dl.epics, spark=sp.epics_pts, spark_color='var(--c-epic)', drill={'drill':'issue','flag':'is_epic'}) }}
+  {{ kpi_tile(pr.totals.features|num, 'features opened', 'issues categorised as feature', icon='feature', delta=dl.features, spark=sp.features_pts, spark_color='var(--c-feature)', drill={'drill':'issue','flag':'is_feature'}) }}
+  {{ kpi_tile(pr.totals.people|num, 'active people', 'in period', icon='people', delta=dl.people, spark=sp.people_pts, spark_color='var(--c-people)', drill=({'drill':'people'} if pr.totals.people else none)) }}
+</div>
+{% endmacro %}
+
+{% macro panel_companies(pr) %}
+<div class="split">
+  {% for c in pr.company_rows %}{% if c.pct > 0 %}<i style="width:{{ c.pct|pct }}%;background:{{c.color}}" data-tip="{{c.company}}: {{ c.commits|num }} commits ({{ c.pct|pct }}%)">{{ c.pct if c.pct >= 7 else "" }}</i>{% endif %}{% endfor %}
+</div>
+{% set COMPANY_COLS = [
+  {'label':'Company', 'kind':'text', 'key':'company', 'swatch':'dot', 'color_key':'color'},
+  {'label':'People', 'key':'people', 'drill':{'drill':'people','company':'@company'}, 'drill_if':'people'},
+  {'label':'Commits', 'key':'commits', 'drill':{'drill':'commit','company':'@company'}},
+  {'label':'Commit %', 'tip':'Share of total commits', 'kind':'bar', 'width_key':'pct'},
+  {'label':'AI%', 'tip':"Share of this company's commits carrying an AI-tool marker (floor)",
+   'kind':'heatmap', 'key':'ai_pct', 'alpha_key':'ai_pct',
+   'drill':{'drill':'commit','company':'@company','flag':'ai_marked'}, 'drill_if':'ai_commits',
+   'celltip':{'key':'ai_commits','fmt':'num','suffix':' commits with an AI-tool marker'}},
+  {'label':'Meaningful LOC +', 'kind':'loc', 'key':'meaningful_additions', 'drill':{'drill':'commit','company':'@company'}},
+  {'label':'LOC %', 'tip':'Share of total meaningful LOC added', 'kind':'bar', 'width_key':'loc_pct'},
+  {'label':'Specs', 'key':'specs', 'drill':{'drill':'commit','company':'@company','flag':'is_spec'}},
+  {'label':'Bugs', 'key':'bugs', 'drill':{'drill':'issue','company':'@company','flag':'is_bug'}},
+  {'label':'Epics', 'key':'epics', 'drill':{'drill':'issue','company':'@company','flag':'is_epic'}},
+  {'label':'Features', 'key':'features', 'drill':{'drill':'issue','company':'@company','flag':'is_feature'}},
+  {'label':'PRs', 'key':'prs', 'drill':{'drill':'pr','company':'@company'}},
+] %}
+<div class="card" style="overflow-x:auto;border:none;padding:0;margin-top:12px">{{ data_table(COMPANY_COLS, pr.company_rows) }}</div>
+{% endmacro %}
+
+{% macro panel_categories(pr) %}
+<div class="grid2">
+  {% set CATDRILL = {'code_loc':('commit',''), 'specs':('commit','is_spec'), 'bugs':('issue','is_bug'), 'epics':('issue','is_epic'), 'features':('issue','is_feature')} %}
+  {% for cat in pr.categories %}
+  {% set dd = CATDRILL.get(cat.key) %}
+  <div class="card">
+    <h3>{{cat.title}} <span class="tag">{{ (cat.total|loc) if cat.key == 'code_loc' else (cat.total|num) }} {{cat.unit}}</span></h3>
+    {% if cat.rows %}<div class="conc">Top-3 = <b>{{ cat.top3|pct }}%</b> · <b>{{cat.n80}}</b> {{ "person" if cat.n80 == 1 else "people" }} cover 80%</div>{% endif %}
+    {% for r in cat.rows[:8] %}
+    <div class="row"><div class="nm" data-tip="{{ emails_by_login.get(r.login,'') }}">{{ gh(r.login) }}</div>
+      <div class="bb"><div class="bar"><i style="width:{{ r.pct|pct }}%;background:var(--acc)"></i></div></div>
+      <div class="vv">{{ r.pct|pct }}% · {% if dd %}<span class="dr" data-drill="{{dd[0]}}" data-author="{{r.login}}"{% if dd[1] %} data-flag="{{dd[1]}}"{% endif %}>{{ (r.value|loc) if cat.key == 'code_loc' else (r.value|num) }}</span>{% else %}{{ (r.value|loc) if cat.key == 'code_loc' else (r.value|num) }}{% endif %}</div></div>
+    {% endfor %}
+    {% if cat.tail_n %}
+    <div class="row more-row" data-more="▸ + {{cat.tail_n}} more" data-less="▾ hide {{cat.tail_n}}">
+      <div class="nm">▸ + {{cat.tail_n}} more</div>
+      <div class="bb"><div class="bar"><i style="width:{{ cat.tail_pct|pct }}%;background:var(--mut)"></i></div></div>
+      <div class="vv">{{ cat.tail_pct|pct }}% · {{ (cat.tail_value|loc) if cat.key == 'code_loc' else (cat.tail_value|num) }}</div></div>
+    <div class="more-tail" hidden>
+      {% for r in cat.rows[8:] %}
+      <div class="row"><div class="nm" data-tip="{{ emails_by_login.get(r.login,'') }}">{{ gh(r.login) }}</div>
+        <div class="bb"><div class="bar"><i style="width:{{ r.pct|pct }}%;background:var(--acc)"></i></div></div>
+        <div class="vv">{{ r.pct|pct }}% · {% if dd %}<span class="dr" data-drill="{{dd[0]}}" data-author="{{r.login}}"{% if dd[1] %} data-flag="{{dd[1]}}"{% endif %}>{{ (r.value|loc) if cat.key == 'code_loc' else (r.value|num) }}</span>{% else %}{{ (r.value|loc) if cat.key == 'code_loc' else (r.value|num) }}{% endif %}</div></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if not cat.rows %}<p class="hint">No activity in this period.</p>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro panel_worktype(pr) %}
+{% set types = pr.commit_types %}
+{% set tot = types|sum(attribute='count') %}
+{% if tot %}
+<div class="cmix-bar wtbar" role="img" aria-label="work-type composition">
+  {% for t in types %}{% if t.count %}<i style="width:{{ (100*t.count/tot)|round(3) }}%;background:{{ wtcolor(t.type) }}" data-drill="commit" data-commit-type="{{t.type}}" data-tip="{{t.type}}: {{ t.count|num }} ({{ t.pct|pct }}%)"></i>{% endif %}{% endfor %}
+</div>
+<div class="wtlist">
+{% for t in types %}
+<div class="row" data-drill="commit" data-commit-type="{{t.type}}" data-tip="drill the {{t.type}} commits">
+  <div class="nm"><span class="wtsw" style="background:{{ wtcolor(t.type) }}"></span>{{t.type}}</div>
+  <div class="bb"><div class="bar"><i style="width:{{ t.pct|pct }}%;background:{{ wtcolor(t.type) }}"></i></div></div>
+  <div class="vv">{{ t.pct|pct }}% · {{ t.count|num }}</div></div>
+{% endfor %}
+</div>
+{% set wb = pr.worktype_break %}
+{% if wb and (wb.by_company or wb.by_repo) %}
+<details class="repo-details">
+<summary>Breakdown by company &amp; by repo</summary>
+{% if wb.by_company %}
+<h3 style="margin-top:12px">By company</h3>
+<div style="overflow-x:auto"><table class="dt">
+  <tr><th class="sortable">Company</th>{% for c in wb.type_cols %}<th class="sortable">{{c}}</th>{% endfor %}<th class="sortable">total</th></tr>
+  {% for row in wb.by_company %}
+  <tr><td data-sort="{{row.company|e}}">{{row.company}}</td>{% for c in wb.type_cols %}{% set n = row.types.get(c, 0) %}<td data-sort="{{n}}"{% if n %} data-drill="commit" data-commit-type="{{c}}" data-company="{{row.company|e}}" data-tip="{{c}} commits by {{row.company}}"{% endif %}>{{ n }}</td>{% endfor %}<td data-sort="{{row.total}}"{% if row.total %} data-drill="commit" data-company="{{row.company|e}}" data-tip="all {{row.company}} commits"{% endif %}><b>{{row.total}}</b></td></tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+{% if wb.by_repo %}
+<h3 style="margin-top:16px">By repo</h3>
+<div style="overflow-x:auto"><table class="dt{% if wb.by_repo|length > 25 %} capped{% endif %}">
+  <tr><th class="sortable">Repo</th>{% for c in wb.type_cols %}<th class="sortable">{{c}}</th>{% endfor %}<th class="sortable">total</th></tr>
+  {% for row in wb.by_repo %}
+  <tr{% if loop.index > 25 %} class="extra"{% endif %}><td data-sort="{{row.repo|e}}">{{row.repo}}{% if row.legacy %}<span class="tag legacy" data-tip="Exists only in the legacy org — never migrated to the primary org">legacy-only</span>{% endif %}</td>{% for c in wb.type_cols %}{% set n = row.types.get(c, 0) %}<td data-sort="{{n}}"{% if n %} data-drill="commit" data-commit-type="{{c}}" data-scope="repo:{{row.key|e}}" data-tip="{{c}} commits in {{row.repo}}"{% endif %}>{{ n }}</td>{% endfor %}<td data-sort="{{row.total}}"{% if row.total %} data-drill="commit" data-scope="repo:{{row.key|e}}" data-tip="all commits in {{row.repo}}"{% endif %}><b>{{row.total}}</b></td></tr>
+  {% endfor %}
+  {% if wb.by_repo|length > 25 %}<tr class="more" data-more="▸ Show all {{wb.by_repo|length}} repos" data-less="▾ Show top 25 only"><td colspan="{{ wb.type_cols|length + 2 }}">▸ Show all {{wb.by_repo|length}} repos</td></tr>{% endif %}
+</table></div>
+{% endif %}
+</details>
+{% endif %}
+{% else %}<p class="conc">No commits in this period.</p>{% endif %}
+{% endmacro %}
+
+{% macro panel_commitmix(pr) %}
+{% set m = pr.commit_mix %}
+{% if m.total %}
+<div class="cmix">
+  <div class="cmix-bar" role="img" aria-label="commit mix: {{ m.pct_code|pct }}% code, {{ m.pct_specs|pct }}% specs">
+    {% if m.code %}<i style="width:{{ m.pct_code }}%;background:var(--acc)"{% if m.code %} data-drill="commit" data-spec="0" data-tip="code: {{ m.code|num }} commits"{% endif %}></i>{% endif %}
+    {% if m.specs %}<i style="width:{{ m.pct_specs }}%;background:var(--app)" data-drill="commit" data-spec="1" data-tip="specs: {{ m.specs|num }} commits"></i>{% endif %}
+  </div>
+  <div class="cmix-stats">
+    <div class="cmix-stat"{% if m.code %} data-drill="commit" data-spec="0"{% endif %}>
+      <span class="sw" style="background:var(--acc)"></span>
+      <span class="cmix-pct num">{{ m.pct_code|pct }}%</span>
+      <span class="cmix-lbl">code</span>
+      <span class="cmix-cnt num">{{ m.code|num }} commits</span>
+    </div>
+    <div class="cmix-stat"{% if m.specs %} data-drill="commit" data-spec="1"{% endif %}>
+      <span class="sw" style="background:var(--app)"></span>
+      <span class="cmix-pct num">{{ m.pct_specs|pct }}%</span>
+      <span class="cmix-lbl">specs</span>
+      <span class="cmix-cnt num">{{ m.specs|num }} commits</span>
+    </div>
+  </div>
+  <p class="cmix-note">Of {{ m.total|num }} commits in the window, one counts as
+    <b style="color:var(--app)">specs</b> when it touches a spec doc (PRD/DESIGN/ADR/README…),
+    otherwise <b style="color:var(--acc)">code</b>.</p>
+</div>
+{% else %}<p class="hint">Nothing in the selected period.</p>{% endif %}
+{% endmacro %}
+
+{% macro panel_score(pr) %}
+{% set s = pr.score %}
+{% if s and s.n %}
+{% set active = s.active_pillars or ['engagement','delivery','craft','flow'] %}
+{% set pcolor = {'engagement':'#5b5bf0','delivery':'#06b6d4','craft':'#10b981','flow':'#f59e0b'} %}
+{% set plabels = {'engagement':'Engagement','delivery':'Delivery','craft':'Craft','flow':'Flow'} %}
+{% set bandcol = {'Strong':'#10b981','Solid':'#2f80ed','Developing':'#f59e0b','Building':'#ef4444'} %}
+{# band distribution → segbar component (with legend) #}
+{% set band_segs = [] %}{% for b in s.bands %}{% set _ = band_segs.append({'value': b.n, 'color': bandcol[b.band], 'label': b.band}) %}{% endfor %}
+{# top leaders → data_table; the make-up cell is a segbar rendered to HTML #}
+{% set top_rows = [] %}
+{% for r in s.top %}
+  {%- set comp %}{% set cs = [] %}{% for k in ['engagement','delivery','craft','flow'] if k in active and r.contributions.get(k) %}{% set _ = cs.append({'value': r.contributions.get(k), 'color': pcolor[k], 'label': plabels[k]}) %}{% endfor %}{{ segbar(cs, height=12) }}{% endset -%}
+  {%- set nm %}<a class="gh" href="#person" data-person="{{ r.login|e }}">{{ r.name|e }}</a>{% endset -%}
+  {% set _ = top_rows.append({'rank': r.rank, 'name_html': nm, 'comp': comp, 'score': r.score}) %}
+{% endfor %}
+{# by-company → data_table with an in-cell bar (median 0-100 drives the fill) #}
+{% set company_rows = [] %}{% for c in s.by_company %}{% set _ = company_rows.append({'company': c.company, 'median': c.median, 'median_pct': c.median, 'n': c.n}) %}{% endfor %}
+<div class="card scorecard">
+  <p class="eyebrow">Experimental</p>
+  <h2>Developer score — team</h2>
+  <p class="h-sub">{{ s.n }} people scored · org-relative composite (median {{ s.median }}). Open any name for the full breakdown on their Person page.</p>
+  {{ segbar(band_segs, height=16, legend=true) }}
+  <div class="sc-grid">
+    <div>
+      <div class="sc-h">Top {{ s.top|length }} by score</div>
+      {{ data_table([
+        {'label':'#','key':'rank','align':'num','sort':false},
+        {'label':'Person','kind':'html','key':'name_html','sort':false,'sort_key':'rank'},
+        {'label':'Make-up','kind':'html','key':'comp','sort':false,'sort_key':'rank','cls':'sc-mk'},
+        {'label':'Score','key':'score','align':'num'}
+      ], top_rows) }}
+    </div>
+    <div>
+      <div class="sc-h">By company · median score</div>
+      {{ data_table([
+        {'label':'Company','kind':'text','key':'company'},
+        {'label':'Median','kind':'bar','width_key':'median_pct','content_key':'median','fmt':'raw','cls':'sc-mk'},
+        {'label':'People','key':'n','align':'num'}
+      ], company_rows) }}
+      <div class="sc-h" style="margin-top:14px">Team medians <span class="mut" style="font-weight:400;text-transform:none;letter-spacing:0">— real numbers behind the pillars</span></div>
+      <div class="kpis sc-kpis">
+        {{ kpi_tile(s.team_medians.commits|num, 'median commits', 'per person') }}
+        {% if 'delivery' in active and s.team_medians.ttm is not none %}{{ kpi_tile((s.team_medians.ttm|round(1))|string ~ 'h', 'median time-to-merge') }}{% endif %}
+        {% if 'craft' in active and s.team_medians.rounds is not none %}{{ kpi_tile(s.team_medians.rounds|round(1), 'median review rounds') }}{% endif %}
+        {% if 'flow' in active and s.team_medians.flow is not none %}{{ kpi_tile(s.team_medians.flow|round(2), 'median friction') }}{% endif %}
+      </div>
+    </div>
+  </div>
+  <p class="conc" style="margin-top:12px">Experimental · org-relative. Because the score ranks people against each other, its median sits near the middle by design — the band split and per-company view show the spread, and the team medians are the absolute numbers. Not a ranking of worth.</p>
+</div>
+{% else %}<p class="hint">No scored contributors in the selected period.</p>{% endif %}
+{% endmacro %}
+
+{% macro panel_elements(pr) %}
+{% set kmax = (pr.element_rows|map(attribute='code_kloc')|max) if pr.element_rows else 1 %}{% set kmax = kmax or 1 %}
+{% for e in pr.element_rows %}{% set _ = e.update({'_code_bar': e.code_kloc / kmax * 100, '_scope': 'element:' ~ e.element}) %}{% endfor %}
+{% set ELEMENT_COLS = [
+  {'label':'Element', 'kind':'text', 'key':'element', 'swatch':'edot'},
+  {'label':'Code LOC', 'kind':'bar', 'width_key':'_code_bar', 'content_key':'code_loc', 'fmt':'loc'},
+  {'label':'Spec LOC', 'kind':'loc', 'key':'spec_loc'},
+  {'label':'Repos', 'key':'repos'},
+  {'label':'People', 'tip':'distinct contributors (members) with commits in this element',
+   'key':'people_members', 'drill':{'drill':'people','scope':'@_scope','members':'1'}, 'drill_if':'people_members',
+   'tags':[{'if_key':'people_external','prefix':'+','text_key':'people_external','suffix':' ext','cls':'ext'}]},
+  {'label':'Commits', 'key':'commits_window', 'drill':{'drill':'commit','scope':'@_scope'}},
+  {'label':'PRs (open / merged)', 'kind':'pair', 'key':'prs_opened_window', 'key2':'prs_merged_window',
+   'drill':{'drill':'pr','scope':'@_scope','tip':'PRs opened in this element'}},
+  {'label':'Med TTM', 'tip':'median time-to-merge of PRs in this element', 'key':'median_ttm_h',
+   'dash':true, 'unit':'h', 'fmt':'raw', 'drill_if':'prs_merged_window',
+   'drill':{'drill':'pr','pr-state':'merged','scope':'@_scope','tip':'the merged PRs behind this median'}},
+  {'label':'AI%', 'kind':'heatmap', 'key':'ai_pct', 'alpha_key':'ai_pct', 'drill_if':'ai_pct',
+   'drill':{'drill':'commit','scope':'@_scope','flag':'ai_marked'}},
+] %}
+<div style="overflow-x:auto">{{ data_table(ELEMENT_COLS, pr.element_rows) }}</div>
+{% endmacro %}
+
+{% macro typebar(types, field, total, drill, unit) %}
+<div class="split2" style="height:16px">
+  {% for t in types %}{% if t[field] and total %}<i style="width:{{ (100*t[field]/total)|round(2) }}%;background:{{ t.color }}"
+    data-drill="{{ drill }}" data-classification="{{ t.id }}" data-tip="{{ t.name }}: {{ t[field]|num }}"></i>{% endif %}{% endfor %}
+</div>
+<div class="leg2">
+  {% for t in types %}{% if t[field] %}<span data-drill="{{ drill }}" data-classification="{{ t.id }}">
+    <span class="sw" style="background:{{ t.color }}"></span>{{ t.name }}
+    <b>{{ (100*t[field]/total)|round if total else 0 }}%</b> · {% if unit=='loc' %}{{ t[field]|loc }}{% else %}{{ t[field]|num }}{% endif %}</span>{% endif %}{% endfor %}
+</div>
+{% endmacro %}
+
+{% macro panel_split(pr) %}
+{% if pr.split.types and pr.split.commits_total %}
+<div class="sub">Commits by type</div>
+{{ typebar(pr.split.types, 'commits', pr.split.commits_total, 'commit', 'n') }}
+<div class="sub" style="margin-top:16px">Pull requests by type</div>
+{{ typebar(pr.split.types, 'prs', pr.split.prs_total, 'pr', 'n') }}
+<div class="sub" style="margin-top:16px">Meaningful LOC by type</div>
+{{ typebar(pr.split.types, 'loc', pr.split.loc_total, 'commit', 'loc') }}
+{% else %}<p class="hint">Nothing in the selected period.</p>{% endif %}
+{% endmacro %}
+
+{% macro panel_weekly(pr) %}
+{% set wk = pr.weekly or {} %}
+{% set wkcol = {'commits':'#5b5bf0','specs':'#8b5cf6','prs':'#2f80ed','issues':'#f59e0b'} %}
+{% if wk.weeks %}
+  <div class="wkgrid">
+  {% for r in wk.rows %}
+    <div class="wkcell">
+      <div class="wkcell-h"><span class="wkcell-t">{{r.title}}</span><span class="wkcell-n">{{ (r.vals|sum)|num }}</span></div>
+      {{ line_chart([{'name': r.title, 'vals': r.vals, 'color': wkcol.get(r.key, '#8b5cf6')}], wk.wlabels_short, '', true) }}
+    </div>
+  {% endfor %}
+  </div>
+  <p class="conc">Volume per week for the selected period &amp; slice ({{wk.weeks|length}} weeks; commits/specs from primary-org history, PRs/issues across both orgs). Each metric has its own scale; hover a week for its count.</p>
+{% else %}<p class="hint">No activity in this window / slice.</p>{% endif %}
+{% endmacro %}
+
+{% macro panel_trend(pr) %}
+{% set ct = pr.ctrend or {} %}
+{% if ct.points %}
+  {% set granreq = ct.gran_req or 'auto' %}
+  {% set dim = ct.dim or 'company' %}
+  {% set noun = {'day':'day','week':'week','month':'month','quarter':'quarter'}.get(ct.gran, 'bucket') %}
+  {% set colors = trend_colors(dim, ct.commit_rows, pr) %}
+  {% set dimlabel = (ct.dims|selectattr('key','equalto',dim)|first).label|lower if ct.dims else 'company' %}
+  {# Granularity is global — it re-buckets every chart below, so it sits at the top. #}
+  <div class="trendhead">
+    <div class="trendctl">
+      <div class="granctl" role="group" aria-label="Granularity">
+        {% for g in [('auto','Auto'),('day','Day'),('week','Week'),('month','Month'),('quarter','Quarter')] %}
+        <button type="button" class="gtog{{ ' active' if g[0]==granreq }}" data-gran="{{g[0]}}" onclick="setTrendGran('{{g[0]}}')">{{ g[1] }}{% if g[0]=='auto' and granreq=='auto' %} <span class="gres">· {{noun}}</span>{% endif %}</button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# Breakdown section — the dimension switcher only re-splits THESE two stacked
+     charts, so it lives with them (not over the whole tab). #}
+  <section class="trend-sec">
+    <div class="trend-sechead">
+      <h3 class="trend-secttl">Breakdown</h3>
+      <div class="granctl" role="group" aria-label="Break down by">
+        {% for d in ct.dims %}<button type="button" class="gtog{{ ' active' if d.key==dim }}" data-trenddim="{{d.key}}" onclick="setTrendDim('{{d.key}}')">{{ d.label }}</button>{% endfor %}
+      </div>
+    </div>
+    <div class="arealeg">
+      {% for l in colors %}<span class="lg"><i style="background:{{l.color}}"></i>{{l.company}}</span>{% endfor %}
+    </div>
+
+    <h3 class="trend-h">Commits by {{dimlabel}}</h3>
+    <div class="areawrap">{{ stacked_area(ct.commit_rows, ct.dates, colors, 'commits') }}</div>
+
+    <h3 class="trend-h">Meaningful LOC by {{dimlabel}}</h3>
+    <div class="areawrap">{{ stacked_area(ct.loc_rows, ct.dates, colors, 'LOC') }}</div>
+  </section>
+
+  {# Throughput & activity — org-wide series, not affected by the breakdown switcher. #}
+  <section class="trend-sec">
+    <h3 class="trend-secttl">Throughput &amp; activity</h3>
+
+    <h3 class="trend-h">PR throughput <span class="trend-leg"><i style="background:#2f80ed"></i>opened <i style="background:#10b981"></i>merged</span></h3>
+    <div class="areawrap">{{ line_chart([{'name':'Opened','vals':ct.throughput.opened,'color':'#2f80ed'},{'name':'Merged','vals':ct.throughput.merged,'color':'#10b981'}], ct.dates, '') }}</div>
+
+    {% if ct.throughput.ttm|reject('none')|list %}
+    <h3 class="trend-h">Median time-to-merge</h3>
+    <div class="areawrap">{{ line_chart([{'name':'Median TTM','vals':ct.throughput.ttm,'color':'#f59e0b'}], ct.dates, 'hours', true) }}</div>
+    {% endif %}
+
+    <h3 class="trend-h">Active contributors</h3>
+    <div class="areawrap">{{ line_chart([{'name':'Contributors','vals':ct.contributors,'color':'#8b5cf6'}], ct.dates, '', true) }}</div>
+  </section>
+
+  <p class="conc">Bucketed by {{noun}} ({{ct.points}} {{noun}}{{ '' if ct.points == 1 else 's' }}) for the selected period &amp; slice, derived live from the commit &amp; PR history. Granularity re-buckets every chart; the breakdown switcher re-splits only the two stacked charts (by company, work type, repo type or element). Hover any {{noun}} for the detail.</p>
+{% else %}<p class="hint">No commit activity in this window / slice.</p>{% endif %}
+{% endmacro %}
+
+{% macro panel_traffic(pr) %}
+{% if pr.traffic.n_repos %}
+  <div class="mini">
+    <div class="m"><div class="mv">{{ pr.traffic.total_views|num }}</div><div class="ml">page views <span class="prec exact">human</span></div></div>
+    <div class="m"><div class="mv">{{ pr.traffic.total_visitors|num }}</div><div class="ml">unique visitors (people)</div></div>
+    <div class="m"><div class="mv">{{ pr.traffic.total_clones|num }}</div><div class="ml">clones <span class="prec heuristic">incl. CI</span></div></div>
+    <div class="m"><div class="mv">{{ pr.traffic.unique_cloners|num }}</div><div class="ml">unique cloners (mostly runners)</div></div>
+  </div>
+  {% if pr.traffic.windowed %}
+  <p class="hint">Clones &amp; views summed over the selected window from accumulated daily traffic (collection began {{pr.traffic.since}}); windows before then are partial. Daily sparklines &amp; popular paths show only at all-time.</p>
+  {% else %}
+  <p class="hint"><b>Page views</b> are humans browsing the web UI (CI doesn't) — the cleaner usage signal. <b>Clones</b> are dominated by CI: E2E/image-build workflows clone per job, so each "unique cloner" (ephemeral runner) clones ~14×; a spike = heavy CI that day, not more people.
+    {% if pr.traffic.n_no_access %} <b>{{pr.traffic.n_no_access}} repo(s)</b> have no traffic access yet (push/admin token).{% endif %}</p>
+  {% endif %}
+  {% for r in pr.traffic.rows %}
+  <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px">
+    <div class="legend"><b>{{r.name}}</b> — {{ r.views|num }} views / {{ r.visitors|num }} visitors · {{ r.clones|num }} clones / {{ r.uniques|num }} cloners ({{ (r.clones / r.uniques)|round(1) if r.uniques else '—' }}× CI)</div>
+    {% if r.daily %}<div class="cols" style="height:34px">{% for d in r.daily %}<div class="c" style="height:{{ (d.count / (pr.traffic.daily_max or 1) * 100)|round }}%" data-tip="{{d.date}}: {{d.count}} clones / {{d.uniques}} cloners"></div>{% endfor %}</div>{% endif %}
+    {% if r.paths %}<div class="chips" style="margin-top:6px">{% for p in r.paths[:6] %}<span data-tip="{{p.uniques}} unique viewers">{{ p.path.split("/")[3:]|join("/") or p.path }} · {{p.views}}v</span>{% endfor %}</div>{% endif %}
+  </div>
+  {% endfor %}
+  <p class="conc">{% if not pr.traffic.windowed %}Daily bars = clones/day (hover for date). Chips = most-viewed paths (what people look at: PRs, issues, docs). {% endif %}Clone counts badged <span class="prec heuristic">heuristic</span>; page views <span class="prec exact">exact-human</span>.</p>
+{% else %}
+  <p class="hint">No traffic in this window (needs a push/admin token, or no accumulated daily rows in range).</p>
+{% endif %}
+{% endmacro %}
+
+{% macro panel_aiusage(pr) %}
+<p class="hint"><b><span class="dr"{% if pr.ai_usage.any_commits %} data-drill="commit" data-flag="ai_marked"{% endif %}>{{pr.ai_usage.any_commits}}</span></b> of {{pr.ai_usage.total_commits}} commits ({{ pr.ai_usage.pct|pct }}%) carry an AI-tool marker in the commit message.
+  This is a <b>floor</b> — only commits that kept the marker are counted; stripped markers and company-internal repos (e.g. GitLab) are invisible. Accurate org-wide measurement needs tool telemetry (Insight track), not commit scraping.</p>
+{% if pr.ai_usage.tools is none %}
+<p class="conc"><b>Per-tool split is unavailable for this window</b> — these commits were collected before tool names were stored per commit. Run <b>Refresh report</b> once to backfill; the All-time period always shows the split.</p>
+{% else %}
+<h3 style="margin-top:12px">Per-tool split</h3>
+<div class="split">
+  {% for t in pr.ai_usage.tools %}{% if t.pct > 0 %}<i style="width:{{ t.pct|pct }}%;background:var(--app)" data-tip="{{t.tool}}: {{ t.commits|num }} commits ({{ t.pct|pct }}%)">{{ t.tool if t.pct >= 8 else "" }}</i>{% endif %}{% endfor %}
+</div>
+<div class="card" style="overflow-x:auto;border:none;padding:0;margin-top:12px"><table class="dt">
+  <tr><th class="sortable">Tool</th><th class="sortable">Commits</th><th class="sortable">% of all commits</th><th class="sortable">Meaningful LOC (in those commits)</th></tr>
+  {% for t in pr.ai_usage.tools %}
+  {% set prec = t.get('precision') or (ai_precision or {}).get(t.tool) %}
+  <tr><td data-sort="{{t.tool|e}}">{{t.tool}}{% if prec %} <span class="prec {{prec}}">{{prec}}</span>{% endif %}</td><td data-sort="{{t.commits}}"{% if t.commits %} data-drill="commit" data-ai-tool="{{t.tool}}"{% endif %}>{{ t.commits|num }}</td><td data-sort="{{t.pct}}">{{ t.pct|pct }}%</td><td data-sort="{{t.loc}}">{{ t.loc|loc }}</td></tr>
+  {% endfor %}
+  {% if not pr.ai_usage.tools %}<tr><td colspan="4" class="muted">No AI-tool markers found in commit messages.</td></tr>{% endif %}
+</table></div>
+<p class="conc">Markers are configurable in <code>config.yaml → ai_tools.markers</code> (the in-house assistant = <code>your-assistant[bot]</code> co-author; the in-house assistant/Devin/Claude/Copilot by trailer or message). A commit may match several tools, so per-tool rows can exceed the unique total.</p>
+{% endif %}
+{% endmacro %}
+
+{% macro panel_bots(pr) %}
+<div class="mini">
+  <div class="m"><div class="mv">{{ pr.bots.count or 0 }}</div><div class="ml">bot accounts</div></div>
+  <div class="m"><div class="mv">{{ (pr.bots.commits or 0)|num }}</div><div class="ml">commits</div></div>
+  <div class="m"><div class="mv">{{ (pr.bots.additions or 0)|loc }}</div><div class="ml">LOC added</div></div>
+  <div class="m"><div class="mv">{% if pr.bots.get('reviews') is none %}—{% else %}{{ pr.bots.get('reviews')|num }}{% endif %}</div><div class="ml">reviews given{% if pr.bots.get('windowed') %} <span class="alltime-tag">all-time</span>{% endif %}</div></div>
+</div>
+{% endmacro %}
+
+{% macro panel_reviews(pr) %}
+<div class="mini">
+  <div class="m"{% if pr.reviews.reviewed_prs %} data-drill="pr" data-reviewed="1"{% endif %}><div class="mv">{{ pr.reviews.coverage_pct|pct }}%</div><div class="ml">PRs with ≥1 review ({{ pr.reviews.reviewed_prs|num }}/{{ pr.reviews.total_prs|num }})</div></div>
+  <div class="m"{% if pr.reviews.merged %} data-drill="pr" data-pr-state="merged"{% endif %}><div class="mv">{% if pr.reviews.median_ttm_h is not none %}{{pr.reviews.median_ttm_h}}h{% else %}—{% endif %}</div><div class="ml">median time-to-merge ({{ pr.reviews.merged|num }} merged)</div></div>
+  <div class="m"><div class="mv">{{pr.reviews.reviewers|length}}</div><div class="ml">active reviewers</div></div>
+</div>
+{% set rvmax = (pr.reviews.reviewers|map(attribute='reviews')|max) if pr.reviews.reviewers else 1 %}{% set rvmax = rvmax or 1 %}
+{% for rv in pr.reviews.reviewers %}{% set _ = rv.update({'_bar': rv.reviews / rvmax * 100}) %}{% endfor %}
+{% set REVIEW_COLS = [
+  {'label':'Reviewer', 'kind':'link', 'key':'login'},
+  {'label':'Reviews', 'kind':'bar', 'width_key':'_bar', 'content_key':'reviews', 'fmt':'num'},
+  {'label':'Approvals', 'key':'approvals'},
+  {'label':'Median latency',
+   'label_html':'Median latency' ~ (' <span class="alltime-tag">all-time</span>' if pr.reviews.windowed else ''),
+   'tip':'median time from review-requested → approved', 'key':'latency_h', 'dash':true, 'unit':'h', 'fmt':'raw'},
+] %}
+<div class="card" style="overflow-x:auto;border:none;padding:0;margin-top:10px">{{ data_table(REVIEW_COLS, pr.reviews.reviewers, empty='No reviews in this window.') }}</div>
+{% endmacro %}
+

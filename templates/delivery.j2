@@ -1,0 +1,6 @@
+{% from 'panels' import panel_delivery_kpis, panel_delivery_ci, panel_delivery_pr, panel_delivery_mix, panel_delivery_flow with context -%}
+<div data-period-panel="delivery-kpis">{{ panel_delivery_kpis(pr) }}</div>
+<div data-period-panel="delivery-ci">{{ panel_delivery_ci(pr) }}</div>
+<div data-period-panel="delivery-pr">{{ panel_delivery_pr(pr) }}</div>
+<div data-period-panel="delivery-mix">{{ panel_delivery_mix(pr) }}</div>
+<div data-period-panel="delivery-flow">{{ panel_delivery_flow(pr) }}</div>

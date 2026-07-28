@@ -1,0 +1,37 @@
+name: Tests
+
+# The weekly-report workflow only builds & deploys; nothing gated the ~3.4k lines
+# of tests. This runs them on every push and PR so a regression can't merge.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # node is preinstalled on ubuntu-latest, so the inline-JS validity tests run
+      # instead of skipping.
+      # -t . matters: without it the start directory is also the top-level directory,
+      # so test modules are imported as top-level names and tests/__init__.py — which
+      # installs the state isolation and the seeded fixture store — never runs. With
+      # `-t .` they import as tests.test_*, the package initialises first, and the run
+      # is both isolated and reproducible. tests/test_state_isolation.py fails loudly
+      # if that ever stops being true.
+      - name: Run test suite
+        run: python -m unittest discover -s tests -t . -v

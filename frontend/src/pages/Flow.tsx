@@ -1,0 +1,869 @@
+// /flow — the fourth migrated report view (see
+// docs/superpowers/plans/2026-07-22-react-phaseR-report.md, Task R-P4).
+// Reproduces the monolith's "flow" mode-section class-for-class against
+// templates/report.j2 (the `<h2 id="flow">…</h2><div data-period-panel="flow">
+// {{ panel_flow(pr) }}</div>` block) + the panel_flow macro in
+// templates/panels/04_flow.j2 — the friction explainer, Flow-health cards,
+// cycle-time medians, the by-person friction table, and the board-movement
+// views (CFD chart, time-in-stage, QA→dev rewinds) — driven by
+// GET /api/report/flow (render.flow_json) instead of server-rendered HTML +
+// the /api/flow fragment swap. SSR-safe: no window/document access outside
+// hooks/effects.
+//
+// Timing note for the CFD chart's VegaChart: unlike Overview/Trend's default
+// state (a build-time-cached fast path that embeds the chart immediately,
+// before any font fetch has had time to complete), the monolith's Flow panel
+// has NO fast path at all — templates/report.j2's initFromURL() always calls
+// refreshFlow(), which live-fetches /api/flow and embeds only after that
+// round-trip, EVEN for the bare default state (mirrors refreshDelivery() —
+// see pages/Delivery.tsx's own docstring). So the CFD chart always uses
+// waitForFonts=true here, unconditionally (no isLiveRefetch toggle needed,
+// unlike pages/Trend.tsx).
+import FilterBar from "../components/FilterBar";
+import VegaChart from "../components/VegaChart";
+import { GhLink } from "../widgets";
+import { zeroClass } from "../components/DataTable";
+import { useReportData } from "../hooks/useReportData";
+import { fmtNum, fmtPct } from "../lib/format";
+import Loading from "../components/Loading";
+
+type CycleSeg = { key: string; label: string; sub: string; h: string; n: number };
+type Person = {
+  login: string; name: string; items: number;
+  friction: string | null; frictionColor: string | null;
+  reopenPct: number; bouncePct: number;
+  crRounds: number; crPrs: number; extraReqs: number;
+  ttmMed: string | null; ttfrMed: string | null;
+};
+type CfdSeries = { key: string; name: string; color: string };
+type Cfd = { hasData: boolean; nDates: number; firstDate: string | null; series: CfdSeries[]; spec: unknown };
+type DwellStage = {
+  key: string; name: string; color: string; nCurrent: number;
+  ageMedianH: string | null; medianH: string | null; n: number;
+};
+type Dwell = {
+  hasData: boolean; ageMedianH: string | null; ageN: number; ageMaxH: string | null;
+  dwellMedianH: string | null; dwellN: number; firstDate: string | null; stages: DwellStage[];
+};
+type Rewinds = {
+  hasHistory: boolean; nDates: number; firstDate: string | null;
+  hasEvents: boolean; qaToDev: number; ownerCount: number;
+};
+type FlowBlock =
+  | { hasData: false }
+  | {
+      hasData: true;
+      nItems: number; nPrs: number; nIssues: number;
+      health: {
+        crRate: number; crPrs: number; crRounds: number;
+        reopenRate: number; reopenedN: number;
+        bounceRate: number; bouncedN: number;
+        rereqRate: number; rereqN: number;
+      };
+      cycle: CycleSeg[];
+      minItems: number; people: Person[];
+      cfd: Cfd; dwell: Dwell; rewinds: Rewinds;
+    };
+
+type InFlightPerson = {
+  login: string; n: number; drafts: number; unreviewed: number; oldestAgeD: number;
+};
+type StalePr = { repo: string; number: number; login: string; ageD: number; title: string };
+type BigPr = { repo: string; number: number; login: string; additions: number; files: number };
+type InFlight = {
+  periodScoped: false;
+  staleBefore: string | null; staleDays: number;
+  n: number; drafts: number; unreviewed: number;
+  medianAgeD: number | null; oldestAgeD: number | null;
+  bands: { key: string; label: string; n: number }[];
+  people: InFlightPerson[];
+  staleReviewDays: number; staleUnreviewedN: number; staleUnreviewed: StalePr[];
+  size: {
+    medianAdditions: number | null; p90Additions: number | null;
+    medianFiles: number | null; rawLines: boolean; biggest: BigPr[];
+  };
+};
+
+type AbandonReason = {
+  key: string; label: string; sub: string; n: number; reviews: number;
+  medianLivedD: number | null; oldestLivedD: number | null;
+};
+type Abandoned = {
+  periodScoped: true;
+  n: number; merged: number; closedTotal: number; ratePct: number | null;
+  reviewed: number; unreviewed: number; reviewsTotal: number; drafts: number;
+  reasons: AbandonReason[];
+  bands: { key: string; label: string; n: number }[];
+  repos: { repo: string; n: number; reviews: number; swept: number }[];
+  swept: { repo: string; number: number; login: string; livedD: number; title: string }[];
+};
+
+type FlowData = {
+  meta: { org: string; allTime: boolean; windowStart: string; lookbackDays: number; generatedText: string };
+  period: { preset: string; label: string; from: string | null; to: string | null };
+  periodPresets: { key: string; label: string }[];
+  scope: string;
+  scopeTargets: { org?: string[]; element?: string[]; repo?: string[] };
+  flow: FlowBlock;
+  cycleMissing?: { key: string; label: string }[];
+  inFlight?: InFlight;
+  abandoned?: Abandoned;
+};
+
+// Pull requests that were closed without merging. Reads the period, unlike InFlightPanel.
+//
+// It deliberately does NOT lead with review effort. The dominant reason is authors
+// withdrawing their own work after feedback, which is feedback working — so a "wasted
+// review" headline would be a number nobody should try to reduce. The bucket that is a
+// real problem cost zero reviews: PRs nobody ever looked at before somebody else closed
+// them. Hence the ordering here, and no red/waste framing. See the plan's §5.2.
+function AbandonedPanel({ ab }: { ab: Abandoned }) {
+  if (!ab.closedTotal) {
+    return (
+      <>
+        <h3 className="sub" style={{ marginTop: 24 }}>
+          Closed without merging <span className="mut">— nothing closed in this period</span>
+        </h3>
+      </>
+    );
+  }
+  const days = (d: number | null) => (d === null ? "—" : `${fmtNum(d)}d`);
+  const swept = ab.reasons.find((r) => r.key === "swept");
+  const unknown = ab.reasons.find((r) => r.key === "unknown");
+  return (
+    <>
+      <h3 className="sub" style={{ marginTop: 24 }}>
+        Closed without merging{" "}
+        <span className="mut">
+          — {fmtNum(ab.n)} of {fmtNum(ab.closedTotal)} pull requests closed in this period ended
+          without a merge
+        </span>
+      </h3>
+      <div className="flow-cards">
+        <div className="fcard">
+          <div className="fc-n dr" data-drill="pr" data-abandon-reason="swept">
+            {fmtNum(swept?.n || 0)}
+          </div>
+          <div className="fc-l">closed unreviewed by someone else</div>
+          <div className="fc-s">
+            {swept?.n
+              ? `nobody ever looked · median ${days(swept.medianLivedD)}, worst ${days(swept.oldestLivedD)}`
+              : "nobody in this period"}
+          </div>
+        </div>
+        <div className="fcard">
+          <div className="fc-n dr" data-drill="pr" data-pr-state="abandoned">{fmtPct(ab.ratePct ?? 0)}%</div>
+          <div className="fc-l">of closures were abandoned</div>
+          <div className="fc-s">{fmtNum(ab.n)} abandoned · {fmtNum(ab.merged)} merged</div>
+        </div>
+        <div className="fcard">
+          <div className="fc-n">{fmtNum(ab.unreviewed)}</div>
+          <div className="fc-l">closed with no review</div>
+          <div className="fc-s">{fmtNum(ab.reviewed)} did get reviewed</div>
+        </div>
+        <div className="fcard">
+          <div className="fc-n dr" data-drill="pr" data-abandon-reason="draft">{fmtNum(ab.drafts)}</div>
+          <div className="fc-l">still drafts at close</div>
+          <div className="fc-s">usually never meant to land</div>
+        </div>
+      </div>
+
+      <h3 className="sub" style={{ marginTop: 20 }}>
+        Why <span className="mut">— derived from who closed it, not guessed</span>
+      </h3>
+      <div className="card flow-tbl" style={{ overflowX: "auto" }}>
+        <table className="dt">
+          <thead>
+            <tr>
+              <th>Reason</th>
+              <th data-tip="Pull requests in this bucket">PRs</th>
+              <th data-tip="Reviews submitted on them. Shown as context — for a withdrawal after feedback this is review working, not review lost.">Reviews</th>
+              <th data-tip="Median time from opening to being closed">Median life</th>
+              <th data-tip="The longest-lived one in this bucket">Longest</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ab.reasons.filter((r) => r.n > 0).map((r) => (
+              <tr key={r.key}>
+                <td>
+                  {r.label} <span className="mut">— {r.sub}</span>
+                </td>
+                <td>
+                  <span className="dr" data-drill="pr" data-abandon-reason={r.key}>{fmtNum(r.n)}</span>
+                </td>
+                <td className={zeroClass(fmtNum(r.reviews)).trim() || undefined}>{fmtNum(r.reviews)}</td>
+                <td>{days(r.medianLivedD)}</td>
+                <td>{days(r.oldestLivedD)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="conc" style={{ marginTop: 8 }}>
+        An author closing their own pull request after feedback is <b>feedback working</b>, not effort
+        lost — it is the largest bucket here and is shown as context, with no target attached. The one
+        to act on is <b>closed unreviewed by someone else</b>: nobody looked before it was swept up.
+        Reviews are never summed across buckets as though they were waste, and none of this feeds the
+        Developer score.
+        {unknown?.n ? (
+          <>
+            {" "}
+            <b>{fmtNum(unknown.n)}</b> have no reason because no closing event was collected for them —
+            timeline events only cover items created since the collection window starts.
+          </>
+        ) : null}
+      </p>
+
+      <div className="arealeg" style={{ marginTop: 10, marginBottom: 4 }}>
+        {ab.bands.map((b) => (
+          <span key={b.key} className="dsc-legi">
+            lived {b.label}: <b>{fmtNum(b.n)}</b>
+          </span>
+        ))}
+      </div>
+
+      {ab.swept.length > 0 && (
+        <>
+          <h3 className="sub" style={{ marginTop: 20 }}>
+            Longest ignored before being closed{" "}
+            <span className="mut">— never reviewed, closed by somebody else</span>
+          </h3>
+          <div className="card flow-tbl" style={{ overflowX: "auto" }}>
+            <table className="dt">
+              <thead>
+                <tr><th>PR</th><th>Author</th><th>Waited</th></tr>
+              </thead>
+              <tbody>
+                {ab.swept.map((s) => (
+                  <tr key={`${s.repo}#${s.number}`}>
+                    <td>
+                      <a className="gh" href={`https://github.com/${s.repo}/pull/${s.number}`}
+                         target="_blank" rel="noopener">{s.repo}#{s.number}</a>
+                    </td>
+                    <td><GhLink login={s.login} /></td>
+                    <td>{days(s.livedD)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {ab.repos.length > 1 && (
+        <>
+          <h3 className="sub" style={{ marginTop: 20 }}>
+            By repository <span className="mut">— most abandoned first</span>
+          </h3>
+          <div className="card flow-tbl" style={{ overflowX: "auto" }}>
+            <table className="dt">
+              <thead>
+                <tr><th>Repository</th><th>Abandoned</th><th>Reviews on them</th><th>Closed unreviewed</th></tr>
+              </thead>
+              <tbody>
+                {ab.repos.map((r) => (
+                  <tr key={r.repo}>
+                    <td>{r.repo}</td>
+                    <td>{fmtNum(r.n)}</td>
+                    <td className={zeroClass(fmtNum(r.reviews)).trim() || undefined}>{fmtNum(r.reviews)}</td>
+                    <td className={zeroClass(fmtNum(r.swept)).trim() || undefined}>{fmtNum(r.swept)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+// Work currently open. Two things this panel has to be honest about, because every
+// other panel on this page behaves differently:
+//  · it ignores the period control entirely (the data is a point-in-time quantity),
+//    which has to be said on the panel or it reads as a filtering bug;
+//  · it leads with "nobody has looked at it, and for how long" rather than with the
+//    total, because that is the half with an owner and an action.
+function InFlightPanel({ inf }: { inf: InFlight }) {
+  if (!inf.n) {
+    return (
+      <>
+        <h3 className="sub">
+          In flight <span className="mut">— open right now, not affected by the period</span>
+        </h3>
+        <p className="hint">No open pull requests in this scope.</p>
+      </>
+    );
+  }
+  const days = (d: number | null) => (d === null ? "—" : `${fmtNum(d)}d`);
+  // Drills open an ALL-TIME window: this panel ignores the period, so a drill that
+  // silently inherited it would show fewer PRs than the tile that opened it.
+  const ALLTIME = "2008-01-01";
+  const aging = inf.bands.filter((b) => b.key === "d90" || b.key === "d90p")
+    .reduce((s, b) => s + b.n, 0);
+  return (
+    <>
+      <h3 className="sub" style={{ marginTop: 24 }}>
+        In flight{" "}
+        <span className="mut">
+          — {fmtNum(inf.n)} open pull requests, <b>as of the last refresh</b>; this block is the
+          only one here that ignores the selected period
+        </span>
+      </h3>
+      <div className="flow-cards">
+        <div className="fcard">
+          <div className="fc-n dr" data-drill="pr" data-pr-state="open_unreviewed" data-from={ALLTIME}>
+            {fmtNum(inf.unreviewed)}
+          </div>
+          <div className="fc-l">not reviewed yet</div>
+          <div className="fc-s">nobody has looked at these</div>
+        </div>
+        <div className="fcard">
+          <div className="fc-n dr" data-drill="pr" data-pr-state="open" data-from={ALLTIME}>
+            {days(inf.medianAgeD)}
+          </div>
+          <div className="fc-l">median age</div>
+          <div className="fc-s">oldest {days(inf.oldestAgeD)} · {fmtNum(inf.n)} open</div>
+        </div>
+        <div className="fcard">
+          <div
+            className="fc-n dr" data-drill="pr" data-pr-state="open"
+            data-from={ALLTIME} data-to={inf.staleBefore || undefined}
+          >
+            {fmtNum(aging)}
+          </div>
+          <div className="fc-l">open over {inf.staleDays} days</div>
+          <div className="fc-s">of {fmtNum(inf.n)} open</div>
+        </div>
+        <div className="fcard">
+          <div
+            className="fc-n dr" data-drill="pr" data-pr-state="open"
+            data-flag="is_draft" data-from={ALLTIME}
+          >
+            {fmtNum(inf.drafts)}
+          </div>
+          <div className="fc-l">still drafts</div>
+          <div className="fc-s">{fmtPct((100 * inf.drafts) / inf.n)}% of open</div>
+        </div>
+      </div>
+      <div className="arealeg" style={{ marginTop: 10, marginBottom: 4 }}>
+        {inf.bands.map((b) => (
+          <span key={b.key} className="dsc-legi">
+            {b.label}: <b>{fmtNum(b.n)}</b>
+          </span>
+        ))}
+      </div>
+      <p className="conc" style={{ marginTop: 8 }}>
+        Age is shown in <b>bands</b> rather than as one average, because a single very old PR would
+        drag a mean far from where most of the work sits. Open work is <b>not</b> added to any commit,
+        LOC or delivery number and does not feed the Developer score — it is work in progress, not
+        output.
+      </p>
+
+      {inf.people.length > 0 && (
+        <>
+          <h3 className="sub" style={{ marginTop: 24 }}>
+            Who is carrying it{" "}
+            <span className="mut">— oldest open PR first; a separate list, not the table above</span>
+          </h3>
+          <div className="card flow-tbl" style={{ overflowX: "auto" }}>
+            <table className="dt">
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th data-tip="Pull requests this person has open right now">Open</th>
+                  <th data-tip="Age of their oldest open pull request">Oldest</th>
+                  <th data-tip="Of their open PRs, how many nobody has reviewed yet">Unreviewed</th>
+                  <th data-tip="Of their open PRs, how many are still drafts">Drafts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inf.people.map((p) => (
+                  <tr key={p.login}>
+                    <td><GhLink login={p.login} /></td>
+                    <td className={zeroClass(fmtNum(p.n)).trim() || undefined}>
+                      <span className="dr" data-drill="pr" data-pr-state="open"
+                            data-author={p.login} data-from={ALLTIME}>{fmtNum(p.n)}</span>
+                    </td>
+                    <td className={zeroClass(days(p.oldestAgeD)).trim() || undefined}>{days(p.oldestAgeD)}</td>
+                    <td className={zeroClass(fmtNum(p.unreviewed)).trim() || undefined}>
+                      {p.unreviewed ? (
+                        <span className="dr" data-drill="pr" data-pr-state="open_unreviewed"
+                              data-author={p.login} data-from={ALLTIME}>{fmtNum(p.unreviewed)}</span>
+                      ) : fmtNum(p.unreviewed)}
+                    </td>
+                    <td className={zeroClass(fmtNum(p.drafts)).trim() || undefined}>
+                      {p.drafts ? (
+                        <span className="dr" data-drill="pr" data-pr-state="open" data-flag="is_draft"
+                              data-author={p.login} data-from={ALLTIME}>{fmtNum(p.drafts)}</span>
+                      ) : fmtNum(p.drafts)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="conc" style={{ marginTop: 8 }}>
+            Deliberately its own list rather than a column on the friction table above: that table
+            only includes people with items <i>created in the selected period</i>, so somebody whose
+            only current activity is one long-running PR would be missing from it — which is exactly
+            the case this panel exists to show.
+          </p>
+        </>
+      )}
+
+      {inf.staleUnreviewedN > 0 && (
+        <>
+          <h3 className="sub" style={{ marginTop: 24 }}>
+            Waiting on a first review{" "}
+            <span className="mut">
+              — {fmtNum(inf.staleUnreviewedN)} open over {inf.staleReviewDays} days with no review,
+              longest wait first
+            </span>
+          </h3>
+          <div className="card flow-tbl" style={{ overflowX: "auto" }}>
+            <table className="dt">
+              <thead>
+                <tr><th>PR</th><th>Author</th><th>Waiting</th></tr>
+              </thead>
+              <tbody>
+                {inf.staleUnreviewed.map((s) => (
+                  <tr key={`${s.repo}#${s.number}`}>
+                    <td>
+                      <a className="gh" href={`https://github.com/${s.repo}/pull/${s.number}`}
+                         target="_blank" rel="noopener">{s.repo}#{s.number}</a>
+                    </td>
+                    <td><GhLink login={s.login} /></td>
+                    <td>{days(s.ageD)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="conc" style={{ marginTop: 8 }}>
+            These are waiting on the team rather than on their authors. Whether a review was ever
+            requested cannot be shown: the collector does not record review requests, so that column
+            is empty for every pull request — rather than report it as "never asked" and always mean
+            100%, it is left out.
+          </p>
+        </>
+      )}
+
+      <h3 className="sub" style={{ marginTop: 24 }}>
+        How big the open work is{" "}
+        <span className="mut">— typical size, not a total</span>
+      </h3>
+      <div className="flow-cards">
+        <div className="fcard">
+          <div className="fc-n">+{fmtNum(inf.size.medianAdditions ?? 0)}</div>
+          <div className="fc-l">median PR</div>
+          <div className="fc-s">{fmtNum(inf.size.medianFiles ?? 0)} files</div>
+        </div>
+        <div className="fcard">
+          <div className="fc-n">+{fmtNum(inf.size.p90Additions ?? 0)}</div>
+          <div className="fc-l">p90 PR</div>
+          <div className="fc-s">9 in 10 are smaller than this</div>
+        </div>
+      </div>
+      {inf.size.biggest.length > 0 && (
+        <div className="card flow-tbl" style={{ overflowX: "auto", marginTop: 10 }}>
+          <table className="dt">
+            <thead>
+              <tr><th>Biggest open PRs</th><th>Author</th><th>Lines</th><th>Files</th></tr>
+            </thead>
+            <tbody>
+              {inf.size.biggest.map((b) => (
+                <tr key={`${b.repo}#${b.number}`}>
+                  <td>
+                    <a className="gh" href={`https://github.com/${b.repo}/pull/${b.number}`}
+                       target="_blank" rel="noopener">{b.repo}#{b.number}</a>
+                  </td>
+                  <td><GhLink login={b.login} /></td>
+                  <td>+{fmtNum(b.additions)}</td>
+                  <td>{fmtNum(b.files)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="conc" style={{ marginTop: 8 }}>
+        Shown as a <b>median and p90 with the outliers named</b>, never as a sum. A total would
+        describe the outliers instead of the work: when this was measured, a single fork-sync pull
+        request accounted for 35% of all open additions and the top three for 73%. These are also{" "}
+        <b>raw GitHub line counts</b> — pull-request diffs get no vendored/generated filter, unlike
+        the commit numbers elsewhere in the report, so treat them as diff size rather than as
+        authored code.
+      </p>
+    </>
+  );
+}
+
+function CfdChart({ cfd }: { cfd: Cfd }) {
+  if (!cfd.hasData) {
+    return (
+      <p className="hint">
+        The board-flow chart needs at least two daily snapshots
+        {cfd.firstDate && ` — ${cfd.nDates} captured so far, since ${cfd.firstDate}`}. It fills in as
+        snapshots accumulate.
+      </p>
+    );
+  }
+  return (
+    <>
+      <div className="arealeg" style={{ marginBottom: 8 }}>
+        {cfd.series.map((s) => (
+          <span className="lg" key={s.key}><i style={{ background: s.color }} />{s.name}</span>
+        ))}
+      </div>
+      <div className="areawrap"><VegaChart spec={cfd.spec} waitForFonts /></div>
+      <p className="conc">
+        Cumulative flow of board items by stage, from daily snapshots since {cfd.firstDate} ({cfd.nDates}{" "}
+        days). A widening upper band = growing WIP / backlog; a fattening QA band = a testing bottleneck; a
+        steadily rising base = throughput to Done. Forward-only and sampled once a day — GitHub keeps no
+        board status history. Depends on the Status&nbsp;→&nbsp;stage mapping in the{" "}
+        <a href="/semantic">Taxonomy</a>.
+      </p>
+    </>
+  );
+}
+
+function DwellPanel({ dwell }: { dwell: Dwell }) {
+  if (!dwell.hasData) {
+    return (
+      <p className="hint">
+        No board timing yet — this reads each item's last-update time, captured from the next collection
+        onward{dwell.firstDate && ` (snapshot history since ${dwell.firstDate})`}.
+      </p>
+    );
+  }
+  return (
+    <>
+      <div className="flow-cards" style={{ marginBottom: 12 }}>
+        {dwell.ageMedianH != null && (
+          <div className="fcard">
+            <div className="fc-n">{dwell.ageMedianH}</div>
+            <div className="fc-l">median age in current stage</div>
+            <div className="fc-s">{fmtNum(dwell.ageN)} items waiting now</div>
+          </div>
+        )}
+        {dwell.ageMaxH != null && (
+          <div className="fcard">
+            <div className="fc-n">{dwell.ageMaxH}</div>
+            <div className="fc-l">longest waiting</div>
+            <div className="fc-s">oldest item in a stage</div>
+          </div>
+        )}
+        {dwell.dwellMedianH != null && (
+          <div className="fcard">
+            <div className="fc-n">{dwell.dwellMedianH}</div>
+            <div className="fc-l">median completed dwell</div>
+            <div className="fc-s">{fmtNum(dwell.dwellN)} observed moves</div>
+          </div>
+        )}
+      </div>
+      <table className="grouped" style={{ width: "100%" }}>
+        <thead>
+          <tr>
+            <th>Stage</th>
+            <th className="num" data-tip="items in this stage as of the latest snapshot">Now</th>
+            <th className="num" data-tip="median time current items have sat in this stage (now − last update)">
+              Median age
+            </th>
+            <th className="num" data-tip="median time items historically spent here before moving on">
+              Median dwell
+            </th>
+            <th className="num" data-tip="observed moves out of this stage">Moves</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dwell.stages.map((s) => (
+            <tr key={s.key}>
+              <td><span className="dwdot" style={{ background: s.color }} />{s.name}</td>
+              <td className="num">
+                {s.nCurrent ? fmtNum(s.nCurrent) : <span style={{ color: "var(--mut)" }}>—</span>}
+              </td>
+              <td className="num">
+                {s.ageMedianH != null ? s.ageMedianH : <span style={{ color: "var(--mut)" }}>—</span>}
+              </td>
+              <td className="num">
+                {s.medianH != null ? s.medianH : <span style={{ color: "var(--mut)" }}>—</span>}
+              </td>
+              <td className={`num${zeroClass(fmtNum(s.n))}`}>{fmtNum(s.n)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="conc">
+        <b>Age</b> — how long current items have sat in their stage (latest snapshot − item's last update);
+        available now, no history needed. <b>Dwell</b> — how long items historically spent in a stage before
+        moving on, from snapshot diffs. Both time transitions by each item's update time (≈ the actual move);
+        it's a close estimate since an update can be any edit, not strictly a status change. Terminal stages
+        are excluded from age.
+      </p>
+    </>
+  );
+}
+
+function RewindsPanel({ rewinds }: { rewinds: Rewinds }) {
+  if (!rewinds.hasHistory) {
+    return (
+      <p className="hint">
+        Needs at least two board snapshots to see movement — only {rewinds.nDates || 0} captured so far
+        {rewinds.firstDate && ` (since ${rewinds.firstDate})`}. Fills in as snapshots accumulate.
+      </p>
+    );
+  }
+  if (!rewinds.hasEvents) {
+    return (
+      <p className="conc">
+        No items were sent back from QA to development in this period. Reconstructed from board snapshots
+        since {rewinds.firstDate} — a same-day round-trip between snapshots can be missed.
+      </p>
+    );
+  }
+  return (
+    <>
+      <div className="flow-cards">
+        <div className="fcard fcard-drill" data-drill="rewinds" data-tip="Click for the list of items">
+          <div className="fc-n">{fmtNum(rewinds.qaToDev)}</div>
+          <div className="fc-l">returned to dev from QA</div>
+          <div className="fc-s">across {rewinds.ownerCount} owner(s) · click for the list</div>
+        </div>
+      </div>
+      <p className="conc">
+        Items pushed backward on the board from testing to development (QA → In progress), reconstructed by
+        diffing board snapshots since {rewinds.firstDate}. GitHub keeps no board status-change history, so we
+        only see moves between snapshots — treat as a floor. Depends on the Status&nbsp;→&nbsp;stage mapping
+        in the <a href="/semantic">Taxonomy</a>.
+      </p>
+    </>
+  );
+}
+
+export default function Flow() {
+  const { data, error } = useReportData<FlowData>("flow");
+
+  if (error && !data) return <p className="hint" style={{ padding: 24 }}>Could not load the report ({error}).</p>;
+  if (!data) return <Loading />;
+
+  const f = data.flow;
+  const periodLabel = data.period.label;
+
+  return (
+    <>
+      <p className="sub">
+        Org <b>{data.meta.org}</b> ·{" "}
+        {data.meta.allTime ? (
+          <>
+            <b>all-time history</b> (since {data.meta.windowStart})
+          </>
+        ) : (
+          <>window {data.meta.windowStart} → today ({data.meta.lookbackDays} days)</>
+        )}{" "}
+        · generated {data.meta.generatedText} UTC
+      </p>
+
+      <FilterBar
+        periodPresets={data.periodPresets} period={data.period} scope={data.scope}
+        scopeTargets={data.scopeTargets}
+      />
+
+      <h2 id="flow">
+        Flow &amp; friction <span className="period-tag">{periodLabel}</span>
+      </h2>
+      <div data-period-panel="flow">
+        {!f.hasData ? (
+          <p className="hint">
+            No lifecycle timeline events collected yet. Run a collection to backfill issue/PR timeline events
+            (reopens, back-to-draft, review requests) — Flow metrics appear here once they land.
+          </p>
+        ) : (
+          <>
+            <div className="card flow-explain">
+              <h3>What “friction” means</h3>
+              <p>
+                Friction scores how much <b>rework and churn</b> a person's work items pick up on the way to
+                done — higher means more items bounced backward instead of flowing forward. For every issue
+                or PR they own:
+              </p>
+              <p className="flow-formula">
+                <b>friction / item</b> = 2 × (back-to-draft + reopened) + extra review requests + reassignments
+              </p>
+              <ul>
+                <li><b>back to draft</b> — a PR marked ready, then pulled back to draft (weight&nbsp;×2)</li>
+                <li><b>reopened</b> — an issue or PR closed, then reopened (weight&nbsp;×2)</li>
+                <li><b>extra review requests</b> — review re-requested on the same PR (beyond the first ask)</li>
+                <li><b>reassignments</b> — ownership handed on after the first assignee</li>
+              </ul>
+              <p className="mut" style={{ marginBottom: 0 }}>
+                Lower is smoother — it's the <b>Flow</b> pillar of the <a href="#person">Developer&nbsp;score</a>.
+                Worked example: a PR reopened once and re-reviewed twice&nbsp;= 2×1&nbsp;+&nbsp;1&nbsp;={" "}
+                <b>3</b> friction on that item. All timing below comes from real lifecycle events, not
+                board-column dwell (GitHub keeps no status-change history).
+              </p>
+            </div>
+
+            <h3 className="sub">
+              Flow health{" "}
+              <span className="mut">
+                — {fmtNum(f.nItems)} items created in this period · {fmtNum(f.nPrs)} PRs, {fmtNum(f.nIssues)}{" "}
+                issues
+              </span>
+            </h3>
+            <div className="flow-cards">
+              <div className="fcard">
+                <div className="fc-n">{fmtPct(f.health.crRate)}%</div>
+                <div className="fc-l">sent back for changes</div>
+                <div className="fc-s">{fmtNum(f.health.crPrs)} PRs · {fmtNum(f.health.crRounds)} rework rounds</div>
+              </div>
+              <div className="fcard">
+                <div className="fc-n">{fmtPct(f.health.reopenRate)}%</div>
+                <div className="fc-l">reopened</div>
+                <div className="fc-s">{fmtNum(f.health.reopenedN)} items came back</div>
+              </div>
+              <div className="fcard">
+                <div className="fc-n">{fmtPct(f.health.bounceRate)}%</div>
+                <div className="fc-l">back to draft</div>
+                <div className="fc-s">{fmtNum(f.health.bouncedN)} PRs pulled back</div>
+              </div>
+              <div className="fcard">
+                <div className="fc-n">{fmtPct(f.health.rereqRate)}%</div>
+                <div className="fc-l">re-reviewed</div>
+                <div className="fc-s">{fmtNum(f.health.rereqN)} PRs asked again</div>
+              </div>
+            </div>
+            <p className="conc" style={{ marginTop: 8 }}>
+              <b>Rework rounds</b> = the number of times a reviewer explicitly submitted a “changes
+              requested” review — the closest proxy we have to review→fix cycles (we don't yet track
+              the exact comment↔push cadence). A plain comment or an approval does not count.
+            </p>
+
+            <h3 className="sub">Cycle-time <span className="mut">— median lifecycle segments</span></h3>
+            <div className="flow-cards">
+              {f.cycle.map((c) => (
+                <div className="fcard" key={c.key}>
+                  <div className="fc-n">{c.h}</div>
+                  <div className="fc-l">{c.label}</div>
+                  <div className="fc-s">{c.sub} · n={fmtNum(c.n)}</div>
+                </div>
+              ))}
+            </div>
+            {/* A segment with no data used to vanish, so a reader could not tell "nothing
+                happened in this window" from "this is never computable" — which is what
+                two of these were for months. Named, not hidden. */}
+            {data.cycleMissing && data.cycleMissing.length > 0 && (
+              <p className="conc" style={{ marginTop: 8 }}>
+                No data for{" "}
+                {data.cycleMissing.map((m, i) => (
+                  <span key={m.key}>
+                    {i > 0 ? ", " : ""}<b>{m.label}</b>
+                  </span>
+                ))}{" "}
+                in this window — the lifecycle events those need were not recorded for any
+                item here.
+              </p>
+            )}
+
+            <h3 className="sub">
+              By person{" "}
+              <span className="mut">— owners with ≥{f.minItems} items this period, most friction first</span>
+            </h3>
+            {f.people.length ? (
+              <>
+                <div className="card flow-tbl" style={{ overflowX: "auto" }}>
+                  <table className="grouped">
+                    <thead>
+                      <tr>
+                        <th>Person</th>
+                        <th data-tip="Issues + PRs this person owns that were created in the period">Items</th>
+                        <th data-tip="2×(back-to-draft + reopened) + review-request & assignment churn, per owned item. Click to see the items.">
+                          Friction / item
+                        </th>
+                        <th data-tip="Share of this person's items reopened at least once">Reopened</th>
+                        <th data-tip="Share of this person's PRs sent back to draft at least once">Back to draft</th>
+                        <th data-tip="Rework rounds — the count of CHANGES_REQUESTED reviews across their PRs. One PR can be sent back more than once, so this can exceed the number of PRs.">
+                          Rework rounds
+                        </th>
+                        <th data-tip="Count of extra review requests across their PRs">Extra reviews</th>
+                        <th data-tip="Median open→merge for this person's merged PRs">Med lead</th>
+                        <th data-tip="Median open→first-review-request for this person's PRs">Med to review</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {f.people.map((r) => (
+                        <tr key={r.login}>
+                          <td><GhLink login={r.login} /></td>
+                          <td className={zeroClass(fmtNum(r.items)).trim() || undefined}>{fmtNum(r.items)}</td>
+                          <td className="fr">
+                            {r.friction !== null ? (
+                              <span
+                                className="dr" data-drill="flowitems" data-author={r.login} data-scope="none"
+                                style={{ color: r.frictionColor ?? undefined }}
+                              >
+                                {r.friction}
+                              </span>
+                            ) : (
+                              <span className="mut">—</span>
+                            )}
+                          </td>
+                          <td className={zeroClass(`${r.reopenPct}%`).trim() || undefined}>{r.reopenPct}%</td>
+                          <td className={zeroClass(`${r.bouncePct}%`).trim() || undefined}>{r.bouncePct}%</td>
+                          <td
+                            data-tip={`${r.crRounds} rework round(s) across ${r.crPrs} PR(s) — a PR can be sent back more than once`}
+                            className={zeroClass(fmtNum(r.crRounds)).trim() || undefined}
+                          >
+                            {fmtNum(r.crRounds)}
+                          </td>
+                          <td className={zeroClass(fmtNum(r.extraReqs)).trim() || undefined}>{fmtNum(r.extraReqs)}</td>
+                          <td>{r.ttmMed !== null ? r.ttmMed : <span className="mut">—</span>}</td>
+                          <td>{r.ttfrMed !== null ? r.ttfrMed : <span className="mut">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="conc">
+                  Friction/item matches the <b>Flow</b> pillar on each person's score. “Med lead” and “Med to
+                  review” are medians over items created in this period; “—” means too few data points to be
+                  meaningful.
+                </p>
+              </>
+            ) : (
+              <p className="hint">No owner has ≥{f.minItems} items with lifecycle events in this period yet.</p>
+            )}
+
+            <h3 className="sub" style={{ marginTop: 24 }}>
+              Board movement <span className="mut">— how work moves through the stages over time</span>
+            </h3>
+            <div className="dsub">Cumulative flow over time</div>
+            <div className="card"><CfdChart cfd={f.cfd} /></div>
+            <div className="dsub" style={{ marginTop: 14 }}>
+              Time in stage <span className="alltime-tag">between statuses</span>
+            </div>
+            <div className="card"><DwellPanel dwell={f.dwell} /></div>
+            <div className="dsub" style={{ marginTop: 14 }}>
+              Returned to dev from testing <span className="alltime-tag">QA → dev</span>
+            </div>
+            <div className="card"><RewindsPanel rewinds={f.rewinds} /></div>
+          </>
+        )}
+        {/* OUTSIDE the hasData branch on purpose: open PRs exist regardless of
+            whether anything was created in the selected window, and the "no
+            lifecycle events yet" hint above must not swallow a real number. */}
+        {data.inFlight && <InFlightPanel inf={data.inFlight} />}
+        {data.abandoned && <AbandonedPanel ab={data.abandoned} />}
+      </div>
+
+      <p className="foot">
+        Definitions — <b>Contributing to Fabric</b>: any commit, PR, spec edit, bug or user story in{" "}
+        <b>any</b> repo of the org (apps included). <b>Using, not contributing back</b>: forked an org
+        repo but made zero contribution to any org repo in the window. <b>Specs</b>: commits touching
+        markdown under <code>specs/</code> directories (templates &amp; vendored SDLC framework
+        excluded — see <code>config.yaml</code>). Platform-vs-app below is a "where effort goes"
+        breakdown, not the contribute/use line. GitHub-only data; passive consumption beyond
+        forks/stars is not observable.
+      </p>
+    </>
+  );
+}

@@ -1,0 +1,32 @@
+# Local-dev override — compose auto-merges this over docker-compose.yml
+# whenever it's present, so local iteration is UNCHANGED by the image-based
+# prod deploy model: the whole repo is still bind-mounted and the image is
+# still built from source on every `docker compose up`, exactly like before
+# this file existed. DATA_DIR="." so state lands at the repo root, matching
+# every pre-existing local workflow (report.db under history/, the editor HTML
+# at the root, etc.) — the same as running the app outside Docker entirely.
+#
+# This file is for LOCAL machines only — never copy it to the server. Prod
+# deploys (deploy.sh) load a pre-built image and rely on docker-compose.yml
+# alone (no override present there), which uses `image:` + the persistent
+# `report-data` volume instead of a repo bind-mount.
+services:
+  report:
+    build: .
+    image: insight-report:latest
+    environment:
+      DATA_DIR: "."
+    # `!override` (not a plain list) because Compose otherwise CONCATENATES
+    # volumes across files — without it, the base file's `report-data` named
+    # volume would still get mounted at /work/data alongside this bind mount
+    # (harmless since DATA_DIR="." never touches it, but pointless clutter).
+    volumes: !override
+      - .:/work
+
+  mcp:
+    build: .
+    image: insight-report:latest
+    environment:
+      DATA_DIR: "."
+    volumes: !override
+      - .:/work
