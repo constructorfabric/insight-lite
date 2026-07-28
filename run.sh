@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local one-shot: collect -> render -> open the report.
-# Same code path as the GitHub Action, just on your machine.
+# Same code path the portal runs, just one-shot on your machine.
 #
 #   ./run.sh            # collect + render + open report.html
 #   ./run.sh --no-open  # skip opening the browser

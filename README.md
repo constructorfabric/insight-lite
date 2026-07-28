@@ -240,7 +240,6 @@ All metrics are computed for the lookback window and, where shown, broken down
 | `server.py` | local web portal (view / refresh / export / edit identity) |
 | `email_report.py` | sends `report.html` via SMTP (no-op until enabled) |
 | `Dockerfile` / `docker-compose.yml` | containerized portal on `:8080` (secrets via `.env`, never hardcoded) |
-| `.github/workflows/weekly-report.yml` | Mondays 06:00 UTC → collect, render, publish to Pages, email |
 
 ## Before you start
 
@@ -474,17 +473,35 @@ python -m unittest discover -s tests -v
 python -m py_compile collect.py render.py ghclient.py identity.py directory.py email_report.py reportctl.py server.py tests/test_rules.py
 ```
 
-## Deploy (GitHub Actions only — no server)
+## Scheduling the refresh
 
-1. Push this folder to a repo (suggest a private repo in the org, e.g.
-   `your-org/insight`).
-2. Repo **Settings → Pages → Source: GitHub Actions**.
-3. Add secrets (**Settings → Secrets and variables → Actions**):
-   - `INSIGHT_REPORT_TOKEN` — PAT with `read:org` + `repo` (the default
-     `GITHUB_TOKEN` only sees its own repo, not the whole org).
-   - Email (later): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`.
-4. The report publishes to the repo's GitHub Pages URL each Monday;
-   trigger manually any time from the **Actions** tab → *Run workflow*.
+There is deliberately **no scheduled GitHub Actions workflow** in this repository. One
+used to live here, and it is the wrong shape for a tool that publishes per-person
+statistics: a workflow on a `schedule:` runs in every fork that has secrets, its email
+step fires unconditionally, and its Pages step would put names, companies and per-person
+figures on a **public** URL. That is a lot of blast radius for a convenience.
+
+Run the refresh where you can see it instead:
+
+```bash
+docker compose exec report python reportctl.py all     # collect + rebuild
+```
+
+For a nightly refresh, use cron on the host — the portal is long-running anyway:
+
+```cron
+30 3 * * *  cd /path/to/insight && docker compose exec -T report python reportctl.py all \
+              >> /var/log/insight-report.log 2>&1 || docker compose exec -T report python alert.py notify "refresh failed"
+```
+
+Point a monitor at `/health/data`, which answers **503** once the newest run is older
+than `HEALTH_MAX_AGE_HOURS`, and set `ALERT_WEBHOOK_URL` so a failed run reaches a
+channel rather than only a log file. A refresh that dies silently is the failure mode
+this project has already had once.
+
+If you do want it in Actions, write the workflow yourself so the decisions are yours:
+give it an org-scoped PAT, and think hard before adding any step that publishes the
+rendered report somewhere public.
 
 ## Enable email
 
@@ -534,9 +551,9 @@ Caveats common to all traffic:
 - **14-day window** — GitHub does not retain traffic longer; it's a snapshot,
   not windowed to `lookback_days`.
 - **Needs push/admin** — `/traffic/*` returns `403` on repos the token can't
-  push to. With the default token only insight/example-web-front resolve; grant the
-  `INSIGHT_REPORT_TOKEN` org-wide push (or an org GitHub App with the traffic
-  permission) to cover every repo. Repos without access are surfaced as "no
+  push to, so a read-only token sees traffic for almost nothing; give the collector's
+  token org-wide push (or use an org GitHub App with the traffic permission) to cover
+  every repo. Repos without access are surfaced as "no
   traffic access yet" rather than silently dropped.
 
 ## Data sources
