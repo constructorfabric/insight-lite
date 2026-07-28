@@ -9,236 +9,41 @@ Point it at your own org in [`config.yaml`](config.yaml) — every org, reposito
 element and company in the shipped config is invented, and so is every example in
 this README.
 
-## The question it answers
-
-If your company builds a shared platform and other teams build products on top of
-it, the interesting split is not "who commits the most" but:
-
-1. **Contributing to the platform** — anyone with **any** contribution (commit, PR,
-   spec edit, bug, or feature) to **any** repo in the org, split into org members
-   vs external.
-2. **Using the platform without contributing back** — accounts that **forked** an
-   org repo (= using it) but made **zero** contribution to any org repo in the
-   window.
-
-*(Platform-vs-app is a separate "where effort goes" breakdown, configured per repo
-in `config.yaml` → `repos:`. In the shipped example `example-core`, `example-sdk`
-and `example-cli` are the platform; `example-web`, `example-api` and `example-docs`
-are apps built on it. That axis is independent of the contribute/use line.)*
-
-> GitHub-only data: passive consumption beyond forks/stars, and anonymous clone
-> traffic, are not observable — the numbers here are a floor, not a census.
-> Repo classification lives in [`config.yaml`](config.yaml); label→category mapping
-> lives in the database-backed semantic taxonomy (see [`docs/semantic-config.md`](docs/semantic-config.md)).
-
 > **A note on measuring people.** This tool aggregates identifiable per-person
 > activity, which is personal data in most jurisdictions and a management artefact
 > everywhere. The per-person Developer score in particular is explicitly
 > experimental and is not a performance rating. Decide who may see it before you
 > deploy it — the portal supports OAuth so that decision is enforceable.
 
-## Report views (tabs)
 
-`report.html` has a tab switcher (inline JS, no dependencies) that filters
-sections by mode. Every section also carries `all`, so **All** shows everything.
+## Contents
 
-- **Overview** — KPIs, commit mix, work type, contribution by category, scenarios.
-- **Trend** — contribution over time, built from accumulated daily snapshots.
-- **Repos** — repo coverage/inventory, platform-vs-app effort.
-- **Elements** — per-Element rollup: repos, people, code/spec LOC, review TTM.
-- **Usage** — traffic (clones + page views), external contributors.
-- **People** — per-person table, code review, categories.
-- **AI Tools Usage** — AI tools, content provenance, framework usage, generic
-  trackers, platform-usage rollup by company/person, and **Bots & automation**.
-- **All** — every section.
+**Getting it running**
+- [Before you start](#before-you-start)
+- [Quick start (Docker Compose)](#quick-start-docker-compose)
+- [Run locally](#run-locally)
+- [Test locally](#test-locally)
 
-### Period filter (presets + custom)
+**Operating it**
+- [Scheduling the refresh](#scheduling-the-refresh)
+- [Python local portal](#python-local-portal)
+- [Docker details](#docker-details)
+- [Develop locally → deploy to the server](#develop-locally--deploy-to-the-server)
+- [MCP server (read-only data access)](#mcp-server-read-only-data-access)
+- [Trust checklist](#trust-checklist)
 
-A period selector (chips: 7d / 30d / 90d / 1 year / All-time + a custom from/to
-range) re-slices **every panel that can be windowed**.
-
-- **Portal-driven.** Each filterable panel is a `[data-period-panel]` region.
-  Changing period — preset *or* custom — issues one request to
-  **`/api/period?days=N`** (or `?from=YYYY-MM-DD&to=YYYY-MM-DD`); the server runs a
-  single `store.aggregate(since, until)` over the granular tables and returns all
-  filterable panels as an HTML fragment, which the page swaps in. Results are
-  cached per period (re-selecting is instant); **All-time** restores the
-  build-time snapshot without a request.
-- **One source of truth.** The filterable panels are Jinja macros in the `panels`
-  template, imported by both the report (build-time, all-time) and the
-  `/api/period` fragment (windowed) — so they never drift.
-- **Standalone file** (opened without the portal): shows the all-time state and a
-  note that live filtering needs the portal.
-
-**What the period covers** is spelled out in the UI legend under the bar:
-period-filtered = **KPIs, contribution by company, %-by-category, work type,
-commit mix, By Element, platform/app split, per-person activity columns, traffic**
-(summed from the accumulated daily `traffic` table), **code review** (reviewers /
-coverage / TTM from the granular `review` table), **bot activity**, and the
-**AI-marked commit share**. Always **all-time** (by nature) = contributors
-(cumulative), trend (the time axis), surviving-LOC and cpt lines (git-blame of
-today's tree), repo coverage (inventory), content markers (provenance / framework
-usage — a `git grep` over the current tree), and the per-tool AI split. In mixed panels the
-windowed metrics and the all-time ones each carry the matching tag (a live period
-tag or an `all-time` badge).
-
-## Storage (SQLite)
-
-The **SQLite** database `history/report.db` (override with `REPORT_DB`), managed
-by `store.py`, is the **source of truth**. `collect.py` writes it; `render.py`
-and `directory.py` read it (falling back to the `data.json` export only if the
-DB is empty). Tables:
-
-**Granular event tables (the source for period queries):**
-- **`commits`** — one row per commit (date, author, repo, LOC, type, AI/bot flags).
-- **`pull_request`** / **`issue`** — one row per PR / issue (created/merged dates,
-  author, classification, bug/story + migration/bot flags).
-- These make **any period a date-range query** — `store.aggregate(since, until)`
-  powers both the presets and the custom-days endpoint. e.g. *Example Inc commits in a
-  window*: `SELECT SUM(...) FROM commits c JOIN person p ON p.login=c.author_login
-  WHERE p.company='Example Inc' AND c.committed_at BETWEEN ? AND ?`. Dates are stored
-  UTC (`...Z`) so ranges compare cleanly.
-
-**Dimensions:** **`person`** (login → name/company/emails/surviving-LOC) and
-**`repo`** (key → classification/element/legacy/size), joined for company rollups.
-
-**Other tables:**
-- **`runs`** — the full `data.json` blob, one row per day (non-period report parts:
-  repos inventory, traffic, provenance, bots, elements, identity). `render`/`directory`
-  load the latest.
-- **`traffic`** — raw per-repo/per-day clones & views (see below).
-- **`snapshots`** — compact per-day aggregate behind the Trend tab.
-- `person_runs` / `repo_runs` — legacy per-run aggregates, retained for cross-run
-  SQL (superseded by the granular tables for period work).
-
-The DB sits on the docker bind-mount (`.:/work`), so it persists across
-container restarts; it is **git-ignored** (binary). Each run also exports the
-durable history tables to **`history/*.jsonl`** and the latest payload to
-**`data.json`** — text and diffable, so they are easy to back up and to inspect
-(regenerated every run, so no drift). On first run an empty DB is **seeded** from any
-existing `data.json` + `history/*.jsonl`.
-
-> These exports are **git-ignored on purpose.** They describe your organisation:
-> `snapshots.jsonl` carries per-company commit / LOC / headcount figures and
-> `traffic.jsonl` carries repository names. An earlier internal version of this repo
-> tracked them as a "text backup of the DB", which is exactly how internal metrics end
-> up in a public git history. Back them up outside git.
-
-### Layering: raw stays JSON, processed goes to SQLite
-
-The split is deliberate. **Raw GitHub API responses — the "initial data" — stay
-as JSON files** under `.cache/` (one file per request, TTL'd by
-`cache_ttl_hours`; `NO_CACHE=1` bypasses). They are the auditable, untouched
-source. Everything **processed or accumulated** — the run payload, normalised
-people/repos, traffic series, trend snapshots — lives in SQLite. So `.cache/`
-answers *"what did GitHub return"*, the DB answers *"what did we compute and how
-did it change over time."*
-
-## History & trend (snapshots)
-
-The lookback window is a single point in time and can't show whether
-contribution is rising or falling. To add the time dimension, every `collect.py`
-run appends one compact dated row to **`history/snapshots.jsonl`** (per-company
-commits/LOC/PRs/people + org totals). It is **idempotent per calendar day** — a
-same-day re-run replaces that day's row — and only **complete** runs are
-recorded (a rate-limited partial is skipped so it can't poison the trend). The
-**Trend** tab plots these points; movement appears once ≥2 days accumulate.
-Run the collector on a schedule (e.g. the weekly Action) and commit
-`history/snapshots.jsonl` so the series persists across machines/runs.
-
-### Raw traffic accumulation (perishable!)
-
-GitHub's **Traffic API only returns the trailing 14 days** — older clone/view
-counts are **unrecoverable** once they age out (unlike commits/LOC, which always
-live in the clones). To preserve them, every run merges the raw per-repo/per-day
-clone & view records into **`history/traffic.jsonl`**, keyed by `(repo, date)`
-with the latest run winning (a day seen mid-progress is partial; a later run
-completes it). **Run the collector at least once every 14 days** or there will
-be permanent gaps. Because the data is genuinely unrecoverable, back this file up —
-but **not into a public git repository**: it names your repositories. Both
-`history/*.jsonl` files are git-ignored for that reason.
-
-## Precision badges
-
-Every signal is tagged **exact** (green) or **heuristic** (amber) so a reader
-knows what to trust. Examples: an authenticated bot co-author trailer = exact; a bare tool name
-(commit mention)` = heuristic; page views = exact-human; clone counts = heuristic
-(CI-inflated). Marker precision lives in `config.yaml` (`precision:` on each
-marker).
-
-## Metrics & panels
-
-All metrics are computed for the lookback window and, where shown, broken down
-**by person, company, and repo**.
-
-- **Code / LOC** — commits and `meaningful LOC` (raw git additions minus
-  generated / vendor / dependency / fixture / lockfile / build / binary paths;
-  filter in `config.meaningful_loc`). Raw additions are kept too.
-- **Surviving LOC (contribution headline)** — `git blame` over each cloned
-  repo's current tree attributes every still-existing line to its last author,
-  split **code vs spec** and **AI-marked vs unmarked** (`@cpt` regions,
-  a frontmatter flag, a generator stamp). The line counts are
-  exact, but the human/AI split is **not**: **AI-marked** is a *floor* (only
-  generations that leave a marker are caught), so **Unmarked** is an *upper
-  bound* on hand-written code — tools that leave no marker (Copilot, pasted LLM
-  output) also land in Unmarked. It's not proof of authorship. The metric still
-  measures the final code that survives to today, so regenerating the same lines
-  doesn't inflate it and commit count doesn't distort it. Commits and raw windowed additions are kept as secondary
-  columns. A windowed "Δ window" column shows surviving lines whose last commit
-  is inside `lookback_days`. Only computable for cloned primary-org repos.
-- **By Element** — every repo maps to a product element (`config.elements`);
-  the Elements tab rolls up Code/Spec KLOC, people, repos, windowed commits,
-  PRs (opened/merged), median time-to-merge, and AI% per element.
-- **Repo size** — the repo inventory shows each repo's surviving Code LOC and
-  Spec LOC (blame totals; "—" for non-cloned old-org repos).
-- **Specs** — commits touching a spec markdown file (`config.specs` denylist).
-- **Bugs / user stories** — issues by label across both orgs.
-- **Work type (conventional commits)** — exact split from `feat/fix/docs/…`
-  commit-subject prefixes, by person / company / repo.
-- **Contribution by company** — commits, AI%, meaningful LOC per company;
-  affiliation via `companies.domains` + `companies.overrides` + the curated
-  identity overrides.
-- **Code review** (GitHub PR reviews, exact):
-  - reviewer leaderboard — reviews given, approvals, **median review latency**
-    (time from review-requested → approved; if review requests in your org are
-    team-level, this is request→approval latency, not personal-assignment).
-  - **time-to-merge** — median `createdAt → mergedAt`, per person / company / repo.
-  - review coverage — % of PRs with ≥1 review, per repo.
-- **AI tools** — commits carrying an AI-tool marker (`config.ai_tools.markers`):
-  Claude Code, Devin, Copilot out of the box, plus any in-house assistant you add.
-  Per-tool exact/heuristic badges (see *Precision badges* above).
-- **Content provenance** (`config.studio_provenance`) — full-content `git grep` over
-  the default-branch tree rather than commit messages, which makes it the strongest
-  available signal: a spec frontmatter flag, traceability annotations, a generator
-  stamp. Lines matching `blame_marker` are **blame-attributed** to their authors, so
-  a marker becomes lines-per-person / per-company.
-- **Framework usage** (`config.gears_usage`) — which repos DEPEND ON your shared
-  framework, as opposed to the framework's own repos, matched by package or crate
-  name. Provider repos are excluded so the framework does not count as its own user.
-- **Generic trackers** (`config.fabric_trackers`) — the same idea, open-ended: add a
-  marker entry and a tracker appears with no code change. Each marker runs in
-  `content` (git grep) or `files` (path) mode, with `exclude_repos` for providers and
-  meta-repos (a bulk-migration repo references everything and would match every
-  tracker).
-- **Platform usage by company & person** — marked commits and marked code lines
-  rolled up per company and per person.
-- **Activity by week** — org-wide commits/specs/PRs/issues per ISO week.
-- **Traffic** — see below.
-
-## Pieces
-
-| File | Role |
-|------|------|
-| `config.yaml` | repo classification, lookback, labels, meaningful-LOC / AI-tool / provenance / framework / tracker markers, companies, identity overrides |
-| `collect.py` | collects GitHub API + git-history data → SQLite `runs`/`person_runs`/`repo_runs` (+ `data.json` export) |
-| `render.py` | latest run from SQLite (→ `data.json` fallback) → self-contained `report.html` (no CDN, inline JS for tabs/tooltips, email-safe) |
-| `ghclient.py` | shared GitHub client (pagination, rate-limit + transient-5xx backoff, raw-response JSON file cache) + config loader |
-| `store.py` | SQLite store (`history/report.db`): runs, normalised people/repos, traffic, snapshots; exports `history/*.jsonl` (git-ignored: org data, not source) |
-| `identity.py` | clone/fetch, verified pairs, PR-bridge, name-bridge, identity resolution + suggestions |
-| `directory.py` | builds `identity-editor.html` from the collected run + the curated identity overrides |
-| `reportctl.py` | CLI: `collect / render / directory / refresh / all / export / serve` (`--no-cache`) |
-| `server.py` | local web portal (view / refresh / export / edit identity) |
-| `Dockerfile` / `docker-compose.yml` | containerized portal on `:8080` (secrets via `.env`, never hardcoded) |
+**What it measures, and how**
+- [The question it answers](#the-question-it-answers)
+- [Report views (tabs)](#report-views-tabs)
+- [Metrics & panels](#metrics--panels)
+- [Precision badges](#precision-badges)
+- [Identity resolution](#identity-resolution)
+- [Data sources](#data-sources)
+- [Traffic — clones & page views](#traffic--clones--page-views)
+- [History & trend (snapshots)](#history--trend-snapshots)
+- [Storage (SQLite)](#storage-sqlite)
+- [Tuning](#tuning)
+- [Pieces](#pieces)
 
 ## Before you start
 
@@ -303,6 +108,122 @@ One command — creates the venv, installs deps, collects, renders, opens the re
 
 Token: uses `$GH_TOKEN`/`$GITHUB_TOKEN` if set, else falls back to `gh auth token`
 (needs `read:org` + `repo`). Same code path as the Action, just on your machine.
+
+## Test locally
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python -m py_compile collect.py render.py ghclient.py identity.py directory.py reportctl.py server.py tests/test_rules.py
+```
+
+## Scheduling the refresh
+
+There is deliberately **no scheduled GitHub Actions workflow** in this repository. One
+used to live here, and it is the wrong shape for a tool that publishes per-person
+statistics: a workflow on a `schedule:` runs in every fork that has secrets, its email
+step fires unconditionally, and its Pages step would put names, companies and per-person
+figures on a **public** URL. That is a lot of blast radius for a convenience.
+
+Run the refresh where you can see it instead:
+
+```bash
+docker compose exec report python reportctl.py all     # collect + rebuild
+```
+
+For a nightly refresh, use cron on the host — the portal is long-running anyway:
+
+```cron
+30 3 * * *  cd /path/to/insight && docker compose exec -T report python reportctl.py all \
+              >> /var/log/insight-report.log 2>&1 || docker compose exec -T report python alert.py notify "refresh failed"
+```
+
+Point a monitor at `/health/data`, which answers **503** once the newest run is older
+than `HEALTH_MAX_AGE_HOURS`, and set `ALERT_WEBHOOK_URL` so a failed run reaches a
+channel rather than only a log file. A refresh that dies silently is the failure mode
+this project has already had once.
+
+If you do want it in Actions, write the workflow yourself so the decisions are yours:
+give it an org-scoped PAT, and think hard before adding any step that publishes the
+rendered report somewhere public.
+
+
+## Python local portal
+
+If you do not want Docker, run the same portal directly with Python:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+python reportctl.py serve --host 127.0.0.1 --port 8080
+```
+
+Open <http://localhost:8080>.
+
+By default the portal binds loopback (`127.0.0.1`) and runs without auth. Set
+`PORTAL_HOST` (or pass `--host`) to bind elsewhere — Docker Compose does this
+inside the container while publishing the port on the host's loopback only.
+
+**Exposing it on a network?** Set `PORTAL_PASSWORD` (and optionally
+`PORTAL_USER`, default `insight`) to require HTTP Basic auth on *every* request —
+pages, `/data.json`, exports, and the config/identity APIs. With no password set
+and a non-loopback bind, the server prints a loud startup warning. Behind an
+authenticating reverse proxy you can leave it unset. State-changing (POST)
+endpoints also reject cross-origin browser requests.
+
+The portal provides:
+
+- **Top view switcher** — move between Update, Report, and Identity resolution
+  from any served page.
+- **Refresh report** — runs `collect.py` then `render.py` in the background.
+- **Rebuild identity editor** — runs `directory.py`.
+- **Export snapshot** — renders the current `report.html` and serialises the run
+  blob into `exports/` with a timestamp.
+- **Open current report** — opens the latest `report.html` in the browser.
+- **Identity resolution** — opens the identity/company editor; when served by
+  the portal, **Save** POSTs the roster as JSON and the server writes it to the
+  `override` table. If you open `identity-editor.html` as a standalone file, the
+  browser falls back to downloading `people.json` for you to POST later.
+
+The status cards show whether the server process sees the API cache in
+`.cache/` and the local git clones in `.repos/`. Refresh still needs
+`GH_TOKEN` or `GITHUB_TOKEN` in the server environment because the collector
+initializes GitHub auth before reading cached API responses or fetching clone
+updates. If you want to bypass the GitHub API cache from the CLI, use:
+
+```bash
+NO_CACHE=1 python reportctl.py refresh
+```
+
+## Docker details
+
+Build and run the portal in Docker:
+
+```bash
+export GH_TOKEN=...
+docker compose up --build
+```
+
+Then open <http://localhost:8080>.
+
+`docker compose` mounts the project directory into `/work`, so the container
+can reuse local `.cache/` API responses and `.repos/` git clones. A plain
+`docker run` of the built image will not contain those directories unless you
+mount them yourself; they are intentionally excluded from the build context.
+
+The Docker portal uses the same cache as local CLI runs. If a refresh logs
+`discarded invalid clone cache` or `discarded blobless clone cache`, it is
+repairing one `.repos/<repo>` entry and continuing; this is expected after
+older runs that created a broken path or a blobless clone.
+
+CLI commands are also available through the container:
+
+```bash
+docker compose run --rm report python reportctl.py refresh
+docker compose run --rm report python reportctl.py export
+docker compose run --rm report python reportctl.py directory
+```
 
 ## Develop locally → deploy to the server
 
@@ -386,122 +307,6 @@ export GH_TOKEN="$(gh auth token)"
 python collect.py && python render.py && open report.html
 ```
 
-## Python local portal
-
-If you do not want Docker, run the same portal directly with Python:
-
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-python reportctl.py serve --host 127.0.0.1 --port 8080
-```
-
-Open <http://localhost:8080>.
-
-By default the portal binds loopback (`127.0.0.1`) and runs without auth. Set
-`PORTAL_HOST` (or pass `--host`) to bind elsewhere — Docker Compose does this
-inside the container while publishing the port on the host's loopback only.
-
-**Exposing it on a network?** Set `PORTAL_PASSWORD` (and optionally
-`PORTAL_USER`, default `insight`) to require HTTP Basic auth on *every* request —
-pages, `/data.json`, exports, and the config/identity APIs. With no password set
-and a non-loopback bind, the server prints a loud startup warning. Behind an
-authenticating reverse proxy you can leave it unset. State-changing (POST)
-endpoints also reject cross-origin browser requests.
-
-The portal provides:
-
-- **Top view switcher** — move between Update, Report, and Identity resolution
-  from any served page.
-- **Refresh report** — runs `collect.py` then `render.py` in the background.
-- **Rebuild identity editor** — runs `directory.py`.
-- **Export snapshot** — renders the current `report.html` and serialises the run
-  blob into `exports/` with a timestamp.
-- **Open current report** — opens the latest `report.html` in the browser.
-- **Identity resolution** — opens the identity/company editor; when served by
-  the portal, **Save** POSTs the roster as JSON and the server writes it to the
-  `override` table. If you open `identity-editor.html` as a standalone file, the
-  browser falls back to downloading `people.json` for you to POST later.
-
-The status cards show whether the server process sees the API cache in
-`.cache/` and the local git clones in `.repos/`. Refresh still needs
-`GH_TOKEN` or `GITHUB_TOKEN` in the server environment because the collector
-initializes GitHub auth before reading cached API responses or fetching clone
-updates. If you want to bypass the GitHub API cache from the CLI, use:
-
-```bash
-NO_CACHE=1 python reportctl.py refresh
-```
-
-## Docker details
-
-Build and run the portal in Docker:
-
-```bash
-export GH_TOKEN=...
-docker compose up --build
-```
-
-Then open <http://localhost:8080>.
-
-`docker compose` mounts the project directory into `/work`, so the container
-can reuse local `.cache/` API responses and `.repos/` git clones. A plain
-`docker run` of the built image will not contain those directories unless you
-mount them yourself; they are intentionally excluded from the build context.
-
-The Docker portal uses the same cache as local CLI runs. If a refresh logs
-`discarded invalid clone cache` or `discarded blobless clone cache`, it is
-repairing one `.repos/<repo>` entry and continuing; this is expected after
-older runs that created a broken path or a blobless clone.
-
-CLI commands are also available through the container:
-
-```bash
-docker compose run --rm report python reportctl.py refresh
-docker compose run --rm report python reportctl.py export
-docker compose run --rm report python reportctl.py directory
-```
-
-## Test locally
-
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-python -m unittest discover -s tests -v
-python -m py_compile collect.py render.py ghclient.py identity.py directory.py reportctl.py server.py tests/test_rules.py
-```
-
-## Scheduling the refresh
-
-There is deliberately **no scheduled GitHub Actions workflow** in this repository. One
-used to live here, and it is the wrong shape for a tool that publishes per-person
-statistics: a workflow on a `schedule:` runs in every fork that has secrets, its email
-step fires unconditionally, and its Pages step would put names, companies and per-person
-figures on a **public** URL. That is a lot of blast radius for a convenience.
-
-Run the refresh where you can see it instead:
-
-```bash
-docker compose exec report python reportctl.py all     # collect + rebuild
-```
-
-For a nightly refresh, use cron on the host — the portal is long-running anyway:
-
-```cron
-30 3 * * *  cd /path/to/insight && docker compose exec -T report python reportctl.py all \
-              >> /var/log/insight-report.log 2>&1 || docker compose exec -T report python alert.py notify "refresh failed"
-```
-
-Point a monitor at `/health/data`, which answers **503** once the newest run is older
-than `HEALTH_MAX_AGE_HOURS`, and set `ALERT_WEBHOOK_URL` so a failed run reaches a
-channel rather than only a log file. A refresh that dies silently is the failure mode
-this project has already had once.
-
-If you do want it in Actions, write the workflow yourself so the decisions are yours:
-give it an org-scoped PAT, and think hard before adding any step that publishes the
-rendered report somewhere public.
-
-
 ## MCP server (read-only data access)
 
 `mcp_server.py` exposes the report's data to MCP clients (e.g. Claude) over
@@ -521,73 +326,150 @@ a repo subset, e.g. `element:Insight`, `org:your-old-org`, `repo:org/name`.
 MCP_TOKEN=… python mcp_server.py         # local, serves /mcp on :8082
 ```
 
-## Traffic — clones & page views
+## Trust checklist
 
-The **Traffic** panel shows GitHub traffic (last 14 days), with two distinct
-signals badged by precision:
+Before treating a report as stakeholder-ready, check:
 
-- **Page views / unique visitors** (`exact-human`) — people browsing the web UI.
-  CI does not browse, so this is the cleaner human-usage signal. The panel also
-  lists **popular paths** (what's viewed: PRs, issues, docs) and a **daily clone
-  chart**.
-- **Clones / unique cloners** (`heuristic`) — dominated by **CI/automation**:
-  E2E and image-build workflows clone the repo per job, so each "unique cloner"
-  is an ephemeral runner cloning ~14×. A daily spike means heavy CI that day,
-  **not** more people. Read as volume/automation, never headcount. (An earlier
-  "Use ÷ contrib" ratio was removed as misleading.)
+- `identity.unresolved_human` in `data.json` is understood or resolved.
+- The report has no unexpected "Unclassified repos" section.
+- The clone-traffic panel has access to the repos you care about; otherwise
+  usage volume is partial.
+- Label mappings in `config.yaml` match current team practice.
 
-Caveats common to all traffic:
+## The question it answers
 
-- **Anonymous** — GitHub gives *how many*, never *who*. Forks & stars are the
-  only per-person usage signals.
-- **14-day window** — GitHub does not retain traffic longer; it's a snapshot,
-  not windowed to `lookback_days`.
-- **Needs push/admin** — `/traffic/*` returns `403` on repos the token can't
-  push to, so a read-only token sees traffic for almost nothing; give the collector's
-  token org-wide push (or use an org GitHub App with the traffic permission) to cover
-  every repo. Repos without access are surfaced as "no
-  traffic access yet" rather than silently dropped.
+If your company builds a shared platform and other teams build products on top of
+it, the interesting split is not "who commits the most" but:
 
-## Data sources
+1. **Contributing to the platform** — anyone with **any** contribution (commit, PR,
+   spec edit, bug, or feature) to **any** repo in the org, split into org members
+   vs external.
+2. **Using the platform without contributing back** — accounts that **forked** an
+   org repo (= using it) but made **zero** contribution to any org repo in the
+   window.
 
-Collection uses two source paths deliberately:
+*(Platform-vs-app is a separate "where effort goes" breakdown, configured per repo
+in `config.yaml` → `repos:`. In the shipped example `example-core`, `example-sdk`
+and `example-cli` are the platform; `example-web`, `example-api` and `example-docs`
+are apps built on it. That axis is independent of the contribute/use line.)*
 
-- **Git history clones** for commits, lines changed, spec-document edits, commit
-  types, AI-tool markers, and content markers. This counts corporate commit
-  emails that GitHub does not link to a login. Repos are cloned once into
-  `.repos/`; each run refreshes the stable local ref `refs/report/head`. Clones
-  are **full history** (no `--shallow-since`) and **with blobs** (not
-  `--filter=blob:none`): full history is needed for accurate `git blame`
-  attribution of `@cpt` code markers, and blobs are needed for `git log
-  --numstat` (LOC) and `git grep` over file content. An older shallow clone is
-  auto-deepened (`--unshallow`) on the next run. Git transfers only new objects
-  after the first clone; metrics are recomputed from the lookback window each run.
-- **GitHub API** for org membership, repo inventory, verified commit authors,
-  PRs, issues, forks, stars, and clone/view traffic.
+> GitHub-only data: passive consumption beyond forks/stars, and anonymous clone
+> traffic, are not observable — the numbers here are a floor, not a census.
+> Repo classification lives in [`config.yaml`](config.yaml); label→category mapping
+> lives in the database-backed semantic taxonomy (see [`docs/semantic-config.md`](docs/semantic-config.md)).
 
-### Clone cache behavior
 
-`.repos/` is a persistent implementation cache, not report output. It is safe
-to delete a repo directory there when you want to force a clean clone; the next
-refresh will recreate it.
+## Report views (tabs)
 
-During refresh the log has two git phases per primary-org repo:
+`report.html` has a tab switcher (inline JS, no dependencies) that filters
+sections by mode. Every section also carries `all`, so **All** shows everything.
 
-- `Clone+log: <repo>` — refreshes the local clone and parses git history for
-  commits, LOC, contributors, and spec edits.
-- `Verify authors: <repo>` — asks the GitHub commits API for verified
-  email-to-login evidence for the same lookback window.
+- **Overview** — KPIs, commit mix, work type, contribution by category, scenarios.
+- **Trend** — contribution over time, built from accumulated daily snapshots.
+- **Repos** — repo coverage/inventory, platform-vs-app effort.
+- **Elements** — per-Element rollup: repos, people, code/spec LOC, review TTM.
+- **Usage** — traffic (clones + page views), external contributors.
+- **People** — per-person table, code review, categories.
+- **AI Tools Usage** — AI tools, content provenance, framework usage, generic
+  trackers, platform-usage rollup by company/person, and **Bots & automation**.
+- **All** — every section.
 
-The collector also self-heals stale cache shapes:
+### Period filter (presets + custom)
 
-- `discarded invalid clone cache: <repo>` means `.repos/<repo>` existed but was
-  not a valid git checkout, for example a leftover symlink or partial failed
-  clone.
-- `discarded blobless clone cache: <repo>` means the old checkout used
-  `remote.origin.partialclonefilter` and is being replaced with a clone that
-  supports fast `git log --numstat`.
-- `clone failed: <org>/<repo>: ...` and `fetch failed: <org>/<repo>: ...`
-  include the last git error with the token redacted.
+A period selector (chips: 7d / 30d / 90d / 1 year / All-time + a custom from/to
+range) re-slices **every panel that can be windowed**.
+
+- **Portal-driven.** Each filterable panel is a `[data-period-panel]` region.
+  Changing period — preset *or* custom — issues one request to
+  **`/api/period?days=N`** (or `?from=YYYY-MM-DD&to=YYYY-MM-DD`); the server runs a
+  single `store.aggregate(since, until)` over the granular tables and returns all
+  filterable panels as an HTML fragment, which the page swaps in. Results are
+  cached per period (re-selecting is instant); **All-time** restores the
+  build-time snapshot without a request.
+- **One source of truth.** The filterable panels are Jinja macros in the `panels`
+  template, imported by both the report (build-time, all-time) and the
+  `/api/period` fragment (windowed) — so they never drift.
+- **Standalone file** (opened without the portal): shows the all-time state and a
+  note that live filtering needs the portal.
+
+**What the period covers** is spelled out in the UI legend under the bar:
+period-filtered = **KPIs, contribution by company, %-by-category, work type,
+commit mix, By Element, platform/app split, per-person activity columns, traffic**
+(summed from the accumulated daily `traffic` table), **code review** (reviewers /
+coverage / TTM from the granular `review` table), **bot activity**, and the
+**AI-marked commit share**. Always **all-time** (by nature) = contributors
+(cumulative), trend (the time axis), surviving-LOC and cpt lines (git-blame of
+today's tree), repo coverage (inventory), content markers (provenance / framework
+usage — a `git grep` over the current tree), and the per-tool AI split. In mixed panels the
+windowed metrics and the all-time ones each carry the matching tag (a live period
+tag or an `all-time` badge).
+
+## Metrics & panels
+
+All metrics are computed for the lookback window and, where shown, broken down
+**by person, company, and repo**.
+
+- **Code / LOC** — commits and `meaningful LOC` (raw git additions minus
+  generated / vendor / dependency / fixture / lockfile / build / binary paths;
+  filter in `config.meaningful_loc`). Raw additions are kept too.
+- **Surviving LOC (contribution headline)** — `git blame` over each cloned
+  repo's current tree attributes every still-existing line to its last author,
+  split **code vs spec** and **AI-marked vs unmarked** (`@cpt` regions,
+  a frontmatter flag, a generator stamp). The line counts are
+  exact, but the human/AI split is **not**: **AI-marked** is a *floor* (only
+  generations that leave a marker are caught), so **Unmarked** is an *upper
+  bound* on hand-written code — tools that leave no marker (Copilot, pasted LLM
+  output) also land in Unmarked. It's not proof of authorship. The metric still
+  measures the final code that survives to today, so regenerating the same lines
+  doesn't inflate it and commit count doesn't distort it. Commits and raw windowed additions are kept as secondary
+  columns. A windowed "Δ window" column shows surviving lines whose last commit
+  is inside `lookback_days`. Only computable for cloned primary-org repos.
+- **By Element** — every repo maps to a product element (`config.elements`);
+  the Elements tab rolls up Code/Spec KLOC, people, repos, windowed commits,
+  PRs (opened/merged), median time-to-merge, and AI% per element.
+- **Repo size** — the repo inventory shows each repo's surviving Code LOC and
+  Spec LOC (blame totals; "—" for non-cloned old-org repos).
+- **Specs** — commits touching a spec markdown file (`config.specs` denylist).
+- **Bugs / user stories** — issues by label across both orgs.
+- **Work type (conventional commits)** — exact split from `feat/fix/docs/…`
+  commit-subject prefixes, by person / company / repo.
+- **Contribution by company** — commits, AI%, meaningful LOC per company;
+  affiliation via `companies.domains` + `companies.overrides` + the curated
+  identity overrides.
+- **Code review** (GitHub PR reviews, exact):
+  - reviewer leaderboard — reviews given, approvals, **median review latency**
+    (time from review-requested → approved; if review requests in your org are
+    team-level, this is request→approval latency, not personal-assignment).
+  - **time-to-merge** — median `createdAt → mergedAt`, per person / company / repo.
+  - review coverage — % of PRs with ≥1 review, per repo.
+- **AI tools** — commits carrying an AI-tool marker (`config.ai_tools.markers`):
+  Claude Code, Devin, Copilot out of the box, plus any in-house assistant you add.
+  Per-tool exact/heuristic badges (see *Precision badges* above).
+- **Content provenance** (`config.studio_provenance`) — full-content `git grep` over
+  the default-branch tree rather than commit messages, which makes it the strongest
+  available signal: a spec frontmatter flag, traceability annotations, a generator
+  stamp. Lines matching `blame_marker` are **blame-attributed** to their authors, so
+  a marker becomes lines-per-person / per-company.
+- **Framework usage** (`config.gears_usage`) — which repos DEPEND ON your shared
+  framework, as opposed to the framework's own repos, matched by package or crate
+  name. Provider repos are excluded so the framework does not count as its own user.
+- **Generic trackers** (`config.fabric_trackers`) — the same idea, open-ended: add a
+  marker entry and a tracker appears with no code change. Each marker runs in
+  `content` (git grep) or `files` (path) mode, with `exclude_repos` for providers and
+  meta-repos (a bulk-migration repo references everything and would match every
+  tracker).
+- **Platform usage by company & person** — marked commits and marked code lines
+  rolled up per company and per person.
+- **Activity by week** — org-wide commits/specs/PRs/issues per ISO week.
+- **Traffic** — see below.
+
+## Precision badges
+
+Every signal is tagged **exact** (green) or **heuristic** (amber) so a reader
+knows what to trust. Examples: an authenticated bot co-author trailer = exact; a bare tool name
+(commit mention)` = heuristic; page views = exact-human; clone counts = heuristic
+(CI-inflated). Marker precision lives in `config.yaml` (`precision:` on each
+marker).
 
 ## Identity resolution
 
@@ -700,6 +582,150 @@ what `deploy.sh` writes and what a restore should use.
 - Company attribution uses the curated overrides first, then
   `companies.overrides`, then email-domain mapping, then `companies.default`.
 
+## Data sources
+
+Collection uses two source paths deliberately:
+
+- **Git history clones** for commits, lines changed, spec-document edits, commit
+  types, AI-tool markers, and content markers. This counts corporate commit
+  emails that GitHub does not link to a login. Repos are cloned once into
+  `.repos/`; each run refreshes the stable local ref `refs/report/head`. Clones
+  are **full history** (no `--shallow-since`) and **with blobs** (not
+  `--filter=blob:none`): full history is needed for accurate `git blame`
+  attribution of `@cpt` code markers, and blobs are needed for `git log
+  --numstat` (LOC) and `git grep` over file content. An older shallow clone is
+  auto-deepened (`--unshallow`) on the next run. Git transfers only new objects
+  after the first clone; metrics are recomputed from the lookback window each run.
+- **GitHub API** for org membership, repo inventory, verified commit authors,
+  PRs, issues, forks, stars, and clone/view traffic.
+
+### Clone cache behavior
+
+`.repos/` is a persistent implementation cache, not report output. It is safe
+to delete a repo directory there when you want to force a clean clone; the next
+refresh will recreate it.
+
+During refresh the log has two git phases per primary-org repo:
+
+- `Clone+log: <repo>` — refreshes the local clone and parses git history for
+  commits, LOC, contributors, and spec edits.
+- `Verify authors: <repo>` — asks the GitHub commits API for verified
+  email-to-login evidence for the same lookback window.
+
+The collector also self-heals stale cache shapes:
+
+- `discarded invalid clone cache: <repo>` means `.repos/<repo>` existed but was
+  not a valid git checkout, for example a leftover symlink or partial failed
+  clone.
+- `discarded blobless clone cache: <repo>` means the old checkout used
+  `remote.origin.partialclonefilter` and is being replaced with a clone that
+  supports fast `git log --numstat`.
+- `clone failed: <org>/<repo>: ...` and `fetch failed: <org>/<repo>: ...`
+  include the last git error with the token redacted.
+
+## Traffic — clones & page views
+
+The **Traffic** panel shows GitHub traffic (last 14 days), with two distinct
+signals badged by precision:
+
+- **Page views / unique visitors** (`exact-human`) — people browsing the web UI.
+  CI does not browse, so this is the cleaner human-usage signal. The panel also
+  lists **popular paths** (what's viewed: PRs, issues, docs) and a **daily clone
+  chart**.
+- **Clones / unique cloners** (`heuristic`) — dominated by **CI/automation**:
+  E2E and image-build workflows clone the repo per job, so each "unique cloner"
+  is an ephemeral runner cloning ~14×. A daily spike means heavy CI that day,
+  **not** more people. Read as volume/automation, never headcount. (An earlier
+  "Use ÷ contrib" ratio was removed as misleading.)
+
+Caveats common to all traffic:
+
+- **Anonymous** — GitHub gives *how many*, never *who*. Forks & stars are the
+  only per-person usage signals.
+- **14-day window** — GitHub does not retain traffic longer; it's a snapshot,
+  not windowed to `lookback_days`.
+- **Needs push/admin** — `/traffic/*` returns `403` on repos the token can't
+  push to, so a read-only token sees traffic for almost nothing; give the collector's
+  token org-wide push (or use an org GitHub App with the traffic permission) to cover
+  every repo. Repos without access are surfaced as "no
+  traffic access yet" rather than silently dropped.
+
+## History & trend (snapshots)
+
+The lookback window is a single point in time and can't show whether
+contribution is rising or falling. To add the time dimension, every `collect.py`
+run appends one compact dated row to **`history/snapshots.jsonl`** (per-company
+commits/LOC/PRs/people + org totals). It is **idempotent per calendar day** — a
+same-day re-run replaces that day's row — and only **complete** runs are
+recorded (a rate-limited partial is skipped so it can't poison the trend). The
+**Trend** tab plots these points; movement appears once ≥2 days accumulate.
+Run the collector on a schedule (e.g. the weekly Action) and commit
+`history/snapshots.jsonl` so the series persists across machines/runs.
+
+### Raw traffic accumulation (perishable!)
+
+GitHub's **Traffic API only returns the trailing 14 days** — older clone/view
+counts are **unrecoverable** once they age out (unlike commits/LOC, which always
+live in the clones). To preserve them, every run merges the raw per-repo/per-day
+clone & view records into **`history/traffic.jsonl`**, keyed by `(repo, date)`
+with the latest run winning (a day seen mid-progress is partial; a later run
+completes it). **Run the collector at least once every 14 days** or there will
+be permanent gaps. Because the data is genuinely unrecoverable, back this file up —
+but **not into a public git repository**: it names your repositories. Both
+`history/*.jsonl` files are git-ignored for that reason.
+
+## Storage (SQLite)
+
+The **SQLite** database `history/report.db` (override with `REPORT_DB`), managed
+by `store.py`, is the **source of truth**. `collect.py` writes it; `render.py`
+and `directory.py` read it (falling back to the `data.json` export only if the
+DB is empty). Tables:
+
+**Granular event tables (the source for period queries):**
+- **`commits`** — one row per commit (date, author, repo, LOC, type, AI/bot flags).
+- **`pull_request`** / **`issue`** — one row per PR / issue (created/merged dates,
+  author, classification, bug/story + migration/bot flags).
+- These make **any period a date-range query** — `store.aggregate(since, until)`
+  powers both the presets and the custom-days endpoint. e.g. *Example Inc commits in a
+  window*: `SELECT SUM(...) FROM commits c JOIN person p ON p.login=c.author_login
+  WHERE p.company='Example Inc' AND c.committed_at BETWEEN ? AND ?`. Dates are stored
+  UTC (`...Z`) so ranges compare cleanly.
+
+**Dimensions:** **`person`** (login → name/company/emails/surviving-LOC) and
+**`repo`** (key → classification/element/legacy/size), joined for company rollups.
+
+**Other tables:**
+- **`runs`** — the full `data.json` blob, one row per day (non-period report parts:
+  repos inventory, traffic, provenance, bots, elements, identity). `render`/`directory`
+  load the latest.
+- **`traffic`** — raw per-repo/per-day clones & views (see below).
+- **`snapshots`** — compact per-day aggregate behind the Trend tab.
+- `person_runs` / `repo_runs` — legacy per-run aggregates, retained for cross-run
+  SQL (superseded by the granular tables for period work).
+
+The DB sits on the docker bind-mount (`.:/work`), so it persists across
+container restarts; it is **git-ignored** (binary). Each run also exports the
+durable history tables to **`history/*.jsonl`** and the latest payload to
+**`data.json`** — text and diffable, so they are easy to back up and to inspect
+(regenerated every run, so no drift). On first run an empty DB is **seeded** from any
+existing `data.json` + `history/*.jsonl`.
+
+> These exports are **git-ignored on purpose.** They describe your organisation:
+> `snapshots.jsonl` carries per-company commit / LOC / headcount figures and
+> `traffic.jsonl` carries repository names. An earlier internal version of this repo
+> tracked them as a "text backup of the DB", which is exactly how internal metrics end
+> up in a public git history. Back them up outside git.
+
+### Layering: raw stays JSON, processed goes to SQLite
+
+The split is deliberate. **Raw GitHub API responses — the "initial data" — stay
+as JSON files** under `.cache/` (one file per request, TTL'd by
+`cache_ttl_hours`; `NO_CACHE=1` bypasses). They are the auditable, untouched
+source. Everything **processed or accumulated** — the run payload, normalised
+people/repos, traffic series, trend snapshots — lives in SQLite. So `.cache/`
+answers *"what did GitHub return"*, the DB answers *"what did we compute and how
+did it change over time."*
+
 ## Tuning
 
 - **Window**: `lookback_days` in `config.yaml` — an integer (rolling window in
@@ -746,15 +772,20 @@ what `deploy.sh` writes and what a restore should use.
   (`rate_limited`, `reset`, remaining budget), and the report shows a red
   "PARTIAL" banner. Re-run after the reset for complete data.
 
-## Trust checklist
+## Pieces
 
-Before treating a report as stakeholder-ready, check:
-
-- `identity.unresolved_human` in `data.json` is understood or resolved.
-- The report has no unexpected "Unclassified repos" section.
-- The clone-traffic panel has access to the repos you care about; otherwise
-  usage volume is partial.
-- Label mappings in `config.yaml` match current team practice.
+| File | Role |
+|------|------|
+| `config.yaml` | repo classification, lookback, labels, meaningful-LOC / AI-tool / provenance / framework / tracker markers, companies, identity overrides |
+| `collect.py` | collects GitHub API + git-history data → SQLite `runs`/`person_runs`/`repo_runs` (+ `data.json` export) |
+| `render.py` | latest run from SQLite (→ `data.json` fallback) → self-contained `report.html` (no CDN, inline JS for tabs/tooltips, email-safe) |
+| `ghclient.py` | shared GitHub client (pagination, rate-limit + transient-5xx backoff, raw-response JSON file cache) + config loader |
+| `store.py` | SQLite store (`history/report.db`): runs, normalised people/repos, traffic, snapshots; exports `history/*.jsonl` (git-ignored: org data, not source) |
+| `identity.py` | clone/fetch, verified pairs, PR-bridge, name-bridge, identity resolution + suggestions |
+| `directory.py` | builds `identity-editor.html` from the collected run + the curated identity overrides |
+| `reportctl.py` | CLI: `collect / render / directory / refresh / all / export / serve` (`--no-cache`) |
+| `server.py` | local web portal (view / refresh / export / edit identity) |
+| `Dockerfile` / `docker-compose.yml` | containerized portal on `:8080` (secrets via `.env`, never hardcoded) |
 
 ## Licence
 
