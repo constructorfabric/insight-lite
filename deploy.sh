@@ -33,14 +33,14 @@
 # report.db, so a normal deploy NEVER touches them. report.db / .env / the rest of
 # the data volume are likewise untouched by a deploy — only the image (code +
 # templates + baked frontend) changes; state lives only on the volume.
-# Override host/key/dir with CT_HOST / CT_KEY / CT_DIR env vars.
+# Override host/key/dir with DEPLOY_HOST / DEPLOY_KEY / DEPLOY_DIR env vars.
 set -euo pipefail
 
 IMAGE="insight-report:latest"
-KEY="${CT_KEY:-$HOME/.ssh/ct_server}"
-HOST="${CT_HOST:-user@your-server}"
-DIR="${CT_DIR:-insight-report}"
-URL="${CT_URL:-http://your-server:8081/}"
+KEY="${DEPLOY_KEY:-$HOME/.ssh/deploy_key}"
+HOST="${DEPLOY_HOST:-user@your-server}"
+DIR="${DEPLOY_DIR:-insight-report}"
+URL="${DEPLOY_URL:-http://your-server:8081/}"
 SSH=(ssh -i "$KEY" -o BatchMode=yes "$HOST")
 RSYNC_SSH=(ssh -i "$KEY" -o BatchMode=yes)
 

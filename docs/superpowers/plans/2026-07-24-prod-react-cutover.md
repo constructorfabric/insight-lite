@@ -37,7 +37,7 @@ Because `.:/work` shadows the image's baked `assets/app`, the **built** React bu
    ```
 2. **Snapshot + rollback safety on the server:**
    ```bash
-   ssh -i ~/.ssh/ct_server user@your-server '
+   ssh -i ~/.ssh/deploy_key user@your-server '
      cd ~/insight-report &&
      cp -a . ../insight-report.bak.$(date +%Y%m%dT%H%M%SZ) 2>/dev/null || true;   # or at least back up history/report.db
      docker compose exec -T report python3 -c "import store,shutil,os,datetime; db=store.db_path(); \
@@ -51,12 +51,12 @@ Because `.:/work` shadows the image's baked `assets/app`, the **built** React bu
      --exclude 'exports/' --exclude '.env*' --exclude 'people.yaml' --exclude 'config.local.yaml' \
      --exclude 'data.json' --exclude 'report.html' --exclude '*-editor.html' \
      --exclude 'frontend/node_modules' --exclude '.git' --exclude 'FabricReporting.zip' \
-     -e "ssh -i ~/.ssh/ct_server" ./ user@your-server:~/insight-report/
+     -e "ssh -i ~/.ssh/deploy_key" ./ user@your-server:~/insight-report/
    ```
    (Keep the server's custom `docker-compose.yml` — add `--exclude docker-compose.yml` if the repo's base differs from the server's, which it does. **Exclude it.**)
 4. **Rebuild + restart** (bind-mount serves host code; `--build` refreshes the image layer, deps unchanged so it's fast):
    ```bash
-   ssh -i ~/.ssh/ct_server user@your-server 'cd ~/insight-report && docker compose up -d --build report mcp'
+   ssh -i ~/.ssh/deploy_key user@your-server 'cd ~/insight-report && docker compose up -d --build report mcp'
    ```
 5. Verify (§4). Rollback (§5) = restore the code snapshot + `up -d --build`.
 

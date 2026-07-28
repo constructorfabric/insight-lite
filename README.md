@@ -330,8 +330,8 @@ python render.py && open report.html                # preview render-only change
 identity + config overrides), the API cache, git clones, `.env`, and generated
 `report.html` / `data.json` are left alone. It does take a `report.db` backup into
 `history/backups/` before the image swap (newest 10 retained) — that snapshot is the
-recovery path for a roster. Host/key/dir are overridable via `CT_HOST` / `CT_KEY` /
-`CT_DIR`. (There were once `--identity` / `--pull-identity` flags that rsynced a
+recovery path for a roster. Host/key/dir are overridable via `DEPLOY_HOST` / `DEPLOY_KEY` /
+`DEPLOY_DIR`. (There were once `--identity` / `--pull-identity` flags that rsynced a
 `people.yaml` between laptop and server; the file is gone, see below.)
 
 **Identity is server-owned, and Save applies instantly.** Edit companies/aliases in
@@ -348,7 +348,7 @@ the server only with `./deploy.sh --identity` (a deliberate override).
 
 **Server management**
 ```bash
-ssh -i ~/.ssh/ct_server user@your-server
+ssh -i ~/.ssh/deploy_key user@your-server
 cd ~/insight-report
 docker compose ps                       # container status
 docker compose logs -f report           # portal logs
