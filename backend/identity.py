@@ -33,7 +33,9 @@ import yaml
 import paths
 from ghclient import GH, load_config, token
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# The repo root, one level up from backend/: templates/, assets/ and config.yaml
+# live there, not next to the modules.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLONE_ROOT = os.environ.get("CLONE_DIR") or str(paths.data_path(".repos"))
 
 

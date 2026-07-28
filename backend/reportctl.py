@@ -11,7 +11,10 @@ from pathlib import Path
 
 import paths
 
-ROOT = Path(__file__).resolve().parent
+# The repo root, one level up from backend/: templates/, assets/ and config.yaml
+# live there, not next to the modules.
+ROOT = Path(__file__).resolve().parent.parent
+BACKEND = Path(__file__).resolve().parent
 EXPORTS = paths.data_path("exports")
 RUNTIME = paths.data_path(".runtime")
 
@@ -20,7 +23,10 @@ def run_python(script: str, *, no_cache: bool = False) -> None:
     env = os.environ.copy()
     if no_cache:
         env["NO_CACHE"] = "1"
-    subprocess.run([sys.executable, script], cwd=ROOT, env=env, check=True)
+    # BACKEND, not ROOT: the modules live in backend/ while ROOT is the repo root
+    # (that is where templates/, assets/ and config.yaml are). cwd stays ROOT so a
+    # child's relative DATA_DIR default resolves the same as the parent's.
+    subprocess.run([sys.executable, str(BACKEND / script)], cwd=ROOT, env=env, check=True)
 
 
 def collect(*, no_cache: bool = False) -> None:

@@ -78,9 +78,9 @@ silently assigned to a guessed person; review `identity_suggestions.yaml` or
 
 ### Manual review workflow
 
-1. Run `python3 collect.py`. This writes `data.json` and may write
+1. Run `python3 backend/collect.py`. This writes `data.json` and may write
    `identity_suggestions.yaml`.
-2. Run `python3 directory.py`. This writes `identity-editor.html` from the
+2. Run `python3 backend/directory.py`. This writes `identity-editor.html` from the
    collected run plus the existing reviewed entries.
 3. Open <http://localhost:8080/identity> from the local portal.
 4. Review people in `Other`, duplicate suggestions, and any unresolved email
@@ -88,9 +88,9 @@ silently assigned to a guessed person; review `identity_suggestions.yaml` or
 5. Click **Save**. The roster is POSTed as JSON and the local server writes it to
    the `override` table. If you are using the standalone HTML file instead of the
    portal, it downloads `people.json` for you to POST to `/api/people-yaml`.
-6. Run `python3 collect.py` again so the reviewed directory overrides the
+6. Run `python3 backend/collect.py` again so the reviewed directory overrides the
    automatic resolver.
-7. Run `python3 render.py` to rebuild `report.html`.
+7. Run `python3 backend/render.py` to rebuild `report.html`.
 
 Prefer curating confirmed long-lived mappings at `/identity`. Keep
 `config.identity_overrides` for small exceptional mappings that are easier to
@@ -102,7 +102,7 @@ override scope. Both roles were removed on 2026-07-28: when a roster actually ha
 be restored, all 50 dated copies under `history/people/` turned out to be test-fixture
 output, and the read path had already imported one of those fixtures into the prod
 override table as curated data. Recovery came from a `report.db` snapshot, which is
-what `deploy.sh` writes and what a restore should use.
+what `scripts/deploy.sh` writes and what a restore should use.
 
 ### Trust rules
 

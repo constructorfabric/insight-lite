@@ -9,7 +9,9 @@ import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_root, "backend"))   # modules live in backend/
+sys.path.insert(0, _root)
 
 import view_registry as vr
 

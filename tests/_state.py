@@ -52,11 +52,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Both runners normally put the repo root on sys.path (pytest via rootdir, unittest
-# via the launch directory), but this module imports `store` to seed, and it must not
-# depend on being launched from the right place to do it.
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+# The application modules live in backend/, so THAT is what has to be importable —
+# neither runner puts it on sys.path by itself, and this module imports `store` to seed.
+# The repo root goes on too: tests reach templates/ and assets/ through it.
+for _p in (REPO_ROOT / "backend", REPO_ROOT):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 STATE_DIR = Path(tempfile.mkdtemp(prefix="insight-tests-state-"))
 

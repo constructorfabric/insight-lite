@@ -35,6 +35,15 @@ import server
 import store
 
 
+
+def _src(name):
+    """Read a backend module's source. Resolved from THIS file, not the working
+    directory: the modules moved to backend/ and a bare Path("x.py") silently
+    depended on being run from the repo root."""
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "backend" / name).read_text()
+
+
 class QuietHandler(server.Handler):
     def log_message(self, fmt: str, *args) -> None:
         pass
@@ -394,7 +403,7 @@ class NoHandRolledYamlLeftTest(unittest.TestCase):
         are gone, so there is no quoting implementation left to get wrong."""
         for name in ("dump_yaml", "write_yaml"):
             self.assertFalse(hasattr(directory, name), f"directory.{name} is back")
-        self.assertNotIn("dump_yaml", Path("server.py").read_text())
+        self.assertNotIn("dump_yaml", _src("server.py"))
 
 
 if __name__ == "__main__":

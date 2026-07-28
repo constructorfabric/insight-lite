@@ -92,7 +92,7 @@ echo "→ recreate containers from the loaded image"
 
 if [[ $refresh -eq 1 ]]; then
   echo "→ full refresh (collect → directory); collecting from GitHub…"
-  "${SSH[@]}" "cd $DIR && docker compose exec -T report python reportctl.py all"
+  "${SSH[@]}" "cd $DIR && docker compose exec -T report python backend/reportctl.py all"
 else
   echo "→ report is served live from the DB (no bake); container restart cleared its cache"
 fi

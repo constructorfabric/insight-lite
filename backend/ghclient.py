@@ -20,7 +20,9 @@ import paths
 
 API = "https://api.github.com"
 GRAPHQL = "https://api.github.com/graphql"
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# The repo root, one level up from backend/: templates/, assets/ and config.yaml
+# live there, not next to the modules.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = str(paths.data_path(".cache"))
 
 

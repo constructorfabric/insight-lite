@@ -191,7 +191,7 @@ identity and configuration, and exports snapshots.
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 cd frontend && npm install && npm run build && cd ..   # the UI is React; the bundle is not committed
-python reportctl.py serve --port 8080
+python backend/reportctl.py serve --port 8080
 ```
 
 Same portal, same wizard. The `npm` step is the only reason this path needs Node — skip
@@ -202,8 +202,8 @@ it and every page will tell you so instead of rendering.
 No token, no org, no waiting for a collection:
 
 ```bash
-python reportctl.py demo-seed        # ~0.1s, everything in it is fictional
-python reportctl.py serve --port 8080
+python backend/reportctl.py demo-seed        # ~0.1s, everything in it is fictional
+python backend/reportctl.py serve --port 8080
 ```
 
 That is what the screenshots above are. It is also the fixture the test suite renders the
@@ -212,8 +212,8 @@ full report from, so it stays a working stand-in rather than rotting quietly.
 ### One shot, no portal — for a cron job or a look around
 
 ```bash
-./run.sh                 # collect, render, open report.html
-./run.sh --no-open       # same without opening a browser
+./scripts/run.sh                 # collect, render, open report.html
+./scripts/run.sh --no-open       # same without opening a browser
 ```
 
 Creates the venv, installs dependencies, collects and renders. Uses `$GH_TOKEN` /
@@ -231,8 +231,8 @@ it is invented. If you already run this and want the file to stop mattering — 
 now arrives from git, or from inside an image — capture it once:
 
 ```bash
-python reportctl.py config-capture   # file -> database
-python reportctl.py config-verify    # proves the database is now sufficient; exits 1 if not
+python backend/reportctl.py config-capture   # file -> database
+python backend/reportctl.py config-verify    # proves the database is now sufficient; exits 1 if not
 ```
 
 For secrets and anything the wizard does not cover — `PORTAL_PASSWORD`, `MCP_TOKEN`,
@@ -277,14 +277,14 @@ figures on a **public** URL. That is a lot of blast radius for a convenience.
 Run the refresh where you can see it instead:
 
 ```bash
-docker compose exec report python reportctl.py all     # collect + rebuild
+docker compose exec report python backend/reportctl.py all     # collect + rebuild
 ```
 
 For a nightly refresh, use cron on the host — the portal is long-running anyway:
 
 ```cron
-30 3 * * *  cd /path/to/insight && docker compose exec -T report python reportctl.py all \
-              >> /var/log/insight-report.log 2>&1 || docker compose exec -T report python alert.py notify "refresh failed"
+30 3 * * *  cd /path/to/insight && docker compose exec -T report python backend/reportctl.py all \
+              >> /var/log/insight-report.log 2>&1 || docker compose exec -T report python backend/alert.py notify "refresh failed"
 ```
 
 Point a monitor at `/health/data`, which answers **503** once the newest run is older
@@ -313,7 +313,7 @@ Tools: `describe_schema`, `sql_query` (single SELECT/WITH, `PRAGMA query_only`),
 a repo subset, e.g. `element:Insight`, `org:your-old-org`, `repo:org/name`.
 
 ```bash
-MCP_TOKEN=… python mcp_server.py         # local, serves /mcp on :8082
+MCP_TOKEN=… python backend/mcp_server.py         # local, serves /mcp on :8082
 ```
 
 ## Documentation

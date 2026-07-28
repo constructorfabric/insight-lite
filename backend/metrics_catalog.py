@@ -16,7 +16,9 @@ import os
 
 import metrics_registry as mreg
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# The repo root, one level up from backend/: templates/, assets/ and config.yaml
+# live there, not next to the modules.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _asset(name: str) -> str:

@@ -32,7 +32,7 @@ services:
     # `mcp` below since both read/write the same SQLite store.
     volumes:
       - report-data:/work/data
-    command: python reportctl.py serve --port 8080
+    command: python backend/reportctl.py serve --port 8080
 
   # Read-only MCP server over the same DB. Loopback-published; front it with the
   # same reverse proxy as the portal. Set MCP_TOKEN in .env so clients must send
@@ -57,7 +57,7 @@ services:
         required: false
     volumes:
       - report-data:/work/data
-    command: python mcp_server.py
+    command: python backend/mcp_server.py
 
   # Optional GitHub-OAuth gate in front of the portal (compose profile "oauth").
   # Members of the connected GitHub org are let in; everyone else is refused.
@@ -107,6 +107,6 @@ services:
 
 # One persistent volume for ALL runtime state, shared by report + mcp. Survives
 # `docker compose up -d` after loading a freshly-built image (image swap ==
-# code/asset swap only; the volume is untouched) — see deploy.sh.
+# code/asset swap only; the volume is untouched) — see scripts/deploy.sh.
 volumes:
   report-data:

@@ -25,7 +25,9 @@ import yaml
 import paths
 import shell
 
-ROOT = Path(__file__).resolve().parent
+# The repo root, one level up from backend/: templates/, assets/ and config.yaml
+# live there, not next to the modules.
+ROOT = Path(__file__).resolve().parent.parent
 EXPORTS = paths.data_path("exports")
 RUNTIME = paths.data_path(".runtime")
 LAST_LOG = RUNTIME / "last-job.log"
@@ -411,7 +413,8 @@ def run_job(kind: str, args: list[str]) -> bool:
 
     def worker() -> None:
         RUNTIME.mkdir(parents=True, exist_ok=True)
-        cmd = [sys.executable, "reportctl.py", *args]
+        # reportctl lives beside this file in backend/, while ROOT is the repo root
+        cmd = [sys.executable, str(Path(__file__).resolve().parent / "reportctl.py"), *args]
         proc = subprocess.Popen(
             cmd,
             cwd=ROOT,

@@ -20,6 +20,15 @@ import server
 import store
 
 
+
+def _src(name):
+    """Read a backend module's source. Resolved from THIS file, not the working
+    directory: the modules moved to backend/ and a bare Path("x.py") silently
+    depended on being run from the repo root."""
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "backend" / name).read_text()
+
+
 class NormalizeHandleTest(unittest.TestCase):
     def test_strips_the_at_everyone_pastes(self):
         self.assertEqual(directory.normalize_handle("telegram", "@alexey_p"), "alexey_p")
@@ -152,12 +161,12 @@ class NotIdentityEvidenceTest(unittest.TestCase):
     def test_no_resolution_path_reads_the_handles(self):
         """The point of the design: contact attributes, not authorship evidence."""
         for module in ("identity.py", "semantic.py"):
-            src = Path(module).read_text()
+            src = _src(module)
             for field in directory.CONTACT_FIELDS:
                 self.assertNotIn(field, src, f"{module} must not read {field}")
 
     def test_collect_does_not_treat_them_as_identity_input(self):
-        src = Path("collect.py").read_text()
+        src = _src("collect.py")
         # a mention inside build_identity / confidence scoring would be the regression
         for field in directory.CONTACT_FIELDS:
             for line in src.splitlines():

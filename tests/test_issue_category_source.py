@@ -157,7 +157,8 @@ class NoStaticLabelConfigTest(unittest.TestCase):
 
     def test_base_config_yaml_carries_no_labels_block(self):
         import yaml
-        root = Path(collect.__file__).resolve().parent
+        # .parent.parent: the modules live in backend/, config.yaml at the repo root
+        root = Path(collect.__file__).resolve().parent.parent
         cfg = yaml.safe_load((root / "config.yaml").read_text()) or {}
         self.assertNotIn("labels", cfg)
 

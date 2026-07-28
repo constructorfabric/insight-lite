@@ -21,6 +21,15 @@ import store
 W = ("2008-01-01T00:00:00Z", "2099-01-01T00:00:00Z")
 
 
+
+def _src(name):
+    """Read a backend module's source. Resolved from THIS file, not the working
+    directory: the modules moved to backend/ and a bare Path("x.py") silently
+    depended on being run from the repo root."""
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "backend" / name).read_text()
+
+
 def _iso(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -78,7 +87,7 @@ class SourceIsTheSubmittedReviewTest(unittest.TestCase):
     def test_review_requested_at_is_no_longer_read(self):
         """Pin the source so a future edit cannot quietly point it back at the dead
         column: collect.py:1569 writes None there, and nothing has changed that."""
-        src = Path("semantic_metrics.py").read_text()
+        src = _src("semantic_metrics.py")
         body = src[src.index("def flow_report("):]
         body = body[:body.index("\ndef ")]
         self.assertNotIn("review_requested_at\"]", body)

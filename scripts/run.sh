@@ -7,7 +7,9 @@
 #
 # Token: uses $GH_TOKEN / $GITHUB_TOKEN if set, otherwise falls back to `gh auth token`.
 set -euo pipefail
-cd "$(dirname "$0")"
+# the repo root, not scripts/ — this file moved but everything it
+# touches (.venv, requirements.txt, the modules) is one level up
+cd "$(dirname "$0")/.."
 
 # --- token ---------------------------------------------------------------
 if [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
@@ -29,8 +31,8 @@ source .venv/bin/activate
 pip install -q -r requirements.txt
 
 # --- pipeline ------------------------------------------------------------
-python collect.py
-python render.py
+python backend/collect.py
+python backend/render.py
 
 
 # --- open ----------------------------------------------------------------

@@ -44,4 +44,4 @@ ENV PORTAL_HOST=0.0.0.0
 # volume at this path in compose so an image swap never loses data.
 ENV DATA_DIR=/work/data
 
-CMD ["python", "reportctl.py", "serve", "--port", "8080"]
+CMD ["python", "backend/reportctl.py", "serve", "--port", "8080"]

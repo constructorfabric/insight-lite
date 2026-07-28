@@ -14,7 +14,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+# The repo root, one level up from backend/: templates/, assets/ and config.yaml
+# live there, not next to the modules.
+ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "assets" / "app" / ".vite" / "manifest.json"
 
 # Keyed by resolved path string -> (mtime, parsed manifest). A rebuild changes

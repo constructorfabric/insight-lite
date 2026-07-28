@@ -11,7 +11,7 @@ If you do not want Docker, run the same portal directly with Python:
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-python reportctl.py serve --host 127.0.0.1 --port 8080
+python backend/reportctl.py serve --host 127.0.0.1 --port 8080
 ```
 
 Open <http://localhost:8080>.
@@ -48,7 +48,7 @@ initializes GitHub auth before reading cached API responses or fetching clone
 updates. If you want to bypass the GitHub API cache from the CLI, use:
 
 ```bash
-NO_CACHE=1 python reportctl.py refresh
+NO_CACHE=1 python backend/reportctl.py refresh
 ```
 
 ## Docker details
@@ -75,9 +75,9 @@ older runs that created a broken path or a blobless clone.
 CLI commands are also available through the container:
 
 ```bash
-docker compose run --rm report python reportctl.py refresh
-docker compose run --rm report python reportctl.py export
-docker compose run --rm report python reportctl.py directory
+docker compose run --rm report python backend/reportctl.py refresh
+docker compose run --rm report python backend/reportctl.py export
+docker compose run --rm report python backend/reportctl.py directory
 ```
 
 ## Develop locally → deploy to the server
@@ -88,18 +88,18 @@ cron refresh). The loop for iterating:
 **1. Edit & check locally**
 ```bash
 PYTHONPATH=. python -m unittest discover -s tests   # tests
-python render.py && open report.html                # preview render-only changes
+python backend/render.py && open report.html                # preview render-only changes
 # or the full local portal:  docker compose up --build   → http://localhost:8080
 ```
 
-**2. Ship it** — one command, `deploy.sh`:
+**2. Ship it** — one command, `scripts/deploy.sh`:
 ```bash
-./deploy.sh                 # push code+config, rebuild container, re-render (fast).
+./scripts/deploy.sh                 # push code+config, rebuild container, re-render (fast).
                             # Use for code / render / template / server.py changes.
-./deploy.sh --refresh       # ...then run a full collect (reportctl all). Use when
+./scripts/deploy.sh --refresh       # ...then run a full collect (reportctl all). Use when
                             # collect.py, config.yaml or bot_logins changed. Hits GitHub.
 ```
-`deploy.sh` rsyncs code + `config.yaml`, rebuilds the container, and refreshes. It
+`scripts/deploy.sh` rsyncs code + `config.yaml`, rebuilds the container, and refreshes. It
 **never overwrites** server-side data/secrets: `report.db` (which holds the curated
 identity + config overrides), the API cache, git clones, `.env`, and generated
 `report.html` / `data.json` are left alone. It does take a `report.db` backup into
@@ -116,9 +116,9 @@ the already-collected data (granular tables, person dim, `data.json`) and re-ren
 `report.html` — seconds, no GitHub fetch (`reportctl reindex`, also run inline by the
 Save endpoint). Open the Report and the change is already there. (Blame-based
 surviving-LOC for merged accounts fully reconciles on the next `reportctl all`.)
-A normal `./deploy.sh` will **not** clobber these edits. To bring the curated file
-back into git, run `./deploy.sh --pull-identity` and commit. Push local identity to
-the server only with `./deploy.sh --identity` (a deliberate override).
+A normal `./scripts/deploy.sh` will **not** clobber these edits. To bring the curated file
+back into git, run `./scripts/deploy.sh --pull-identity` and commit. Push local identity to
+the server only with `./scripts/deploy.sh --identity` (a deliberate override).
 
 **Server management**
 ```bash
@@ -126,10 +126,10 @@ ssh -i ~/.ssh/deploy_key user@your-server
 cd ~/insight-report
 docker compose ps                       # container status
 docker compose logs -f report           # portal logs
-docker compose exec report python reportctl.py all   # manual full refresh
+docker compose exec report python backend/reportctl.py all   # manual full refresh
 tail -f /var/log/insight-report.log # daily-cron output (03:30 UTC)
 curl -s localhost:8080/health/data      # is the DATA still being refreshed?
-docker compose exec report python alert.py check     # same check, notifies + exits 1
+docker compose exec report python backend/alert.py check     # same check, notifies + exits 1
 ```
 
 **Access:** `http://<server>:8081/` (nginx basic-auth) — the portal itself is
@@ -159,7 +159,7 @@ Manual equivalent:
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 export GH_TOKEN="$(gh auth token)"
-python collect.py && python render.py && open report.html
+python backend/collect.py && python backend/render.py && open report.html
 ```
 
 ## Tuning
@@ -179,8 +179,8 @@ python collect.py && python render.py && open report.html
 - **Specs**: every markdown file is counted as a spec unless excluded by the
   `specs:` denylist in `config.yaml`. Keep that denylist current when adding
   generated docs, fixtures, agent files, or vendored frameworks.
-- **Identity/company**: run `python3 directory.py`, review at `/identity`, Save,
-  then rerun `python3 collect.py`.
+- **Identity/company**: run `python3 backend/directory.py`, review at `/identity`, Save,
+  then rerun `python3 backend/collect.py`.
 - **Orgs**: `org` is the primary (carries the full pre-migration history, so it
   is cloned for code); `extra_orgs` (e.g. `your-old-org`) add
   PRs/issues/forks/members/identity. **Legacy-only** repos in an extra org (never

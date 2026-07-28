@@ -7,7 +7,7 @@
 # at the root, etc.) — the same as running the app outside Docker entirely.
 #
 # This file is for LOCAL machines only — never copy it to the server. Prod
-# deploys (deploy.sh) load a pre-built image and rely on docker-compose.yml
+# deploys (scripts/deploy.sh) load a pre-built image and rely on docker-compose.yml
 # alone (no override present there), which uses `image:` + the persistent
 # `report-data` volume instead of a repo bind-mount.
 services:
