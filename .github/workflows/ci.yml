@@ -132,7 +132,33 @@ jobs:
           assert len(html) > 50_000, f'report suspiciously small: {len(html)} bytes'
           print(f'report renders: {len(html)} bytes')
           "
+          # The MCP service runs from the SAME image with a different command, and it
+          # was NOT covered here — which is how an image shipped with mcp 2.0 installed
+          # and mcp_server.py crash-looping on `from mcp.server.fastmcp import FastMCP`.
+          # Importing the module is the cheapest check that would have caught it.
+          docker exec smoke python3 -c "
+          import sys; sys.path.insert(0, '/work/backend')
+          import mcp_server
+          print('mcp_server imports')
+          "
+          # ...then start it the way docker-compose.yml does and complete a real
+          # JSON-RPC handshake. An import proves the module loads; only initialize
+          # proves the transport is mounted and the server answers.
           docker rm -f smoke >/dev/null
+          docker run -d --name smoke-mcp -e MCP_HOST=0.0.0.0 -e MCP_PORT=8082 \
+            -p 127.0.0.1:8102:8082 insight-lite:smoke python backend/mcp_server.py
+          for i in $(seq 1 20); do
+            if curl -fsS -o /tmp/mcp.out -X POST http://127.0.0.1:8102/mcp \
+                 -H 'Content-Type: application/json' \
+                 -H 'Accept: application/json, text/event-stream' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
+            then mcp_ok=1; break; fi
+            sleep 1
+          done
+          [ "${mcp_ok:-}" = 1 ] || { echo "::error::the MCP server never answered initialize"; docker logs smoke-mcp; exit 1; }
+          grep -q '"serverInfo"' /tmp/mcp.out || { echo "::error::MCP initialize returned no serverInfo:"; cat /tmp/mcp.out; exit 1; }
+          echo "MCP handshake: $(tr -d '\n' < /tmp/mcp.out | tail -c 160)"
+          docker rm -f smoke-mcp >/dev/null
 
       # Only now, and only for a real push: the multi-arch publish. arm64 is included
       # because most people evaluating a self-hosted tool are on Apple Silicon, and

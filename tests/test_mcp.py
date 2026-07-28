@@ -5,10 +5,17 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 try:
-    import mcp_server
-    HAVE_MCP = True
-except Exception:                       # pragma: no cover - mcp SDK not installed
+    import mcp                          # the SDK itself
+except ImportError:                     # pragma: no cover - mcp SDK not installed
     HAVE_MCP = False
+else:
+    HAVE_MCP = True
+    # Deliberately NOT guarded. This was `try: import mcp_server / except Exception:
+    # HAVE_MCP = False`, which turned a broken server into a skipped module: when mcp
+    # 2.0 moved mcp.server.fastmcp, every test here quietly stopped running, the suite
+    # stayed green, and the build published an MCP service that crash-looped on import.
+    # If the SDK is installed, failing to import mcp_server is a failure, not a skip.
+    import mcp_server
 
 
 @unittest.skipUnless(HAVE_MCP, "mcp SDK not installed")

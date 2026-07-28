@@ -1,6 +1,10 @@
-requests>=2.31
-PyYAML>=6.0
-Jinja2>=3.1
-mcp>=1.2            # MCP server (mcp_server.py) — read-only data access
-uvicorn>=0.30
-google-genai>=0.3   # metrics chat (chat_agent.py) — Gemini tool-calling agent
+requests>=2.31,<3
+PyYAML>=6.0,<7
+Jinja2>=3.1,<4
+# Upper bounds are not pedantry here: mcp 2.0 moved mcp.server.fastmcp, and because
+# this was `mcp>=1.2` the first image built after that release shipped an MCP service
+# that crash-looped on import. Majors get pinned; raising one is a deliberate change
+# with a code migration, not something a rebuild does to you.
+mcp>=1.2,<2         # MCP server (mcp_server.py) — read-only data access
+uvicorn>=0.30,<1
+google-genai>=0.3,<2  # metrics chat (chat_agent.py) — Gemini tool-calling agent

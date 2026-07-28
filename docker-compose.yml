@@ -3,9 +3,18 @@ services:
     image: ghcr.io/constructorfabric/insight-lite:latest
     restart: unless-stopped
     ports:
-      # Loopback only by default. To expose it on the network, change this to
-      # "8080:8080" AND set PORTAL_PASSWORD below so the portal requires a login.
-      - "127.0.0.1:8080:8080"
+      # Loopback only by default. To expose it on the network, set
+      # PORTAL_BIND_IP=0.0.0.0 *and* PORTAL_PASSWORD, so it is never reachable without
+      # a login by accident.
+      #
+      # The host port is a variable because 8080 is one of the most contested ports
+      # there is — a first run that dies with "port is already allocated" is a bad
+      # first impression, and editing a compose file to move a port is a worse fix
+      # than setting PORTAL_HOST_PORT. Named *_HOST_PORT deliberately: MCP_PORT and
+      # PORTAL_HOST already mean something INSIDE the container, and env_file passes
+      # .env straight through — reusing those names would let a host-port change
+      # silently rebind the server inside.
+      - "${PORTAL_BIND_IP:-127.0.0.1}:${PORTAL_HOST_PORT:-8080}:8080"
     # Secrets come from the environment / a local .env file — never hardcode here.
     # Create .env (gitignored) with:  GH_TOKEN=ghp_xxx
     environment:
@@ -42,7 +51,7 @@ services:
     image: ghcr.io/constructorfabric/insight-lite:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8082:8082"
+      - "${MCP_BIND_IP:-127.0.0.1}:${MCP_HOST_PORT:-8082}:8082"
     environment:
       GH_TOKEN: ${GH_TOKEN:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -72,7 +81,7 @@ services:
     restart: unless-stopped
     depends_on: [report]
     ports:
-      - "127.0.0.1:4180:4180"
+      - "${OAUTH_BIND_IP:-127.0.0.1}:${OAUTH_HOST_PORT:-4180}:4180"
     environment:
       OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
       OAUTH2_PROXY_REVERSE_PROXY: "true"
