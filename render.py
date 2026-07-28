@@ -128,8 +128,10 @@ def build_model(d: dict) -> dict:
     ]
 
     # ---- contribution by company -----------------------------------------
-    CO_COLORS = {"Constructor": "#0969da", "Example Inc": "#8250df",
-                 "Partner Ltd": "#1a7f37", "Other": "#8b949e"}
+    # "Other" is the catch-all bucket, so it keeps a deliberate grey. Every real
+    # company takes the next palette colour instead of a name pinned here: named
+    # defaults only ever matched one organisation.
+    CO_COLORS = {"Other": "#8b949e"}
     PALETTE = ["#bf8700", "#cf222e", "#0a7ea4", "#6e7781"]
     comp: dict = {}
     for l, p in people.items():
@@ -537,11 +539,21 @@ def build_model(d: dict) -> dict:
         }]
         window_labels = ["all"]
 
-    # --- Contributors block: cumulative headcount, total + 3 companies --------
-    CONTRIB_COLORS = {"Total": "#1f2328", "Example Inc": "#8250df",
-                      "Partner Ltd": "#1a7f37", "Constructor": "#0969da"}
+    # --- Contributors block: cumulative headcount, total + the biggest companies -----
+    # Companies come from the DATA, not from a list in this file. They used to be three
+    # hardcoded names, which meant every installation whose contributors work for anyone
+    # else got three tiles reading 0 and a chart with three flat lines — with nothing
+    # saying why. Picked by current headcount so the block shows whoever actually turned
+    # up, and capped at three because that is what the layout has room for.
+    CONTRIB_PALETTE = ["#8250df", "#1a7f37", "#0969da", "#bf8700", "#cf222e"]
     contrib_raw = d.get("_contrib", [])
-    CO3 = ["Example Inc", "Partner Ltd", "Constructor"]
+    _latest_by_co = (contrib_raw[-1].get("by_company") or {}) if contrib_raw else {}
+    CO3 = [co for co, _ in sorted(_latest_by_co.items(),
+                                  key=lambda kv: (-(kv[1] or 0), kv[0]))
+           if co and co != "Other" and (_latest_by_co.get(co) or 0) > 0][:3]
+    CONTRIB_COLORS = {"Total": "#1f2328"}
+    for i, co in enumerate(CO3):
+        CONTRIB_COLORS[co] = CONTRIB_PALETTE[i % len(CONTRIB_PALETTE)]
     contrib_block = None
     if contrib_raw:
         cur = contrib_raw[-1]
@@ -561,14 +573,12 @@ def build_model(d: dict) -> dict:
             return pt["total"] if key == "Total" else pt["by_company"].get(key, 0)
         tiles = []
         for key in ["Total"] + CO3:
-            tiles.append({"label": "Total contributors" if key == "Total"
-                          else ("Constructor Tech" if key == "Constructor" else key),
+            tiles.append({"label": "Total contributors" if key == "Total" else key,
                           "now": _n(cur, key), "delta": _n(cur, key) - _n(prev, key),
                           "color": CONTRIB_COLORS[key]})
         series_keys = ["Total"] + CO3
         cmax = max([c["total"] for c in contrib_raw] + [1])
-        series = [{"name": ("Constructor Tech" if k == "Constructor" else k),
-                   "color": CONTRIB_COLORS[k],
+        series = [{"name": k, "color": CONTRIB_COLORS[k],
                    "vals": [_n(c, k) for c in contrib_raw]} for k in series_keys]
         contrib_block = {
             "tiles": tiles, "series": series, "max": cmax,

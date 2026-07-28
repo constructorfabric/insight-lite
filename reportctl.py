@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "command",
         choices=["collect", "render", "directory", "reindex", "reconfig", "refresh", "all",
-                 "snapshot-status", "export", "serve", "config-capture", "config-verify"],
+                 "snapshot-status", "export", "serve", "config-capture", "config-verify", "demo-seed"],
     )
     p.add_argument("--no-cache", action="store_true", help="Bypass GitHub API cache")
     p.add_argument("--host", default=os.environ.get("PORTAL_HOST")
@@ -151,6 +151,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\nRead from the file only, falling back to code defaults (fine for "
                   f"tuning knobs): {', '.join(res['file_only'])}")
         return 0 if res["ok"] else 1
+    elif args.command == "demo-seed":
+        # Populate the store with an entirely invented dataset so the UI can be seen
+        # without a GitHub token — for evaluating the tool, for documentation
+        # screenshots, and as the full-report fixture the test suite otherwise lacks.
+        import demo
+        counts = demo.seed()
+        print("Demo data written (everything in it is invented):")
+        for tbl, n in counts.items():
+            print(f"  {tbl:14} {n}")
+        print("\n  python reportctl.py serve --port 8080")
     elif args.command == "export":
         path = export_snapshot()
         print(path)

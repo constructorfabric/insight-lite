@@ -1,13 +1,38 @@
 # Insight Lite — Contribution & Usage Report
 
-Who **contributes to** a shared internal platform, and who **merely uses** it —
-measured across code, specs, bugs, features and people, for one or more GitHub
-organisations.
+**How is development actually going?** GitHub holds the evidence — every commit, review,
+pull request and issue — but answers none of it. So the question gets answered by
+anecdote, by whoever spoke last in the retro, or by a number someone computed once and
+nobody trusts.
 
-Self-hosted: you run it, the data stays in your own SQLite database, and the only
-outbound traffic is to the GitHub API. Setup is a wizard in the browser — paste a token,
-name your org, collect. Every org, repository, company and person in this repository is
-invented, including in the examples below.
+This is a self-hosted tool that answers it from your own GitHub organisation. Point it at
+any org you can read and it turns the raw events into engineering-productivity and
+delivery analytics: throughput and cycle time, where work stalls, who carries the review
+load, which products absorb the effort, how much of the code is AI-generated, and whether
+any of it is moving in the right direction over time.
+
+Any GitHub user can install it and aim it at their own org — nothing here is specific to
+the organisation it was built for.
+
+### Why another one
+
+- **Your data stays yours.** It runs on your machine, stores everything in a local SQLite
+  database, and talks to nothing but the GitHub API. No account, no vendor.
+- **Every number says how much to trust it.** Signals are badged *exact* or *heuristic*
+  wherever they appear, because an authenticated bot trailer and a word in a commit
+  message are not the same evidence and a dashboard that blurs them is worse than no
+  dashboard.
+- **Attribution is explicit and reviewable.** Deciding which commits belong to which
+  human is the step that quietly invalidates everything downstream, so identity
+  resolution has confidence levels, evidence, and a review workflow instead of a guess.
+- **It is loud when it breaks.** A panel that cannot be built says why; `/health/data`
+  answers 503 when collection has stopped. Stale numbers that look fine are the failure
+  mode this kind of tool has by default.
+- **It takes measuring people seriously.** See the note below — that is a deliberate part
+  of the design, not a disclaimer.
+
+Every org, repository, company and person appearing in this repository is invented,
+including in the examples below.
 
 > **A note on measuring people.** This tool aggregates identifiable per-person
 > activity, which is personal data in most jurisdictions and a management artefact
@@ -16,13 +41,58 @@ invented, including in the examples below.
 > deploy it — the portal supports OAuth so that decision is enforceable.
 
 
-## What it is
 
-It collects — commits from real clones, pull requests, issues, reviews, traffic — into a
-local SQLite database, then serves a report over it.
+![Overview — headline KPIs, cumulative contributors and contribution by company](docs/screenshots/overview.png)
 
-**Ten report views**, every one of them re-sliceable by period (7d / 30d / 90d / 1y /
-all-time / a custom range) and by scope (org, product element, single repository):
+<table>
+<tr>
+<td width="50%"><a href="docs/screenshots/flow.png"><img src="docs/screenshots/flow.png" alt="Flow — friction, cycle-time segments, work in flight"></a><br><sub><b>Flow</b> — where work stalls: rework, cycle-time segments, work in flight</sub></td>
+<td width="50%"><a href="docs/screenshots/people.png"><img src="docs/screenshots/people.png" alt="People — per-person activity, review load and categories"></a><br><sub><b>People</b> — activity, review load and work categories per person</sub></td>
+</tr>
+</table>
+
+<sub>Screenshots are generated from `reportctl.py demo-seed` — every person, company and
+repository in them is invented.</sub>
+
+## What you can ask it
+
+Concrete questions the report answers out of the box, each on its own panel and each
+re-sliceable by period and by scope:
+
+**Is delivery getting better or worse?**
+- What is our median time from opening a pull request to merging it, and how has it moved
+  over the last quarter?
+- How much of the cycle is waiting for a first review, and how much is after approval?
+- What share of pull requests get reviewed at all?
+
+**Where does work actually get stuck?**
+- Which pull requests have been open longest, and which have had no review after a week?
+- How much work is in flight right now — and who is carrying it?
+- How often does work bounce: reopened issues, pull requests pushed back to draft,
+  review re-requests?
+- Which pull requests were closed without merging, and why — withdrawn after feedback, or
+  never looked at?
+
+**Who is doing what?**
+- Who carries the review load, as opposed to who opens the most pull requests?
+- How is effort split across products, repositories and companies?
+- Which code from a year ago is still alive in the tree today, and who wrote it?
+
+**How much of this is AI now?**
+- What share of commits carry an AI-tool marker, per tool, and how is that trending?
+- How much of the current tree can be traced to generated or assistant-marked code?
+
+**Is anyone using our work without contributing back?**
+- Which accounts forked a repository but never contributed to any of them?
+
+If a question is not on that list, the data is in a local SQLite database with a
+documented schema, a **custom-dashboard builder** for assembling new panels without code,
+and an **MCP server** so an LLM client can query it directly.
+
+## What you get
+
+Ten report views — each re-sliceable by period (7d / 30d / 90d / 1 year /
+all-time / custom range) and by scope (whole org, product area, single repository):
 
 | | |
 |---|---|
@@ -50,10 +120,14 @@ all-time / a custom range) and by scope (org, product element, single repository
   dead collector is something you get paged about rather than something you notice a week
   later.
 
-## The question it answers
+## One lens worth explaining: contributing vs using
 
-If your company builds a shared platform and other teams build products on top of
-it, the interesting split is not "who commits the most" but:
+Most of the report is the usual thing — activity, delivery, flow, per-repository and
+per-person breakdowns — and needs no explanation. One axis does, because it is unusual
+and it is configurable, so it is worth knowing whether it applies to you.
+
+If some of your repositories are a shared platform and others are products built on top
+of it, the interesting split stops being "who commits the most" and becomes:
 
 1. **Contributing to the platform** — anyone with **any** contribution (commit, PR,
    spec edit, bug, or feature) to **any** repo in the org, split into org members
@@ -62,10 +136,10 @@ it, the interesting split is not "who commits the most" but:
    org repo (= using it) but made **zero** contribution to any org repo in the
    window.
 
-*(Platform-vs-app is a separate "where effort goes" breakdown, configured per repo
-in `config.yaml` → `repos:`. In the shipped example `example-core`, `example-sdk`
-and `example-cli` are the platform; `example-web`, `example-api` and `example-docs`
-are apps built on it. That axis is independent of the contribute/use line.)*
+The repository types that axis compares are yours to define — "platform" and "app" are
+just the shipped example, and you can rename them, add more, or ignore the whole idea and
+use the report for plain activity and delivery numbers. They are set per repository on
+**Manage → Config**, or in `config.yaml` → `repo_types` and `repos`.
 
 > GitHub-only data: passive consumption beyond forks/stars, and anonymous clone
 > traffic, are not observable — the numbers here are a floor, not a census.
@@ -122,6 +196,18 @@ python reportctl.py serve --port 8080
 
 Same portal, same wizard. The `npm` step is the only reason this path needs Node — skip
 it and every page will tell you so instead of rendering.
+
+### Just looking? Seed it with invented data
+
+No token, no org, no waiting for a collection:
+
+```bash
+python reportctl.py demo-seed        # ~0.1s, everything in it is fictional
+python reportctl.py serve --port 8080
+```
+
+That is what the screenshots above are. It is also the fixture the test suite renders the
+full report from, so it stays a working stand-in rather than rotting quietly.
 
 ### One shot, no portal — for a cron job or a look around
 

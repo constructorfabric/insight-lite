@@ -438,8 +438,10 @@ CREATE TABLE IF NOT EXISTS dashboard (
 CREATE INDEX IF NOT EXISTS idx_dashboard_owner ON dashboard(owner_login);
 """
 
-CO_COLORS = {"Constructor": "#0969da", "Example Inc": "#8250df",
-             "Partner Ltd": "#1a7f37", "Other": "#8b949e"}
+# "Other" is the catch-all bucket, so it keeps a deliberate grey. Every real
+# company takes the next palette colour instead of a name pinned here: named
+# defaults only ever matched one organisation.
+CO_COLORS = {"Other": "#8b949e"}
 _PALETTE = ["#bf8700", "#cf222e", "#0a7ea4", "#6e7781"]
 
 # column order for the granular writers (also INSERT order)
