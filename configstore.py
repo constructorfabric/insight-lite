@@ -56,7 +56,7 @@ CLASSES = ("platform", "app", "ignore")
 # "semantic" holds the scoped taxonomy/flow patches (see semantic.py); it is part
 # of the config editor's domain so its version token covers taxonomy edits too.
 CONFIG_SCOPES = ("repo", "repo_type", "element_extra", "extra_org", "extra_repo",
-                 "company_domain", "setting", "semantic")
+                 "company_domain", "setting", "semantic", "base")
 
 # Config keys the overlay replaces WHOLESALE, stored under the `setting` scope as
 # {"value": <sub-tree>}. Wholesale rather than merged on purpose: these are policy
@@ -66,6 +66,21 @@ CONFIG_SCOPES = ("repo", "repo_type", "element_extra", "extra_org", "extra_repo"
 BLOB_KEYS = ("ai_tools", "studio_provenance", "gears_usage", "fabric_trackers",
              "specs", "meaningful_loc", "bot_logins", "identity_overrides",
              "migration_title_prefixes", "email")
+
+# The STRUCTURAL config — what gets collected and how it is grouped. Stored under the
+# `base` scope and applied as a BASE LAYER, i.e. before every per-item rule below, so
+# a captured value behaves exactly as the file's did and UI edits still win over it.
+#
+# Two reasons it is separate from BLOB_KEYS. First the ordering above: BLOB_KEYS replace
+# at the END (they are policy, nothing layers on top), while these must sit UNDER the
+# repo/element/domain overrides the editors write, or capturing would silently discard
+# every classification made in the UI. Second, they are stored VERBATIM rather than
+# expanded into per-repo rows: `elements` supports globs (`gears-*`), and expanding a
+# glob against today's repo list would quietly change what happens to repos created
+# tomorrow — a captured config must mean the same thing as the file it came from, not
+# merely produce the same output once.
+BASE_KEYS = ("org", "lookback_days", "extra_orgs", "extra_repos", "repo_types",
+             "repos", "elements", "companies", "developer_score_weights")
 
 
 def load_overlay() -> dict:
@@ -83,10 +98,14 @@ def load_overlay() -> dict:
                    store.read_overrides(conn, "company_domain").items() if v.get("company")}
         repo_type_ov = store.read_overrides(conn, "repo_type")
         settings = store.read_overrides(conn, "setting")
+        base_ov = store.read_overrides(conn, "base")
         conn.close()
     except Exception:                # noqa: BLE001 — overlay is optional
         return {}
     ov: dict = {}
+    base = {k: v["value"] for k, v in base_ov.items() if "value" in v}
+    if base:
+        ov["base"] = base
     if (settings.get("org") or {}).get("value"):
         ov["org"] = settings["org"]["value"]
     if (settings.get("lookback_days") or {}).get("value") is not None:
@@ -130,6 +149,13 @@ def apply_overlay(cfg: dict, ov: dict | None = None) -> dict:
     Pure and idempotent: same inputs -> same merged config."""
     ov = ov or {}
     import collect
+    # BASE LAYER first: a captured config.yaml standing in for the file, so everything
+    # below layers over it exactly as it layered over the file. Applied before the
+    # per-item rules on purpose — reversing the order would let a capture wipe the
+    # classifications the editors wrote. See BASE_KEYS.
+    for key, val in (ov.get("base") or {}).items():
+        cfg[key] = val
+
     # overlay-defined repo types (Config editor) win over the base set
     if ov.get("repo_types"):
         cfg["repo_types"] = ov["repo_types"]
@@ -195,31 +221,45 @@ def apply_overlay(cfg: dict, ov: dict | None = None) -> dict:
     return cfg
 
 
-def capture_base_into_overlay(conn=None, keys=BLOB_KEYS) -> list[str]:
-    """Copy the CURRENT config.yaml values for `keys` into the DB overlay.
+def capture_base_into_overlay(conn=None, keys=BLOB_KEYS, base_keys=BASE_KEYS) -> list[str]:
+    """Copy the CURRENT config.yaml into the DB overlay: the policy blocks (`keys`,
+    scope `setting`) and the structural config (`base_keys`, scope `base`).
 
     The one-time migration a live deployment runs before its config.yaml stops being
-    its own: after this, the policy blocks are DB-owned (on the data volume) and the
-    file can be replaced by the generic published one without any of them changing.
-    Idempotent — a second run writes nothing — and it never touches a key that is
-    already overridden, so it cannot clobber an edit made in the UI.
+    its own — because it now arrives from git, or from inside an image. After this the
+    deployment reads its real configuration from the database, which lives on the data
+    volume, and the file can be the generic published one without a single number
+    changing. Idempotent, and it never touches a key that is already overridden, so it
+    cannot clobber an edit made in the UI.
 
-    Returns the keys it wrote.
+    Both groups matter for different reasons, and capturing only one is a trap:
+    without the policy blocks the AI markers and bot denylist revert; without the
+    structural keys the deployment starts collecting `org: your-org`.
+
+    Returns the keys it wrote, structural ones prefixed `base/`.
     """
     import store
     base = base_config()
     own = conn is None
     conn = conn or store.connect()
     try:
-        existing = store.read_overrides(conn, "setting")
         written = []
+        existing_settings = store.read_overrides(conn, "setting")
         for key in keys:
-            if key in existing:              # already DB-owned: leave the edit alone
+            if key in existing_settings:     # already DB-owned: leave the edit alone
                 continue
             if key not in base:
                 continue
             store.write_override(conn, "setting", key, {"value": base[key]})
             written.append(key)
+        existing_base = store.read_overrides(conn, "base")
+        for key in base_keys:
+            if key in existing_base:
+                continue
+            if key not in base:
+                continue
+            store.write_override(conn, "base", key, {"value": base[key]})
+            written.append(f"base/{key}")
         return written
     finally:
         if own:
@@ -572,6 +612,37 @@ def save_policy(key: str, text: str) -> dict:
         return {"key": key, "overridden": True, "yaml": _dump_yaml(parsed)}
     finally:
         conn.close()
+
+
+def verify_capture() -> dict:
+    """Would this deployment survive losing its config.yaml? {ok, differ, file_only}.
+
+    The check the migration actually needs, and the reason it is a command rather than
+    a paragraph of instructions: it answers "is the database now sufficient" with a
+    diff instead of a promise. It merges the overlay over the REAL file and over an
+    EMPTY one and compares — if the database holds everything, both produce the same
+    config, and the file can be replaced by anything.
+
+    `differ` names keys that would change: those are captured-or-not questions, and any
+    entry there means the swap is not yet safe. `file_only` names keys no override can
+    carry at all (cache TTLs, worker counts, timeouts) — they fall back to the code's
+    defaults, which is fine for tuning knobs and is reported separately so it cannot be
+    mistaken for a problem.
+    """
+    import copy
+    ov = load_overlay()
+    from_file = apply_overlay(copy.deepcopy(base_config()), copy.deepcopy(ov))
+    from_nothing = apply_overlay({}, copy.deepcopy(ov))
+    overlayable = set(BLOB_KEYS) | set(BASE_KEYS)
+    differ, file_only = {}, []
+    for key in sorted(set(from_file) | set(from_nothing)):
+        if from_file.get(key) == from_nothing.get(key):
+            continue
+        if key in overlayable:
+            differ[key] = {"in_db": key in (ov.get("base") or {}) or key in ov}
+        else:
+            file_only.append(key)
+    return {"ok": not differ, "differ": differ, "file_only": file_only}
 
 
 CONFIG_EDITOR_HTML = _asset("config.html")

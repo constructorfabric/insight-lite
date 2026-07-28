@@ -243,5 +243,105 @@ class FileProvenanceTest(unittest.TestCase):
         self.assertEqual(cfg["companies"]["domains"],
                          {"file.com": "FileCo", "ui.com": "UiCo"})
 
+
+class StructuralCaptureTest(unittest.TestCase):
+    """The structural half: org, repos, elements, repo_types, companies, extra_*.
+
+    Captured VERBATIM under the `base` scope and applied as a base LAYER — before the
+    per-item rules the editors write, not after. Two things that would be silent bugs
+    if the ordering were reversed or the values expanded:
+
+      * a UI classification must still beat a captured file value, otherwise running
+        config-capture would quietly undo every edit made on the Config page;
+      * `elements` globs must survive as globs, because expanding `gears-*` against
+        today's repo list changes what happens to a repo created tomorrow.
+    """
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self._env = patch.dict(os.environ,
+                               {"REPORT_DB": str(Path(self._tmp.name) / "t.db")})
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+        self._tmp.cleanup()
+
+    REAL = {"org": "real-org",
+            "extra_orgs": ["real-old-org"],
+            "repo_types": [{"id": "platform", "name": "Platform"},
+                           {"id": "app", "name": "App", "default": True}],
+            "repos": {"platform": ["core"], "app": ["web"]},
+            "elements": {"Core": ["core", "core-*"], "default": "Other"},
+            "companies": {"domains": {"real.com": "RealCo"}, "default": "Other"},
+            "lookback_days": "all"}
+    PUBLISHED = {"org": "your-org",
+                 "extra_orgs": [],
+                 "repo_types": [{"id": "app", "name": "App", "default": True}],
+                 "repos": {"app": ["example-web"]},
+                 "elements": {"Docs": ["example-docs"], "default": "Other"},
+                 "companies": {"domains": {"example.com": "Example Inc"}, "default": "Other"},
+                 "lookback_days": 30}
+
+    def _capture_real(self):
+        with patch.object(configstore, "base_config", return_value=dict(self.REAL)):
+            return configstore.capture_base_into_overlay()
+
+    def test_the_structural_config_survives_the_published_file(self):
+        written = self._capture_real()
+        self.assertIn("base/org", written)
+        merged = configstore.apply_overlay(dict(self.PUBLISHED), configstore.load_overlay())
+        self.assertEqual(merged["org"], "real-org",
+                         "the collector would otherwise start reading the wrong org")
+        self.assertEqual(merged["companies"]["domains"], {"real.com": "RealCo"})
+        self.assertEqual(merged["extra_orgs"], ["real-old-org"])
+        self.assertEqual(merged["lookback_days"], "all")
+
+    def test_element_globs_are_kept_as_globs(self):
+        self._capture_real()
+        merged = configstore.apply_overlay(dict(self.PUBLISHED), configstore.load_overlay())
+        self.assertIn("core-*", merged["elements"]["Core"],
+                      "expanding the glob would silently change what happens to new repos")
+
+    def test_a_ui_edit_still_wins_over_a_captured_value(self):
+        """The ordering guard. A capture is a stand-in for the FILE, so everything the
+        editors write has to layer on top of it exactly as it did over the file."""
+        import store
+        self._capture_real()
+        conn = store.connect()
+        store.write_override(conn, "repo", "core", {"classification": "app"})
+        conn.commit(); conn.close()
+        merged = configstore.apply_overlay(dict(self.PUBLISHED), configstore.load_overlay())
+        self.assertNotIn("core", merged["repos"].get("platform", []),
+                         "the captured file value overwrote a Config-page edit")
+
+    def test_verify_says_not_safe_before_and_safe_after(self):
+        with patch.object(configstore, "base_config", return_value=dict(self.REAL)):
+            before = configstore.verify_capture()
+            self.assertFalse(before["ok"])
+            self.assertIn("org", before["differ"])
+            self._capture_real()
+            after = configstore.verify_capture()
+        self.assertTrue(after["ok"], f"still differs: {after['differ']}")
+        self.assertEqual(after["differ"], {})
+
+    def test_verify_reports_unoverlayable_keys_separately(self):
+        """cache TTLs and worker counts cannot be carried by any override. They fall
+        back to code defaults, which is fine — but must not read as a failure."""
+        base = dict(self.REAL, cache_ttl_hours=24, spec_fetch_workers=8)
+        with patch.object(configstore, "base_config", return_value=base):
+            configstore.capture_base_into_overlay()
+            res = configstore.verify_capture()
+        self.assertTrue(res["ok"])
+        self.assertIn("cache_ttl_hours", res["file_only"])
+
+    def test_capture_is_still_idempotent_with_both_halves(self):
+        with patch.object(configstore, "base_config", return_value=dict(self.REAL)):
+            first = configstore.capture_base_into_overlay()
+            second = configstore.capture_base_into_overlay()
+        self.assertTrue(any(k.startswith("base/") for k in first))
+        self.assertEqual(second, [])
+
+
 if __name__ == "__main__":
     unittest.main()

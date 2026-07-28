@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "command",
         choices=["collect", "render", "directory", "reindex", "reconfig", "refresh", "all",
-                 "snapshot-status", "export", "serve", "config-capture"],
+                 "snapshot-status", "export", "serve", "config-capture", "config-verify"],
     )
     p.add_argument("--no-cache", action="store_true", help="Bypass GitHub API cache")
     p.add_argument("--host", default=os.environ.get("PORTAL_HOST")
@@ -110,21 +110,47 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Board status snapshot: {n} items recorded.")
     elif args.command == "config-capture":
         # Run this ONCE on a live deployment before its config.yaml starts arriving
-        # from git. It copies the policy blocks (AI-tool markers, provenance /
-        # framework / tracker blocks, bot denylist, identity bridges, spec and LOC
-        # filters, email) out of the file and into the DB overlay, which lives on the
-        # data volume. After that the file can be replaced by the published generic
-        # one without any of them changing. See configstore.BLOB_KEYS.
+        # from git or from inside an image. It copies BOTH halves of the file into the
+        # DB overlay (which lives on the data volume): the policy blocks — AI-tool
+        # markers, provenance / framework / tracker blocks, bot denylist, identity
+        # bridges, spec and LOC filters, email — and the structural config, i.e. the
+        # org, the repo classification, the elements, repo types and company domains.
+        # After that the file can be the published generic one without a number
+        # changing. See configstore.BLOB_KEYS and BASE_KEYS.
         import configstore
         written = configstore.capture_base_into_overlay()
         if written:
             print(f"Captured into the DB overlay: {', '.join(written)}")
         else:
             print("Nothing to capture — every policy block is already DB-owned.")
-        skipped = [k for k in configstore.BLOB_KEYS if k not in written]
+        expected = list(configstore.BLOB_KEYS) + [f"base/{k}" for k in configstore.BASE_KEYS]
+        skipped = [k for k in expected if k not in written]
         if skipped:
             print(f"Left as-is (already overridden, or absent from config.yaml): "
                   f"{', '.join(skipped)}")
+        print("\nThis deployment now reads its configuration from the database. Verify "
+              "before changing config.yaml:\n"
+              "  python reportctl.py config-verify")
+    elif args.command == "config-verify":
+        # Answers "is the database now sufficient" with a diff rather than a promise:
+        # merges the overlay over the real config.yaml and over an EMPTY file, and
+        # reports anything that would change. Run it after config-capture and before
+        # letting the file arrive from git or an image.
+        import configstore
+        res = configstore.verify_capture()
+        if res["ok"]:
+            print("OK — the database alone reproduces this configuration.")
+            print("     config.yaml can be replaced without changing a number.")
+        else:
+            print("NOT SAFE YET — these keys would change if config.yaml were replaced:")
+            for key, info in res["differ"].items():
+                where = "in the DB but still differs" if info["in_db"] else "NOT captured"
+                print(f"  {key:26} {where}")
+            print("\nRun `python reportctl.py config-capture` first.")
+        if res["file_only"]:
+            print(f"\nRead from the file only, falling back to code defaults (fine for "
+                  f"tuning knobs): {', '.join(res['file_only'])}")
+        return 0 if res["ok"] else 1
     elif args.command == "export":
         path = export_snapshot()
         print(path)
