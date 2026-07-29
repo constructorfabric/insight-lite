@@ -28,8 +28,10 @@ CHANGELOG = [
                        "used to pick from their own list, so one company could be purple in one "
                        "panel and amber in another on the same page. Colours have therefore "
                        "changed once, now, and should not change again. If a company should keep "
-                       "a specific colour, it can be pinned in the configuration under "
-                       "companies → colors."},
+                       "a specific colour, pin it on Manage → Config under Companies → Chart "
+                       "colour: the swatch shows the current colour, a picker sets it, and "
+                       "“reset” goes back to the generated one. Pins are stored in the database, "
+                       "so they survive a deployment."},
         ],
     },
     {

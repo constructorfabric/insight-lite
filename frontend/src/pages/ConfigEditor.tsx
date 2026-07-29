@@ -30,6 +30,11 @@ export default function ConfigEditor() {
   const REPOSRC = useRef<string[]>([]);
   const DOMAINS = useRef<Domain[]>([]);
   const COMPANIES = useRef<string[]>([]);
+  // Company colours. CO_PINS holds only PINS — a company absent from it takes the
+  // name-derived colour the server computed in CO_GEN. Keeping them apart is what
+  // lets the UI say "generated" instead of showing every company as a deliberate choice.
+  const CO_PINS = useRef<Record<string, string>>({});
+  const CO_GEN = useRef<Record<string, string>>({});
   // Entries that come from config.yaml, not the database. The overlay APPENDS to
   // extra_orgs/extra_repos and merges company domains, so these cannot be removed
   // here — the UI has to say so rather than offer an × that does nothing.
@@ -84,6 +89,8 @@ export default function ConfigEditor() {
         REPOSRC_FILE.current = new Set(d.extra_repos_from_file || []);
         DOMAINS.current = (d.domains || []).map((x: any) => ({ domain: x.domain, company: x.company, source: x.source }));
         COMPANIES.current = (d.companies || []).slice();
+        CO_PINS.current = { ...(d.company_colors || {}) };
+        CO_GEN.current = { ...(d.company_colors_generated || {}) };
         POLICIES.current = d.policies || {};
         polDraft.current = Object.fromEntries(
           Object.entries(POLICIES.current).map(([k, v]: [string, any]) => [k, v.yaml || ""]),
@@ -218,6 +225,7 @@ export default function ConfigEditor() {
       extra_orgs: ORGS.current,
       extra_repos: REPOSRC.current,
       company_domains,
+      company_colors: CO_PINS.current,
       _version: VERSION.current,
     };
     fetch("/api/config", {
@@ -819,6 +827,81 @@ export default function ConfigEditor() {
               + Domain rule
             </span>
           </div>
+
+          <h2 style={{ marginTop: 22 }}>Chart colour</h2>
+          <p className="h-sub">
+            Each company's colour is derived from its <b>name</b>, so it stays the same from one
+            report to the next — these charts get read week over week, and a colour that followed
+            commit volume swapped two companies the moment they swapped places. Pin one here to
+            override that; it is stored in the database, so it survives a deployment whose{" "}
+            <code>config.yaml</code> comes from git.
+          </p>
+          <table className="dom">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Colour</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPANIES.current.map((co) => {
+                const pinned = CO_PINS.current[co];
+                const effective = pinned || CO_GEN.current[co] || "#8b949e";
+                return (
+                  <tr key={co}>
+                    <td>
+                      <span
+                        style={{
+                          display: "inline-block", width: 10, height: 10, borderRadius: "50%",
+                          background: effective, marginRight: 8, verticalAlign: "middle",
+                        }}
+                      />
+                      {co}
+                    </td>
+                    <td>
+                      <input
+                        type="color"
+                        aria-label={`Colour for ${co}`}
+                        value={effective}
+                        style={{ width: 44, height: 24, padding: 0, border: "none", background: "none" }}
+                        onChange={(e) => {
+                          CO_PINS.current[co] = e.target.value.toLowerCase();
+                          force();
+                        }}
+                      />
+                      <code style={{ marginLeft: 8 }}>{effective}</code>
+                    </td>
+                    <td>
+                      {pinned ? (
+                        <span
+                          className="chip"
+                          title="Go back to the colour derived from the name"
+                          onClick={() => {
+                            delete CO_PINS.current[co];
+                            force();
+                          }}
+                        >
+                          reset
+                        </span>
+                      ) : (
+                        <span className="tag" title="Derived from the company name">
+                          generated
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {COMPANIES.current.length ? null : (
+                <tr>
+                  <td colSpan={3} className="h-sub">
+                    No companies yet — add a domain rule above and they appear here.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
         {/* Spans both columns of .cols: a 365px column is unusable for editing YAML,
             which is what every block in here is. */}

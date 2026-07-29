@@ -246,8 +246,10 @@ def editor_payload(roster: dict, data: dict) -> dict:
                     "identity_evidence": r.get("identity_evidence", []),
                     "gh": gh.get(l, {})}
                    for l, r in sorted(roster.items(), key=lambda kv: -kv[1]["commits"])],
-        "companies": sorted({r["company"] for r in roster.values()}
-                            | {"Constructor", "Example Inc", "Partner Ltd", "Other"}),
+        # The list is derived from the roster; only the catch-all is guaranteed. It used
+        # to seed our own organisation's name here — a placeholder set in a public repo
+        # is no place for it.
+        "companies": sorted({r["company"] for r in roster.values()} | {"Other"}),
         "company_colors": _company_colors(roster),
         "suggestions": merge_suggestions(roster),
         "bots": data.get("bots", {}),

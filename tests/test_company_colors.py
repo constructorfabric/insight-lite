@@ -12,6 +12,7 @@ These tests pin the properties, not the specific hues: derived from the name, in
 of input order, no duplicates within a chart, pins win, and "Other" stays grey.
 """
 import unittest
+from pathlib import Path
 
 import store
 
@@ -128,6 +129,108 @@ class OneSourceTest(unittest.TestCase):
         self.assertEqual(directory._company_colors(low_first),
                          directory._company_colors(high_first))
 
+
+
+class PinnedInTheUiTest(unittest.TestCase):
+    """The Config screen's pin has to survive being shown and saved again.
+
+    The editor posts back exactly what it was handed, so anything the payload omits gets
+    deleted on the next Save. The first version of this filtered pins against a company
+    list derived only from the email-domain rules — which do not cover a company that
+    reached the data through an identity override — so a pin on such a company was
+    invisible in the UI and a save silently wiped it.
+    """
+
+    def setUp(self):
+        import os
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        self._tmp = TemporaryDirectory()
+        d = Path(self._tmp.name)
+        (d / "history").mkdir()
+        self._env = patch.dict(os.environ, {
+            "DATA_DIR": str(d), "REPORT_DB": str(d / "history" / "report.db")})
+        self._env.start()
+        import demo
+        demo.seed(anchor="2026-06-30")
+
+    def tearDown(self):
+        self._env.stop()
+        self._tmp.cleanup()
+
+    def _save(self, colors):
+        import configstore
+        configstore.save_overlay(configstore.overlay_from_post(
+            {"company_colors": colors, "company_domains": {}}))
+
+    def test_the_editor_lists_companies_present_in_the_data(self):
+        import configstore
+        listed = configstore.editor_data()["companies"]
+        self.assertIn("Northwind Systems", listed,
+                      "a company in the data is missing from the colour editor")
+
+    def test_every_listed_company_has_a_colour_to_show(self):
+        import configstore
+        d = configstore.editor_data()
+        missing = [c for c in d["companies"] if c not in d["company_colors_generated"]]
+        self.assertEqual(missing, [], f"no swatch for {missing}")
+
+    def test_a_pin_is_visible_in_the_payload(self):
+        import configstore
+        self._save({"Northwind Systems": "#ff00aa"})
+        self.assertEqual(configstore.editor_data()["company_colors"],
+                         {"Northwind Systems": "#ff00aa"})
+
+    def test_a_pin_on_a_company_outside_the_domain_rules_is_not_dropped(self):
+        """The data-loss case: show the page, save it unchanged, keep the pin."""
+        import configstore
+        self._save({"Northwind Systems": "#ff00aa"})
+        shown = configstore.editor_data()["company_colors"]
+        self._save(shown)                                   # a Save with no edits
+        self.assertEqual(configstore.editor_data()["company_colors"],
+                         {"Northwind Systems": "#ff00aa"})
+
+    def test_a_pin_reaches_the_rendered_report(self):
+        import configstore, render
+        self._save({"Northwind Systems": "#ff00aa"})
+        rows = render.build_model(render.load_data())["company_rows"]
+        got = {r["company"]: r["color"] for r in rows}
+        self.assertEqual(got.get("Northwind Systems"), "#ff00aa")
+
+    def test_clearing_a_pin_restores_the_generated_colour(self):
+        import configstore, render
+        generated = store.company_color_map(["Northwind Systems"], pinned={})["Northwind Systems"]
+        self._save({"Northwind Systems": "#ff00aa"})
+        self._save({})                                      # reset in the UI
+        rows = render.build_model(render.load_data())["company_rows"]
+        got = {r["company"]: r["color"] for r in rows}
+        self.assertEqual(got.get("Northwind Systems"), generated)
+
+    def test_an_invalid_colour_is_refused_not_stored(self):
+        import configstore
+        ov = configstore.overlay_from_post(
+            {"company_colors": {"Northwind Systems": "orange", "Contoso Labs": "#12345"},
+             "company_domains": {}})
+        self.assertEqual(ov.get("company_colors"), None)
+
+
+class FreshInstallTest(unittest.TestCase):
+    def test_the_colour_editor_works_before_anything_is_collected(self):
+        """A fresh install has no people, so the company list is whatever the domain
+        rules say — it must not raise on the way to finding that out."""
+        import os
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "history").mkdir()
+            with patch.dict(os.environ, {"DATA_DIR": str(d),
+                                         "REPORT_DB": str(d / "history" / "report.db")}):
+                import configstore
+                data = configstore.editor_data()
+                self.assertIn("Other", data["companies"])
+                self.assertEqual(data["company_colors"], {})
+                self.assertIn("Other", data["company_colors_generated"])
 
 if __name__ == "__main__":
     unittest.main()

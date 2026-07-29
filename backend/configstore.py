@@ -36,6 +36,7 @@ does the one-time import from file to DB.
 from __future__ import annotations
 
 import os
+import re
 
 import yaml
 
@@ -98,6 +99,8 @@ def load_overlay() -> dict:
         extra_repos = list(store.read_overrides(conn, "extra_repo").keys())
         domains = {k: v.get("company") for k, v in
                    store.read_overrides(conn, "company_domain").items() if v.get("company")}
+        colors = {k: v.get("color") for k, v in
+                  store.read_overrides(conn, "company_color").items() if v.get("color")}
         repo_type_ov = store.read_overrides(conn, "repo_type")
         settings = store.read_overrides(conn, "setting")
         base_ov = store.read_overrides(conn, "base")
@@ -135,6 +138,8 @@ def load_overlay() -> dict:
         ov["extra_repos"] = extra_repos
     if domains:
         ov["company_domains"] = domains
+    if colors:
+        ov["company_colors"] = colors
     if repo_type_ov:                          # configurable repository types
         types = [{"id": tid, "name": v.get("name") or tid,
                   "color": v.get("color"), "default": bool(v.get("default")),
@@ -203,6 +208,12 @@ def apply_overlay(cfg: dict, ov: dict | None = None) -> dict:
     if dom:
         comp = cfg.setdefault("companies", {})
         comp.setdefault("domains", {}).update(dom)
+    # pinned company colours, same shape: the database wins over config.yaml so a pin
+    # set in the UI survives a deployment whose config.yaml comes from git
+    cols = ov.get("company_colors") or {}
+    if cols:
+        comp = cfg.setdefault("companies", {})
+        comp.setdefault("colors", {}).update(cols)
 
     # first-run wizard settings: primary org + lookback window
     if ov.get("org"):
@@ -291,6 +302,12 @@ def editor_data() -> dict:
     rows = conn.execute("SELECT key, name, org, classification, element FROM repo "
                         "ORDER BY name COLLATE NOCASE").fetchall()
     version = store.overrides_version(conn, CONFIG_SCOPES)
+    # Companies present in the collected data. Read HERE, while the connection is open:
+    # the colour editor further down needs it, and reading it after conn.close() raised
+    # inside a broad except that returned an empty set — a list quietly missing every
+    # company that reached the data through an identity override.
+    companies_in_data = {r[0] for r in conn.execute(
+        "SELECT DISTINCT company FROM person WHERE company IS NOT NULL AND company != ''")}
     conn.close()
 
     rc_ov = ov.get("repo_class") or {}
@@ -319,11 +336,27 @@ def editor_data() -> dict:
     for d in sorted(set(base_domains) | set(ov_domains)):
         domains.append({"domain": d, "company": ov_domains.get(d, base_domains.get(d)),
                         "source": "override" if d in ov_domains else "base"})
-    companies = sorted({v["company"] for v in domains}
-                       | {"Constructor", "Example Inc", "Partner Ltd", "Other"})
+    # "Constructor" used to sit in this default set — our own organisation's name, in a
+    # public repository, among generic placeholders. The list is now derived, and from
+    # three sources rather than one: the domain rules do NOT cover a company that reached
+    # the data through an identity override or a GitHub profile, and the colour editor
+    # below has to list every company the report can actually draw. Only the catch-all is
+    # guaranteed present.
+    companies = sorted({v["company"] for v in domains} | companies_in_data | {"Other"})
+    # Colours: what is PINNED (explicitly chosen, in the DB or config.yaml) and what the
+    # name-derived default would be, so the editor can show a swatch for every company
+    # and still say which ones are deliberate.
+    # Pins are returned WHOLE, never filtered against the list above. The editor posts
+    # back what it was given, so filtering here would silently delete the pin of any
+    # company the list happened to miss — a save would wipe a deliberate choice.
+    pinned_colors = store.pinned_company_colors()
+    generated_colors = store.company_color_map(sorted(set(companies) | set(pinned_colors)),
+                                               pinned={})
     return {
         "repos": repos,
         "repo_types": collect.repo_types(cfg),
+        "company_colors": pinned_colors,
+        "company_colors_generated": generated_colors,
         "default_type": default_type,
         "classes": list(CLASSES),
         "elements": element_names,
@@ -400,6 +433,18 @@ def overlay_from_post(payload: dict) -> dict:
             dom[d] = c
     if dom:
         ov["company_domains"] = dom
+    # pinned company colours. Only those differing from the base file are stored, and an
+    # empty/absent value means "no pin" — the colour goes back to being derived from the
+    # name, which is the documented default rather than a missing value.
+    base_cols = (base.get("companies") or {}).get("colors") or {}
+    cols = {}
+    for n, c in (payload.get("company_colors") or {}).items():
+        n = (n or "").strip()
+        c = (c or "").strip()
+        if n and re.fullmatch(r"#[0-9a-fA-F]{6}", c) and base_cols.get(n) != c:
+            cols[n] = c.lower()
+    if cols:
+        ov["company_colors"] = cols
     # repository types: stored in full only when they differ from the built-in defaults
     if post_types and post_types != collect.repo_types(base):
         clean = []
@@ -469,6 +514,8 @@ def save_overlay(ov: dict) -> None:
         store.replace_overrides(conn, "extra_repo", {r: {} for r in (ov.get("extra_repos") or [])})
         store.replace_overrides(conn, "company_domain",
                                 {d: {"company": c} for d, c in (ov.get("company_domains") or {}).items()})
+        store.replace_overrides(conn, "company_color",
+                                {n: {"color": c} for n, c in (ov.get("company_colors") or {}).items()})
         # developer-score weights are owned by the Calibrate page (save_score_weights)
         # and are deliberately NOT written or cleared here — a Config save leaves the
         # `setting/dev_score_weights` override exactly as it was.
