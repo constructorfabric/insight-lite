@@ -298,9 +298,36 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .flow-pct{font-size:11.5px;color:var(--mut);margin-top:1px}
   .flow-bar{height:6px;border-radius:4px;background:var(--panel);overflow:hidden;margin-top:9px}
   .flow-bar i{display:block;height:100%;border-radius:4px}
+  /* Flow is read by more than one person asking more than one question, and as one
+     undivided scroll it read as "everything about flow, for everybody". Each section
+     states its question and who asks it; only the two that answer "what do I do this
+     week" start open. Deliberately NOT a card — a box inside a box of cards muddies
+     the panels that already have their own, so this reads as a document section. */
+  details.flow-sec{border-top:1px solid var(--line);margin:20px 0 0}
+  details.flow-sec > summary{cursor:pointer;list-style:none;padding:13px 0 11px}
+  details.flow-sec > summary::-webkit-details-marker{display:none}
+  details.flow-sec > summary::before{content:"\25B8";color:var(--acc);font-size:12px;
+    display:inline-block;width:17px}
+  details.flow-sec[open] > summary::before{content:"\25BE"}
+  details.flow-sec > summary:hover .fs-q{color:var(--acc-ink)}
+  .fs-q{font-size:16px;font-weight:800;letter-spacing:-.015em}
+  .fs-who{display:block;margin:3px 0 0 17px;font-size:12.5px;color:var(--mut)}
+  .fs-body{padding-bottom:6px}
+  .fs-body > h3.sub:first-child{margin-top:4px}
   /* Flow tab: friction explainer + health / cycle-time cards + per-person table */
   .flow-explain{margin-bottom:16px}
   .flow-explain h3{margin:0 0 8px}
+  /* The explainer is a definition, not a finding: it is worth reading once and then
+     never again, so it collapses. Same disclosure affordance as details.readme. */
+  details.flow-explain{padding:0}
+  details.flow-explain > summary{cursor:pointer;list-style:none;padding:12px 15px;
+    font-size:13.5px;font-weight:700;color:var(--ink2)}
+  details.flow-explain > summary::-webkit-details-marker{display:none}
+  details.flow-explain > summary::before{content:"\25B8 ";color:var(--acc)}
+  details.flow-explain[open] > summary::before{content:"\25BE "}
+  details.flow-explain[open] > summary{border-bottom:1px solid var(--line)}
+  details.flow-explain > summary .mut{font-weight:400;font-size:12px}
+  details.flow-explain > div{padding:12px 15px 14px}
   .flow-formula{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:13.5px;margin:8px 0}
   .flow-explain ul{margin:8px 0;padding-left:20px;font-size:13px;color:var(--ink2)}
   .flow-explain ul li{margin:3px 0}
@@ -314,6 +341,33 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .fc-n{font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
   .fc-l{font-size:12.5px;font-weight:700;color:var(--ink2);margin-top:1px}
   .fc-s{font-size:11.5px;color:var(--mut);margin-top:4px}
+  /* the delta pill sits above the number, as on .kpi — right-aligned so a row of
+     cards lines its chips up whether or not every card has one */
+  .fc-top{display:flex;justify-content:flex-end;min-height:20px;margin:-2px 0 4px}
+  .fcard .spark{height:20px;margin-top:8px}
+  /* whole-cycle bar: one length for the total, its legs inside it */
+  .cyc{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:15px 16px}
+  .cyc-bar{display:flex;height:30px;border-radius:8px;overflow:hidden;background:var(--panel2)}
+  .cyc-bar i{display:block;height:100%}
+  .cyc-scale{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);margin-top:6px}
+  .cyc-legs{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:14px}
+  .cyc-leg{display:flex;gap:9px;align-items:flex-start}
+  .cyc-leg .sw{width:10px;height:10px;border-radius:3px;flex:none;margin-top:4px}
+  .cyc-leg .lh{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+  .cyc-leg .ll{font-size:12.5px;font-weight:700;color:var(--ink2)}
+  .cyc-leg .ls{font-size:11.5px;color:var(--mut);margin-top:1px}
+  .cyc-tail{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:12px;
+    border-top:1px solid var(--line);font-size:12.5px}
+  .cyc-tail span{color:var(--mut)} .cyc-tail b{font-variant-numeric:tabular-nums;color:var(--ink)}
+  /* the same split per repository — bars share one scale so rows compare */
+  .cyc-repo{width:100%;border-collapse:collapse;font-size:13px}
+  .cyc-repo th{text-align:left;font-size:11.5px;font-weight:700;color:var(--mut);
+    text-transform:uppercase;letter-spacing:.04em;padding:0 10px 7px 0}
+  .cyc-repo td{padding:7px 10px 7px 0;border-top:1px solid var(--line);vertical-align:middle}
+  .cyc-repo td.rb{width:46%}
+  .cyc-repo .rbar{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--panel2)}
+  .cyc-repo .rbar i{display:block;height:100%}
+  .cyc-repo td.rn{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
   .flow-tbl td .dr,.flow-tbl td.fr{font-variant-numeric:tabular-nums}
   .flow-tbl td.fr{font-weight:800}
   .flow-tbl .dr[data-drill]{cursor:pointer;border-bottom:1px dashed var(--acc);color:var(--acc)}

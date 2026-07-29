@@ -690,26 +690,25 @@ def stage_dwell(conn, repos=None, since=None, until=None) -> dict:
     }
 
 
-def flow_report(conn, repos=None, since=None, until=None) -> dict:
-    """The Flow tab dataset — retrospective delivery-flow health that EXPLAINS what
-    "friction" means and adds the metrics the timeline stream makes possible.
+def _flow_item_facts(conn, repos=None, since=None, until=None) -> list:
+    """Per-item lifecycle facts for the Flow cohort — the ONE load every flow number
+    is derived from.
 
     Cohort = issues + PRs CREATED in [since, until] (optional repo slice; bots and
     migration PRs excluded). For each item we read its lifecycle: back-to-draft and
     reopened bounces, review-request churn, and the cycle-time segments between real
-    events (created → first review request → merge, draft → ready, created → close).
+    events (created → first submitted review → merge, draft → ready, created → close).
+
+    Returned as one record per item rather than as finished aggregates on purpose.
+    Three consumers need the same cohort at different granularities — the headline
+    rates (_flow_scalars), the per-person table, and the in-window mini-trends
+    (flow_spark), which re-aggregates the SAME records over sub-windows. Had each
+    re-derived its own numbers from SQL, a sparkline could disagree with the tile it
+    sits under, which is the one failure a trend line must not have.
 
     Honest scope: these are LIFECYCLE segments from timeline events + PR timestamps,
     not per-board-column dwell time — GitHub Projects-v2 status carries no change
-    history, so true "time in In-Progress/In-Review" is not derivable. The per-person
-    `friction` column reuses person_flow() so it matches the Developer-score card.
-
-    Also carries the board-movement views (cumulative flow, time-in-stage, QA→dev
-    rewinds) so the Flow tab is the single home for how work MOVES and how long it
-    takes; Delivery keeps the point-in-time output + current board state."""
-    board = {"cfd": board_cfd(conn, repos, since, until),
-             "dwell": stage_dwell(conn, repos, since, until),
-             "rewinds": board_rewinds(conn, repos, since, until)}
+    history, so true "time in In-Progress/In-Review" is not derivable."""
     rf, rp = _repo_filter(repos)
     wf, wp = "", ()
     if since is not None and until is not None:
@@ -740,7 +739,7 @@ def flow_report(conn, repos=None, since=None, until=None) -> dict:
 
     keys = set(prs) | set(issues)
     if not keys:
-        return {"has_data": False, **board}
+        return []
 
     # lifecycle events for the cohort items (any date — a bounce counts wherever it fell)
     ev: dict = {}
@@ -785,66 +784,265 @@ def flow_report(conn, repos=None, since=None, until=None) -> dict:
             a = []
         return a[0] if a else None
 
-    reopened_n = bounced_n = rereq_n = cr_prs = cr_rounds = 0
-    ttfr, r2m, ttm, d2r, ttc = [], [], [], [], []
-    ppl: dict = {}
+    items = []
     for key in keys:
         e = ev.get(key) or {"cd": 0, "ro": 0, "rr": 0, "asg": 0, "ready_at": None}
-        has_ro, has_cd, extra_rr = e["ro"] > 0, e["cd"] > 0, max(0, e["rr"] - 1)
-        crn = cr.get(key, 0)
-        if has_ro:
-            reopened_n += 1
-        if has_cd:
-            bounced_n += 1
-        if extra_rr:
-            rereq_n += 1
-        if crn:
-            cr_prs += 1
-            cr_rounds += crn
-        pr = prs.get(key)
-        item_ttm = item_ttfr = None
+        pr, iss = prs.get(key), issues.get(key)
+        rec = {
+            "key": key, "repo": key[0], "is_pr": pr is not None,
+            "created_at": (pr or iss)["created_at"], "owner": owner_of(key),
+            "has_ro": e["ro"] > 0, "has_cd": e["cd"] > 0,
+            "extra_rr": max(0, e["rr"] - 1), "crn": cr.get(key, 0),
+            "ttfr": None, "r2m": None, "ttm": None, "d2r": None, "ttc": None,
+        }
         if pr:
             reviewed_at = first_review.get(key)
             if reviewed_at:
-                item_ttfr = _hours_between(pr["created_at"], reviewed_at)
-                if item_ttfr is not None:
-                    ttfr.append(item_ttfr)
+                rec["ttfr"] = _hours_between(pr["created_at"], reviewed_at)
             if pr["merged_at"]:
-                item_ttm = _hours_between(pr["created_at"], pr["merged_at"])
-                if item_ttm is not None:
-                    ttm.append(item_ttm)
+                rec["ttm"] = _hours_between(pr["created_at"], pr["merged_at"])
                 if reviewed_at:
-                    h = _hours_between(reviewed_at, pr["merged_at"])
-                    if h is not None:
-                        r2m.append(h)
+                    rec["r2m"] = _hours_between(reviewed_at, pr["merged_at"])
             if e["ready_at"]:
-                h = _hours_between(pr["created_at"], e["ready_at"])
-                if h is not None:
-                    d2r.append(h)
-        iss = issues.get(key)
+                rec["d2r"] = _hours_between(pr["created_at"], e["ready_at"])
         if iss and iss["closed_at"]:
-            h = _hours_between(iss["created_at"], iss["closed_at"])
-            if h is not None:
-                ttc.append(h)
-        owner = owner_of(key)
-        if owner:
-            p = ppl.setdefault(owner, {"items": 0, "ro": 0, "cd": 0, "rr": 0,
-                                       "cr": 0, "cr_prs": 0, "ttm": [], "ttfr": []})
-            p["items"] += 1
-            p["ro"] += 1 if has_ro else 0
-            p["cd"] += 1 if has_cd else 0
-            p["rr"] += extra_rr
-            p["cr"] += crn
-            p["cr_prs"] += 1 if crn else 0
-            if item_ttm is not None:
-                p["ttm"].append(item_ttm)
-            if item_ttfr is not None:
-                p["ttfr"].append(item_ttfr)
+            rec["ttc"] = _hours_between(iss["created_at"], iss["closed_at"])
+        items.append(rec)
+    # `keys` is a set, so the scan order is arbitrary. Sorting makes every aggregate
+    # derived from these records — and the JSON the report ships — identical between
+    # renders instead of depending on SQLite's row order.
+    items.sort(key=lambda r: r["key"])
+    return items
+
+
+def _flow_scalars(items: list) -> dict:
+    """The headline flow-health rates + cycle-time medians for a set of item facts.
+
+    The single definition of those numbers: flow_report calls it for the whole
+    cohort, flow_spark calls it once per sub-window, and flow_kpis calls it over the
+    preceding window that the period-over-period deltas compare against. Rates only a
+    PR can exhibit (back-to-draft, re-review) are still divided by ALL cohort items
+    rather than by the PR count — that is how they have always been computed, and
+    quietly changing the denominator would move every number the report has shown."""
+    n = len(items)
+    n_prs = sum(1 for r in items if r["is_pr"])
+    reopened_n = sum(1 for r in items if r["has_ro"])
+    bounced_n = sum(1 for r in items if r["has_cd"])
+    rereq_n = sum(1 for r in items if r["extra_rr"])
+    cr_prs = sum(1 for r in items if r["crn"])
+    cr_rounds = sum(r["crn"] for r in items)
+
+    def pct(k):
+        return round(100.0 * k / n, 1) if n else 0.0
+
+    def seg(k):
+        vals = [r[k] for r in items if r[k] is not None]
+        return {"h": _median(vals), "n": len(vals)}
+
+    # public segment names on the left, the internal short names this module has
+    # always used on the right
+    cycle = {"ttfr": seg("ttfr"), "review_to_merge": seg("r2m"), "ttm": seg("ttm"),
+             "draft_to_ready": seg("d2r"), "ttc": seg("ttc")}
+    return {
+        "n_items": n, "n_prs": n_prs, "n_issues": n - n_prs,
+        "reopen_rate": pct(reopened_n), "reopened_n": reopened_n,
+        "bounce_rate": pct(bounced_n), "bounced_n": bounced_n,
+        "rereq_rate": pct(rereq_n), "rereq_n": rereq_n,
+        "cr_rate": (round(100.0 * cr_prs / n_prs, 1) if n_prs else 0.0),
+        "cr_prs": cr_prs, "cr_rounds": cr_rounds,
+        "cycle": cycle,
+        # flat aliases, so delta_map()/flow_spark() can address a cycle segment with a
+        # single key the same way they address a rate
+        **{f"cycle_{k}": v["h"] for k, v in cycle.items()},
+    }
+
+
+# the flow numbers that carry a period-over-period delta + a mini-trend, in tile order
+FLOW_KPI_KEYS = ("cr_rate", "reopen_rate", "bounce_rate", "rereq_rate",
+                 "cycle_ttfr", "cycle_review_to_merge", "cycle_ttm",
+                 "cycle_draft_to_ready", "cycle_ttc")
+
+# + the board-rewind count, which gets a delta but no sparkline: a mini-trend would
+# mean re-diffing the snapshot history once per bucket, and the snapshots are the
+# thinnest data on the page — eight noisy points would read as a signal.
+FLOW_DELTA_KEYS = FLOW_KPI_KEYS + ("rewinds_qa_to_dev",)
+
+_FLOW_SPARK_BUCKETS = 8      # sub-windows behind each flow tile's mini-trend
+_CYCLE_BAR_REPO_MIN = 3      # completed PRs a repo needs to get its own cycle bar
+_CYCLE_BAR_REPOS = 6         # repos shown in the per-repo cycle breakdown
+
+
+def flow_spark(items: list, since, until, nbuckets: int = _FLOW_SPARK_BUCKETS) -> dict:
+    """Per-metric sparkline point-strings for the flow tiles: re-aggregate the SAME
+    item facts over ~8 equal sub-windows (bucketed by each item's creation date), so
+    every rate and median carries a mini-trend computed under the exact definition of
+    the number above it. Mirrors delivery_spark's contract without its cost — the
+    cohort is already in memory, so a trend line here adds no query.
+
+    The window start is clamped forward to the earliest item when the requested
+    `since` predates all the data. All-time is the DEFAULT period and its nominal
+    start is 2008: without the clamp most buckets would be structurally empty and
+    every sparkline would read as a flat line with a spike at the end — which asserts
+    something false about the trend rather than nothing about it."""
+    import store
+
+    def day(s):
+        try:
+            return store._day(s)
+        except (ValueError, TypeError):
+            return None
+
+    dated = [(d, r) for r, d in ((r, day(r["created_at"])) for r in items) if d]
+    s0, s1 = day(since), day(until)
+    if not dated or s0 is None or s1 is None:
+        return {}
+    s0 = max(s0, min(d for d, _r in dated))
+    span = max((s1 - s0).days, 0)
+    if span <= 0:
+        return {}
+    nb = min(nbuckets, span) or 1
+    buckets: list = [[] for _ in range(nb)]
+    for d, r in dated:
+        b = int((d - s0).days / (span + 1) * nb)
+        buckets[0 if b < 0 else (nb - 1 if b >= nb else b)].append(r)
+    series: dict = {k: [] for k in FLOW_KPI_KEYS}
+    for i, bucket in enumerate(buckets):
+        if not bucket:
+            continue    # nothing created in this slice: no rate, no median, no point
+        m = _flow_scalars(bucket)
+        for k in FLOW_KPI_KEYS:
+            if m.get(k) is not None:
+                series[k].append((i, m[k]))
+    return {k + "_pts": _spark_xy(v, nb) for k, v in series.items()}
+
+
+def _spark_xy(points: list, n: int, w: float = 100.0, h: float = 26.0, pad: float = 3.0) -> str:
+    """SVG polyline for values at KNOWN bucket positions — store._spark_points' output,
+    but taking (bucket index, value) pairs so a sub-window with nothing in it can be
+    omitted rather than drawn.
+
+    That distinction matters more here than it does on the activity sparklines. A slice
+    of the period with no items has no median and no rate, and plotting 0 for it draws
+    a cycle time collapsing to nothing — the opposite of what happened. Omitted points
+    leave a straight line across the gap, which is how a line chart with missing
+    samples already reads."""
+    vals = [v for _i, v in points]
+    if len(points) < 2 or n < 2 or max(vals) <= 0:
+        return ""
+    mx = max(vals)
+    dx = w / (n - 1)
+    return " ".join(f"{i * dx:.1f},{h - pad - (v / mx) * (h - 2 * pad):.1f}"
+                    for i, v in points)
+
+
+def flow_cycle_bar(items: list) -> dict:
+    """The whole PR cycle as ONE length with its legs inside it, plus the same split
+    per repository.
+
+    This is the thing the five median cards above it cannot show. Each of those is
+    measured over whichever PRs happen to have that segment, so they belong to
+    different populations and a total assembled from them would be fiction. Here the
+    cohort is fixed once — merged PRs that also got a review — and over THAT set
+    open→review and review→merge add up to open→merge for every single pull request.
+
+    Two totals are reported and neither is derived from the other: the sum of the leg
+    medians (which is what the bar's width is) and the median total lead time (the
+    honest typical). They differ because the median of a sum is not the sum of the
+    medians, and both are shown rather than picking whichever looks tidier. p75/p90
+    come from the same cohort's totals, because a median alone hides the tail that is
+    what people actually remember about a slow review."""
+    full = [r for r in items
+            if r["is_pr"] and r["ttfr"] is not None and r["r2m"] is not None
+            and r["ttm"] is not None]
+    if not full:
+        return {"has_data": False, "n": 0}
+    ttfr_h = _median([r["ttfr"] for r in full])
+    r2m_h = _median([r["r2m"] for r in full])
+    legs_sum = (ttfr_h or 0) + (r2m_h or 0)
+    legs = [{"key": "ttfr", "label": "Waiting for a first review",
+             "sub": "opened → somebody looked", "h": ttfr_h, "color": "#f59e0b"},
+            {"key": "review_to_merge", "label": "In review until merged",
+             "sub": "first review → merged", "h": r2m_h, "color": "#2f80ed"}]
+    for leg in legs:
+        leg["pct"] = round(100.0 * (leg["h"] or 0) / legs_sum, 1) if legs_sum else 0.0
+    totals = sorted(r["ttm"] for r in full)
+
+    def q(p):
+        return round(totals[min(len(totals) - 1, int(round((len(totals) - 1) * p)))], 1)
+
+    drafts = [r["d2r"] for r in full if r["d2r"] is not None]
+    by_repo, groups = [], {}
+    for r in full:
+        groups.setdefault(r["repo"], []).append(r)
+    for repo, rs in groups.items():
+        if len(rs) < _CYCLE_BAR_REPO_MIN:
+            continue
+        by_repo.append({"repo": repo, "n": len(rs),
+                        "ttfr_h": _median([x["ttfr"] for x in rs]),
+                        "r2m_h": _median([x["r2m"] for x in rs]),
+                        "total_h": _median([x["ttm"] for x in rs])})
+    by_repo.sort(key=lambda x: (-(x["total_h"] or 0), x["repo"]))
+    return {
+        "has_data": True, "n": len(full), "legs": legs,
+        "legs_sum_h": round(legs_sum, 1), "median_total_h": _median(totals),
+        "p75_total_h": q(0.75), "p90_total_h": q(0.90),
+        "draft": ({"n": len(drafts), "h": _median(drafts)} if drafts else None),
+        "by_repo": by_repo[:_CYCLE_BAR_REPOS], "repos_shown": min(len(by_repo), _CYCLE_BAR_REPOS),
+        "repos_total": len(groups), "repo_min": _CYCLE_BAR_REPO_MIN,
+    }
+
+
+def flow_kpis(conn, repos=None, since=None, until=None) -> dict:
+    """The scalar flow numbers for one window — the same definitions flow_report puts
+    on the tiles, computed over the PRECEDING window so those tiles can carry a
+    period-over-period delta (delivery_metrics plays this role for Delivery).
+
+    Includes the QA→dev rewind count, which is not part of the cohort aggregate but is
+    the one number on the page a reader could least do anything with on its own: "15
+    returned to dev" only becomes information next to what it was last period."""
+    out = _flow_scalars(_flow_item_facts(conn, repos, since, until))
+    out["rewinds_qa_to_dev"] = board_rewinds(conn, repos, since, until).get("qa_to_dev") or 0
+    return out
+
+
+def flow_report(conn, repos=None, since=None, until=None) -> dict:
+    """The Flow tab dataset — retrospective delivery-flow health that EXPLAINS what
+    "friction" means and adds the metrics the timeline stream makes possible.
+
+    The cohort, the sources and the honest scope of every segment are documented on
+    _flow_item_facts, which does the single load this aggregates. The per-person
+    `friction` column reuses person_flow() so it matches the Developer-score card.
+
+    Also carries the board-movement views (cumulative flow, time-in-stage, QA→dev
+    rewinds) so the Flow tab is the single home for how work MOVES and how long it
+    takes; Delivery keeps the point-in-time output + current board state."""
+    board = {"cfd": board_cfd(conn, repos, since, until),
+             "dwell": stage_dwell(conn, repos, since, until),
+             "rewinds": board_rewinds(conn, repos, since, until)}
+    items = _flow_item_facts(conn, repos, since, until)
+    if not items:
+        return {"has_data": False, **board}
+
+    ppl: dict = {}
+    for r in items:
+        if not r["owner"]:
+            continue
+        p = ppl.setdefault(r["owner"], {"items": 0, "ro": 0, "cd": 0, "rr": 0,
+                                        "cr": 0, "cr_prs": 0, "ttm": [], "ttfr": []})
+        p["items"] += 1
+        p["ro"] += 1 if r["has_ro"] else 0
+        p["cd"] += 1 if r["has_cd"] else 0
+        p["rr"] += r["extra_rr"]
+        p["cr"] += r["crn"]
+        p["cr_prs"] += 1 if r["crn"] else 0
+        if r["ttm"] is not None:
+            p["ttm"].append(r["ttm"])
+        if r["ttfr"] is not None:
+            p["ttfr"].append(r["ttfr"])
 
     friction_map = person_flow(conn, repos, since, until)
     names = {r["login"]: (r["name"] or r["login"])
              for r in conn.execute("SELECT login, name FROM person")}
-    n = len(keys)
     people = []
     for lg, p in ppl.items():
         if p["items"] < _FLOW_PERSON_MIN:
@@ -864,23 +1062,12 @@ def flow_report(conn, repos=None, since=None, until=None) -> dict:
     people.sort(key=lambda x: (x["friction"] is None, -(x["friction"] or 0),
                                -x["reopen_pct"], -x["items"], x["login"]))
 
-    def pct(k):
-        return round(100.0 * k / n, 1) if n else 0.0
-
     return {
-        "has_data": True, "n_items": n, "n_prs": len(prs), "n_issues": len(issues),
-        "reopen_rate": pct(reopened_n), "reopened_n": reopened_n,
-        "bounce_rate": pct(bounced_n), "bounced_n": bounced_n,
-        "rereq_rate": pct(rereq_n), "rereq_n": rereq_n,
-        "cr_rate": (round(100.0 * cr_prs / len(prs), 1) if prs else 0.0),
-        "cr_prs": cr_prs, "cr_rounds": cr_rounds,
-        "cycle": {
-            "ttfr": {"h": _median(ttfr), "n": len(ttfr)},
-            "review_to_merge": {"h": _median(r2m), "n": len(r2m)},
-            "ttm": {"h": _median(ttm), "n": len(ttm)},
-            "draft_to_ready": {"h": _median(d2r), "n": len(d2r)},
-            "ttc": {"h": _median(ttc), "n": len(ttc)},
-        },
+        "has_data": True, **_flow_scalars(items),
+        "cycle_bar": flow_cycle_bar(items),
+        "spark": flow_spark(items, since, until),
+        # lifted out of the nested board block so delta_map() can address it by key
+        "rewinds_qa_to_dev": board["rewinds"].get("qa_to_dev") or 0,
         "min_items": _FLOW_PERSON_MIN, "people": people, **board,
     }
 
@@ -941,6 +1128,25 @@ _reg.register_for(flow_report, [
                 desc="Median time a PR spent in draft before being marked ready for review.",
                 formula="median(ready_for_review_event - created_at) over cohort PRs",
                 snippet="d2r.append(hours(created_at, ready_for_review_at))"),
+    _reg.metric("flow_lead_time_decomposed", type="computed", group="flow", unit="hours",
+                desc="Total PR lead time split into its two legs (opened → first review, "
+                     "first review → merged) over ONE cohort: merged PRs that also got a "
+                     "review, where the legs provably add up to the total per pull request. "
+                     "Reported alongside the median total, which is NOT the sum of the leg "
+                     "medians — the median of a sum never is — plus p75/p90 of the total so "
+                     "the tail is visible. Also split per repository (≥3 completed PRs).",
+                formula="cohort = merged AND reviewed; legs = median(ttfr), median(r2m); "
+                        "total = median(ttm), p75(ttm), p90(ttm) over the same cohort",
+                snippet="full = [r for r in items if r['is_pr'] and r['ttfr'] and r['r2m'] "
+                        "and r['ttm']]"),
+    _reg.metric("flow_kpi_trend", type="computed", group="flow", unit="series",
+                desc="The mini-trend under each flow tile: the same rate or median "
+                     "re-aggregated over ~8 equal sub-windows of the selected period, from "
+                     "the same per-item facts as the headline, so a sparkline can never "
+                     "disagree with the number above it. The window start is clamped to the "
+                     "first item's date, or all-time trends would be mostly empty buckets.",
+                formula="for each sub-window: _flow_scalars(items created in it)",
+                snippet="buckets[int((d - s0).days / (span + 1) * nb)].append(r)"),
     _reg.metric("flow_friction_per_item", type="computed", group="flow",
                 desc="Per-person friction/item — 2×(back-to-draft + reopened) + review-request "
                      "and assignment churn, averaged over owned items. The Flow pillar of the "

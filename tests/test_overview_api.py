@@ -81,6 +81,20 @@ class DeltaChipTest(unittest.TestCase):
         self.assertEqual(flat["cls"], "flat")
         self.assertEqual(flat["text"], "± 0%")
 
+    def test_a_change_that_rounds_to_zero_does_not_keep_its_arrow(self):
+        """"▲ 0%" is an arrow arguing with its own number. A sub-1% move is flat to a
+        reader, so it says so and puts the direction in the tooltip instead. Surfaced
+        by the Flow rates, where a fraction of a percent is common."""
+        chip = render._delta_chip({"diff": 0.2, "prev": 50.1, "pct": 0, "dir": "up"})
+        self.assertEqual(chip["cls"], "flat")
+        self.assertEqual(chip["text"], "± <1%")
+        self.assertIn("up by under 1%", chip["tip"])
+        # and the same for a tiny fall, including when 'up is bad' flips the colours
+        low = render._delta_chip({"diff": -0.2, "prev": 50.1, "pct": 0, "dir": "down"},
+                                 lower_better=True)
+        self.assertEqual(low["cls"], "flat")
+        self.assertIn("down by under 1%", low["tip"])
+
     def test_new_when_prev_was_zero(self):
         chip = render._delta_chip({"diff": 5, "prev": 0, "pct": None, "dir": "up"})
         self.assertEqual(chip, {"cls": "up", "text": "▲ new", "tip": "nothing in the previous equal period"})

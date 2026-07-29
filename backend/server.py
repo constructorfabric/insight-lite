@@ -2184,7 +2184,23 @@ class Handler(BaseHTTPRequestHandler):
                 repos, _proj = discovery.repos_for_scope(conn, level, target)
             # in_flight takes no since/until on purpose — it is a point-in-time
             # quantity that must not move with the period control (see store.in_flight).
-            pr = {"flow": semantic_metrics.flow_report(conn, repos, since, until),
+            block = semantic_metrics.flow_report(conn, repos, since, until)
+            # period-over-period deltas vs the preceding equal window (skipped for
+            # all-time / >2y spans) — same rule and same best-effort handling the
+            # Delivery KPIs use, so a flow number never sits on the page with nothing
+            # to compare it against.
+            try:
+                ds = datetime.fromisoformat(since.replace("Z", "+00:00"))
+                du = datetime.fromisoformat(until.replace("Z", "+00:00"))
+                span = du - ds
+                if 0 < span.days <= 731:
+                    p_since = (ds - span).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    prev = semantic_metrics.flow_kpis(conn, repos, p_since, since)
+                    block["deltas"] = render.delta_map(
+                        block, prev, keys=semantic_metrics.FLOW_DELTA_KEYS)
+            except Exception as exc:        # noqa: BLE001 — deltas are best-effort
+                log_degraded("Flow deltas (/api/report/flow)", exc)
+            pr = {"flow": block,
                   "in_flight": store.in_flight(conn, repos),
                   # abandoned IS windowed (by closed_at) — the opposite of in_flight,
                   # deliberately; see store.abandoned_prs.

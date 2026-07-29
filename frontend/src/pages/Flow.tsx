@@ -19,15 +19,32 @@
 // see pages/Delivery.tsx's own docstring). So the CFD chart always uses
 // waitForFonts=true here, unconditionally (no isLiveRefetch toggle needed,
 // unlike pages/Trend.tsx).
+import type { ReactNode } from "react";
 import FilterBar from "../components/FilterBar";
 import VegaChart from "../components/VegaChart";
+import type { KpiDelta } from "../components/KpiTile";
 import { GhLink } from "../widgets";
 import { zeroClass } from "../components/DataTable";
 import { useReportData } from "../hooks/useReportData";
 import { fmtNum, fmtPct } from "../lib/format";
 import Loading from "../components/Loading";
 
-type CycleSeg = { key: string; label: string; sub: string; h: string; n: number };
+// What the server attaches to any flow scalar that can move: a mini-trend over ~8
+// sub-windows of the period, and a chip against the preceding equal period. Both are
+// optional — a tile whose metric has neither still renders, just without them.
+type Trend = { sparkPts?: string | null; sparkColor?: string; delta?: KpiDelta };
+
+type CycleSeg = { key: string; label: string; sub: string; h: string; n: number } & Trend;
+type CycleLeg = { key: string; label: string; sub: string; h: string; pct: number; color: string };
+type CycleBarRepo = {
+  repo: string; n: number; ttfrH: string; r2mH: string; totalH: string;
+  ttfrPct: number; r2mPct: number;
+};
+type CycleBar = {
+  n: number; legs: CycleLeg[]; legsSumH: string; medianTotalH: string;
+  p75TotalH: string; p90TotalH: string; draft: { n: number; h: string } | null;
+  byRepo: CycleBarRepo[]; reposTotal: number; repoMin: number;
+};
 type Person = {
   login: string; name: string; items: number;
   friction: string | null; frictionColor: string | null;
@@ -47,7 +64,7 @@ type Dwell = {
 };
 type Rewinds = {
   hasHistory: boolean; nDates: number; firstDate: string | null;
-  hasEvents: boolean; qaToDev: number; ownerCount: number;
+  hasEvents: boolean; qaToDev: number; ownerCount: number; delta?: KpiDelta;
 };
 type FlowBlock =
   | { hasData: false }
@@ -60,7 +77,9 @@ type FlowBlock =
         bounceRate: number; bouncedN: number;
         rereqRate: number; rereqN: number;
       };
+      healthTrend?: Record<"crRate" | "reopenRate" | "bounceRate" | "rereqRate", Trend>;
       cycle: CycleSeg[];
+      cycleBar: CycleBar | null;
       minItems: number; people: Person[];
       cfd: Cfd; dwell: Dwell; rewinds: Rewinds;
     };
@@ -109,6 +128,183 @@ type FlowData = {
   inFlight?: InFlight;
   abandoned?: Abandoned;
 };
+
+// One section of the page, stating the question it answers and who asks it.
+//
+// The page used to be an undivided scroll of everything known about flow, which read
+// as "for everybody", i.e. for nobody: a lead looking for what to unblock today and
+// somebody reviewing how the process performs over a quarter were given the same wall.
+// Naming the question is most of the fix; collapsing everything except the two
+// sections that answer "what do I do this week" is the rest.
+//
+// `open` is the INITIAL state only. React writes the attribute on mount and, because
+// the value never changes between renders, leaves it alone afterwards — so a reader's
+// own expand/collapse survives a period or scope change.
+function Section({ q, who, open, children }: {
+  q: string; who: string; open?: boolean; children: ReactNode;
+}) {
+  return (
+    <details className="flow-sec" open={open}>
+      <summary>
+        <span className="fs-q">{q}</span>
+        <span className="fs-who">{who}</span>
+      </summary>
+      <div className="fs-body">{children}</div>
+    </details>
+  );
+}
+
+// One .fcard, with the optional delta chip and mini-trend a movable metric carries.
+// Deliberately the same visual grammar as the Overview KPI tile (KpiTile.tsx): a
+// right-aligned pill above the number, a sparkline under the labels. A flow number
+// without either was the complaint that produced this — "15 returned to dev" is not
+// something a reader can act on until they know it was 22 last month.
+function FTile({ value, label, sub, trend, tip }: {
+  value: ReactNode; label: string; sub?: ReactNode; trend?: Trend; tip?: string;
+}) {
+  const delta = trend?.delta;
+  const pts = trend?.sparkPts;
+  return (
+    <div className="fcard">
+      {delta && (
+        <div className="fc-top">
+          <span className={`dlt ${delta.cls}`} data-tip={delta.tip}>{delta.text}</span>
+        </div>
+      )}
+      <div className="fc-n" data-tip={tip}>{value}</div>
+      <div className="fc-l">{label}</div>
+      {sub && <div className="fc-s">{sub}</div>}
+      {pts && (
+        <svg className="spark" viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true">
+          <polyline
+            points={pts} fill="none" stroke={trend?.sparkColor} strokeWidth={1.6}
+            vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"
+          />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// The whole PR cycle as one length with its legs inside it — the shape a reader
+// expects of a "cycle time" and the one thing the five median cards cannot be
+// assembled into, because each of those is measured over a different set of PRs.
+//
+// Two totals are printed side by side and neither is hidden: the bar's own width (the
+// leg medians added up) and the median total lead time. They disagree by a little,
+// always, because the median of a sum is not the sum of the medians. Showing one and
+// calling it "the" cycle time would be the lie of omission this panel exists to avoid.
+function CycleBarPanel({ bar }: { bar: CycleBar }) {
+  return (
+    <>
+      <h3 className="sub">
+        How long a change takes end to end{" "}
+        <span className="mut">
+          — {fmtNum(bar.n)} pull requests that were reviewed and merged, so the legs add up
+        </span>
+      </h3>
+      <div className="cyc">
+        <div className="cyc-bar">
+          {bar.legs.map((l) => (
+            <i key={l.key} style={{ width: `${l.pct}%`, background: l.color }}
+               data-tip={`${l.label}: ${l.h}`} />
+          ))}
+        </div>
+        <div className="cyc-scale">
+          <span>opened</span><span>merged · {bar.legsSumH}</span>
+        </div>
+        <div className="cyc-legs">
+          {bar.legs.map((l) => (
+            <div className="cyc-leg" key={l.key}>
+              <span className="sw" style={{ background: l.color }} />
+              <div>
+                <div className="lh">{l.h}</div>
+                <div className="ll">{l.label}</div>
+                <div className="ls">{l.sub} · {fmtPct(l.pct)}% of the bar</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="cyc-tail">
+          <span>typical total <b>{bar.medianTotalH}</b></span>
+          <span>slower quarter <b>{bar.p75TotalH}</b></span>
+          <span>slowest tenth <b>{bar.p90TotalH}</b></span>
+          {bar.draft && (
+            <span>of which in draft first <b>{bar.draft.h}</b> ({fmtNum(bar.draft.n)} PRs)</span>
+          )}
+        </div>
+      </div>
+      <p className="conc" style={{ marginTop: 8 }}>
+        {bar.legsSumH === bar.medianTotalH ? (
+          <>
+            The bar is <b>{bar.legsSumH}</b> wide because that is the two leg medians
+            added up, which here happens to land on the typical total as well. It often
+            does not — the median of a total is not the total of the medians — so both
+            are always printed rather than one standing in for the other.
+          </>
+        ) : (
+          <>
+            The bar is <b>{bar.legsSumH}</b> wide because that is the two leg medians
+            added up; the typical pull request takes <b>{bar.medianTotalH}</b>. Neither
+            is wrong — the median of a total is not the total of the medians — so both
+            are shown rather than picking whichever looked tidier.
+          </>
+        )}{" "}
+        The <b>slowest tenth</b> is here for a related reason: a median alone hides the
+        wait anybody actually complains about. Draft time overlaps the first leg (a PR
+        sits in draft before anyone reviews it), so it is listed rather than stacked.
+      </p>
+
+      {bar.byRepo.length > 1 && (
+        <>
+          <h3 className="sub" style={{ marginTop: 20 }}>
+            The same split per repository{" "}
+            <span className="mut">
+              — slowest first, {bar.byRepo.length} of {fmtNum(bar.reposTotal)} shown;
+              needs ≥{bar.repoMin} reviewed-and-merged PRs
+            </span>
+          </h3>
+          <div className="card flow-tbl" style={{ overflowX: "auto" }}>
+            <table className="cyc-repo">
+              <thead>
+                <tr>
+                  <th>Repository</th>
+                  <th className="rb">Opened → review → merged</th>
+                  <th data-tip="Median time until somebody first reviewed one">To review</th>
+                  <th data-tip="Median time from that first review to the merge">In review</th>
+                  <th data-tip="Median total lead time for this repository">Total</th>
+                  <th data-tip="Reviewed-and-merged PRs this is measured over">PRs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bar.byRepo.map((r) => (
+                  <tr key={r.repo}>
+                    <td>{r.repo}</td>
+                    <td className="rb">
+                      <div className="rbar">
+                        <i style={{ width: `${r.ttfrPct}%`, background: bar.legs[0]?.color }} />
+                        <i style={{ width: `${r.r2mPct}%`, background: bar.legs[1]?.color }} />
+                      </div>
+                    </td>
+                    <td className="rn">{r.ttfrH}</td>
+                    <td className="rn">{r.r2mH}</td>
+                    <td className="rn">{r.totalH}</td>
+                    <td className="rn">{fmtNum(r.n)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="conc">
+            The bars share <b>one scale</b> — each row's width is measured against the
+            slowest repository, not against its own total, so a fast repo and a slow one
+            do not draw the same picture.
+          </p>
+        </>
+      )}
+    </>
+  );
+}
 
 // Pull requests that were closed without merging. Reads the period, unlike InFlightPanel.
 //
@@ -303,11 +499,12 @@ function InFlightPanel({ inf }: { inf: InFlight }) {
     .reduce((s, b) => s + b.n, 0);
   return (
     <>
-      <h3 className="sub" style={{ marginTop: 24 }}>
+      {/* The "ignores the period" caveat lives on the section header now, so it is not
+          repeated here two lines below itself. */}
+      <h3 className="sub">
         In flight{" "}
         <span className="mut">
-          — {fmtNum(inf.n)} open pull requests, <b>as of the last refresh</b>; this block is the
-          only one here that ignores the selected period
+          — {fmtNum(inf.n)} open pull requests, <b>as of the last refresh</b>
         </span>
       </h3>
       <div className="flow-cards">
@@ -625,7 +822,19 @@ function RewindsPanel({ rewinds }: { rewinds: Rewinds }) {
   return (
     <>
       <div className="flow-cards">
+        {/* The one number on this page that says least on its own — a count with no
+            denominator and no scale. The period-over-period chip is the whole answer
+            to "and what do I do with 15?"; there is deliberately no sparkline, because
+            eight buckets of a snapshot diff this thin would be noise wearing a trend's
+            clothes (see semantic_metrics.FLOW_DELTA_KEYS). */}
         <div className="fcard fcard-drill" data-drill="rewinds" data-tip="Click for the list of items">
+          {rewinds.delta && (
+            <div className="fc-top">
+              <span className={`dlt ${rewinds.delta.cls}`} data-tip={rewinds.delta.tip}>
+                {rewinds.delta.text}
+              </span>
+            </div>
+          )}
           <div className="fc-n">{fmtNum(rewinds.qaToDev)}</div>
           <div className="fc-l">returned to dev from QA</div>
           <div className="fc-s">across {rewinds.ownerCount} owner(s) · click for the list</div>
@@ -634,8 +843,11 @@ function RewindsPanel({ rewinds }: { rewinds: Rewinds }) {
       <p className="conc">
         Items pushed backward on the board from testing to development (QA → In progress), reconstructed by
         diffing board snapshots since {rewinds.firstDate}. GitHub keeps no board status-change history, so we
-        only see moves between snapshots — treat as a floor. Depends on the Status&nbsp;→&nbsp;stage mapping
-        in the <a href="/semantic">Taxonomy</a>.
+        only see moves between snapshots — treat as a floor
+        {rewinds.delta
+          ? ", and read the count against the previous period rather than on its own"
+          : ""}. Depends on the Status&nbsp;→&nbsp;stage mapping in the{" "}
+        <a href="/semantic">Taxonomy</a>.
       </p>
     </>
   );
@@ -673,6 +885,22 @@ export default function Flow() {
         Flow &amp; friction <span className="period-tag">{periodLabel}</span>
       </h2>
       <div data-period-panel="flow">
+        {/* Leads the page, and sits OUTSIDE the hasData gate for two separate reasons.
+            It leads because it is the only section with anything to do about it today,
+            and a reader who came to unblock somebody should not have to scroll past a
+            quarter of process history to find them. It is outside the gate because open
+            PRs exist whether or not anything was created in the selected window, and the
+            "no lifecycle events yet" hint below must not swallow a real number. */}
+        {data.inFlight && (
+          <Section
+            open
+            q="What is open right now, and who is waiting?"
+            who="For whoever is running the team this week — this is the only section that ignores the period control, because open work is a point-in-time fact."
+          >
+            <InFlightPanel inf={data.inFlight} />
+          </Section>
+        )}
+
         {!f.hasData ? (
           <p className="hint">
             No lifecycle timeline events collected yet. Run a collection to backfill issue/PR timeline events
@@ -680,95 +908,123 @@ export default function Flow() {
           </p>
         ) : (
           <>
-            <div className="card flow-explain">
-              <h3>What “friction” means</h3>
-              <p>
-                Friction scores how much <b>rework and churn</b> a person's work items pick up on the way to
-                done — higher means more items bounced backward instead of flowing forward. For every issue
-                or PR they own:
-              </p>
-              <p className="flow-formula">
-                <b>friction / item</b> = 2 × (back-to-draft + reopened) + extra review requests + reassignments
-              </p>
-              <ul>
-                <li><b>back to draft</b> — a PR marked ready, then pulled back to draft (weight&nbsp;×2)</li>
-                <li><b>reopened</b> — an issue or PR closed, then reopened (weight&nbsp;×2)</li>
-                <li><b>extra review requests</b> — review re-requested on the same PR (beyond the first ask)</li>
-                <li><b>reassignments</b> — ownership handed on after the first assignee</li>
-              </ul>
-              <p className="mut" style={{ marginBottom: 0 }}>
-                Lower is smoother — it's the <b>Flow</b> pillar of the <a href="#person">Developer&nbsp;score</a>.
-                Worked example: a PR reopened once and re-reviewed twice&nbsp;= 2×1&nbsp;+&nbsp;1&nbsp;={" "}
-                <b>3</b> friction on that item. All timing below comes from real lifecycle events, not
-                board-column dwell (GitHub keeps no status-change history).
-              </p>
-            </div>
+            <Section
+              open
+              q="How long does a change take, and where does the time go?"
+              who="For the team and whoever is trying to make delivery faster — measured over work created in the selected period."
+            >
+              {f.cycleBar && <CycleBarPanel bar={f.cycleBar} />}
 
-            <h3 className="sub">
-              Flow health{" "}
-              <span className="mut">
-                — {fmtNum(f.nItems)} items created in this period · {fmtNum(f.nPrs)} PRs, {fmtNum(f.nIssues)}{" "}
-                issues
-              </span>
-            </h3>
-            <div className="flow-cards">
-              <div className="fcard">
-                <div className="fc-n">{fmtPct(f.health.crRate)}%</div>
-                <div className="fc-l">sent back for changes</div>
-                <div className="fc-s">{fmtNum(f.health.crPrs)} PRs · {fmtNum(f.health.crRounds)} rework rounds</div>
+              <h3 className="sub">
+                Cycle-time <span className="mut">— median lifecycle segments, each over whatever
+                items have that segment</span>
+              </h3>
+              <div className="flow-cards">
+                {f.cycle.map((c) => (
+                  <FTile
+                    key={c.key} value={c.h} label={c.label}
+                    sub={`${c.sub} · n=${fmtNum(c.n)}`} trend={c}
+                  />
+                ))}
               </div>
-              <div className="fcard">
-                <div className="fc-n">{fmtPct(f.health.reopenRate)}%</div>
-                <div className="fc-l">reopened</div>
-                <div className="fc-s">{fmtNum(f.health.reopenedN)} items came back</div>
-              </div>
-              <div className="fcard">
-                <div className="fc-n">{fmtPct(f.health.bounceRate)}%</div>
-                <div className="fc-l">back to draft</div>
-                <div className="fc-s">{fmtNum(f.health.bouncedN)} PRs pulled back</div>
-              </div>
-              <div className="fcard">
-                <div className="fc-n">{fmtPct(f.health.rereqRate)}%</div>
-                <div className="fc-l">re-reviewed</div>
-                <div className="fc-s">{fmtNum(f.health.rereqN)} PRs asked again</div>
-              </div>
-            </div>
-            <p className="conc" style={{ marginTop: 8 }}>
-              <b>Rework rounds</b> = the number of times a reviewer explicitly submitted a “changes
-              requested” review — the closest proxy we have to review→fix cycles (we don't yet track
-              the exact comment↔push cadence). A plain comment or an approval does not count.
-            </p>
+              {/* A segment with no data used to vanish, so a reader could not tell "nothing
+                  happened in this window" from "this is never computable" — which is what
+                  two of these were for months. Named, not hidden. */}
+              {data.cycleMissing && data.cycleMissing.length > 0 && (
+                <p className="conc" style={{ marginTop: 8 }}>
+                  No data for{" "}
+                  {data.cycleMissing.map((m, i) => (
+                    <span key={m.key}>
+                      {i > 0 ? ", " : ""}<b>{m.label}</b>
+                    </span>
+                  ))}{" "}
+                  in this window — the lifecycle events those need were not recorded for any
+                  item here.
+                </p>
+              )}
+              <p className="conc">
+                These five are each measured over whichever items happen to have that
+                segment, so they belong to different populations and cannot be added
+                together — which is exactly why the bar above them fixes one cohort first.
+              </p>
+            </Section>
 
-            <h3 className="sub">Cycle-time <span className="mut">— median lifecycle segments</span></h3>
-            <div className="flow-cards">
-              {f.cycle.map((c) => (
-                <div className="fcard" key={c.key}>
-                  <div className="fc-n">{c.h}</div>
-                  <div className="fc-l">{c.label}</div>
-                  <div className="fc-s">{c.sub} · n={fmtNum(c.n)}</div>
+            <Section
+              q="How much work comes back instead of going forward?"
+              who="For a retro, or for anyone asking why delivery feels slower than the throughput suggests. Starts closed — it is a diagnosis, not a daily number."
+            >
+              {/* A definition, not a finding: worth reading once and then in the way. */}
+              <details className="card flow-explain">
+                <summary>
+                  What “friction” means{" "}
+                  <span className="mut">— the formula behind the score, and what feeds it</span>
+                </summary>
+                <div>
+                  <p style={{ marginTop: 0 }}>
+                    Friction scores how much <b>rework and churn</b> a person's work items pick up on the way to
+                    done — higher means more items bounced backward instead of flowing forward. For every issue
+                    or PR they own:
+                  </p>
+                  <p className="flow-formula">
+                    <b>friction / item</b> = 2 × (back-to-draft + reopened) + extra review requests + reassignments
+                  </p>
+                  <ul>
+                    <li><b>back to draft</b> — a PR marked ready, then pulled back to draft (weight&nbsp;×2)</li>
+                    <li><b>reopened</b> — an issue or PR closed, then reopened (weight&nbsp;×2)</li>
+                    <li><b>extra review requests</b> — review re-requested on the same PR (beyond the first ask)</li>
+                    <li><b>reassignments</b> — ownership handed on after the first assignee</li>
+                  </ul>
+                  <p className="mut" style={{ marginBottom: 0 }}>
+                    Lower is smoother — it's the <b>Flow</b> pillar of the <a href="#person">Developer&nbsp;score</a>.
+                    Worked example: a PR reopened once and re-reviewed twice&nbsp;= 2×1&nbsp;+&nbsp;1&nbsp;={" "}
+                    <b>3</b> friction on that item. All timing here comes from real lifecycle events, not
+                    board-column dwell (GitHub keeps no status-change history).
+                  </p>
                 </div>
-              ))}
-            </div>
-            {/* A segment with no data used to vanish, so a reader could not tell "nothing
-                happened in this window" from "this is never computable" — which is what
-                two of these were for months. Named, not hidden. */}
-            {data.cycleMissing && data.cycleMissing.length > 0 && (
-              <p className="conc" style={{ marginTop: 8 }}>
-                No data for{" "}
-                {data.cycleMissing.map((m, i) => (
-                  <span key={m.key}>
-                    {i > 0 ? ", " : ""}<b>{m.label}</b>
-                  </span>
-                ))}{" "}
-                in this window — the lifecycle events those need were not recorded for any
-                item here.
-              </p>
-            )}
+              </details>
 
-            <h3 className="sub">
-              By person{" "}
-              <span className="mut">— owners with ≥{f.minItems} items this period, most friction first</span>
-            </h3>
+              <h3 className="sub">
+                Flow health{" "}
+                <span className="mut">
+                  — {fmtNum(f.nItems)} items created in this period · {fmtNum(f.nPrs)} PRs, {fmtNum(f.nIssues)}{" "}
+                  issues
+                </span>
+              </h3>
+              <div className="flow-cards">
+                <FTile
+                  value={`${fmtPct(f.health.crRate)}%`} label="sent back for changes"
+                  sub={`${fmtNum(f.health.crPrs)} PRs · ${fmtNum(f.health.crRounds)} rework rounds`}
+                  trend={f.healthTrend?.crRate}
+                />
+                <FTile
+                  value={`${fmtPct(f.health.reopenRate)}%`} label="reopened"
+                  sub={`${fmtNum(f.health.reopenedN)} items came back`}
+                  trend={f.healthTrend?.reopenRate}
+                />
+                <FTile
+                  value={`${fmtPct(f.health.bounceRate)}%`} label="back to draft"
+                  sub={`${fmtNum(f.health.bouncedN)} PRs pulled back`}
+                  trend={f.healthTrend?.bounceRate}
+                />
+                <FTile
+                  value={`${fmtPct(f.health.rereqRate)}%`} label="re-reviewed"
+                  sub={`${fmtNum(f.health.rereqN)} PRs asked again`}
+                  trend={f.healthTrend?.rereqRate}
+                />
+              </div>
+              <p className="conc" style={{ marginTop: 8 }}>
+                <b>Rework rounds</b> = the number of times a reviewer explicitly submitted a “changes
+                requested” review — the closest proxy we have to review→fix cycles (we don't yet track
+                the exact comment↔push cadence). A plain comment or an approval does not count. The
+                chip on each card compares it with the <b>preceding equal period</b> and the line under
+                it splits this period into eight, both from the same items as the number itself; on a
+                short period or a thin repo slice expect a few items to move a rate visibly.
+              </p>
+
+              <h3 className="sub">
+                By person{" "}
+                <span className="mut">— owners with ≥{f.minItems} items this period, most friction first</span>
+              </h3>
             {f.people.length ? (
               <>
                 <div className="card flow-tbl" style={{ overflowX: "auto" }}>
@@ -832,27 +1088,36 @@ export default function Flow() {
             ) : (
               <p className="hint">No owner has ≥{f.minItems} items with lifecycle events in this period yet.</p>
             )}
+            </Section>
 
-            <h3 className="sub" style={{ marginTop: 24 }}>
-              Board movement <span className="mut">— how work moves through the stages over time</span>
-            </h3>
-            <div className="dsub">Cumulative flow over time</div>
-            <div className="card"><CfdChart cfd={f.cfd} /></div>
-            <div className="dsub" style={{ marginTop: 14 }}>
-              Time in stage <span className="alltime-tag">between statuses</span>
-            </div>
-            <div className="card"><DwellPanel dwell={f.dwell} /></div>
-            <div className="dsub" style={{ marginTop: 14 }}>
-              Returned to dev from testing <span className="alltime-tag">QA → dev</span>
-            </div>
-            <div className="card"><RewindsPanel rewinds={f.rewinds} /></div>
+            <Section
+              q="How does work move across the board?"
+              who="For whoever owns the board and its statuses. The thinnest data on the page — it is reconstructed from daily snapshots, so it fills in over time rather than being available on day one."
+            >
+              <div className="dsub">Cumulative flow over time</div>
+              <div className="card"><CfdChart cfd={f.cfd} /></div>
+              <div className="dsub" style={{ marginTop: 14 }}>
+                Time in stage <span className="alltime-tag">between statuses</span>
+              </div>
+              <div className="card"><DwellPanel dwell={f.dwell} /></div>
+              <div className="dsub" style={{ marginTop: 14 }}>
+                Returned to dev from testing <span className="alltime-tag">QA → dev</span>
+              </div>
+              <div className="card"><RewindsPanel rewinds={f.rewinds} /></div>
+            </Section>
           </>
         )}
-        {/* OUTSIDE the hasData branch on purpose: open PRs exist regardless of
-            whether anything was created in the selected window, and the "no
-            lifecycle events yet" hint above must not swallow a real number. */}
-        {data.inFlight && <InFlightPanel inf={data.inFlight} />}
-        {data.abandoned && <AbandonedPanel ab={data.abandoned} />}
+        {/* Also outside the hasData branch, for the same reason as the in-flight
+            section above: this is windowed by closed_at, not by the created-in-window
+            cohort, so it has numbers even when that cohort is empty. */}
+        {data.abandoned && (
+          <Section
+            q="What never landed?"
+            who="For anyone auditing where effort went. Read the section itself before reacting — the largest bucket is authors withdrawing their own work after feedback, which is feedback working."
+          >
+            <AbandonedPanel ab={data.abandoned} />
+          </Section>
+        )}
       </div>
 
       <p className="foot">

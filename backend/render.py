@@ -947,6 +947,13 @@ def _delta_chip(d: dict | None, lower_better: bool = False) -> dict | None:
         return None
     if d.get("pct") is not None:
         direction = d["dir"]
+        # A change that rounds to 0% used to keep its arrow and render "▲ 0%" — an
+        # arrow that contradicts its own number. Sub-1% moves are flat as far as a
+        # reader is concerned, so they say so, and say which way they leaned.
+        if not d["pct"] and direction != "flat":
+            return {"cls": "flat", "text": "± <1%",
+                    "tip": f"vs previous equal period — {direction} by under 1% "
+                           f"(was {_num(d['prev'])})"}
         cls = ("flat" if direction == "flat" else
                (("down" if direction == "up" else "up") if lower_better else direction))
         arrow = "▲" if direction == "up" else ("▼" if direction == "down" else "±")
@@ -2345,12 +2352,24 @@ def flow_json(pr: dict, meta: dict) -> dict:
         ("draft_to_ready", "Draft → ready", "time spent in draft"),
         ("ttc", "Open → close", "issue resolution time"),
     ]
+    # A mini-trend and a "vs the previous equal period" chip on every scalar, because
+    # a lone number on this page ("15 returned to dev") gives a reader nothing to do
+    # with it — the first question about any flow number is whether it is moving.
+    spark = f.get("spark") or {}
+    deltas = f.get("deltas") or {}
+
+    def trend(key: str, spark_color: str) -> dict:
+        return {"sparkPts": spark.get(f"{key}_pts") or None, "sparkColor": spark_color,
+                # every one of these is a cost, so a rise is always the bad direction
+                "delta": _delta_chip(deltas.get(key), lower_better=True)}
+
     cy = f.get("cycle") or {}
     cycle, cycle_missing = [], []
     for key, label, sub in cycle_defs:
         c = cy.get(key) or {}
         if c.get("h") is not None:
-            cycle.append({"key": key, "label": label, "sub": sub, "h": hrs(c["h"]), "n": c.get("n") or 0})
+            cycle.append({"key": key, "label": label, "sub": sub, "h": hrs(c["h"]),
+                          "n": c.get("n") or 0, **trend(f"cycle_{key}", "var(--acc)")})
         else:
             # A segment with nothing to measure used to be dropped silently, which made
             # "no data in this window" indistinguishable from "this can never be
@@ -2403,7 +2422,31 @@ def flow_json(pr: dict, meta: dict) -> dict:
         "nDates": rw.get("n_dates") or 0, "firstDate": rw.get("first_date"),
         "hasEvents": bool(rw.get("events")),
         "qaToDev": rw.get("qa_to_dev") or 0, "ownerCount": len(rw.get("by_person") or {}),
+        "delta": _delta_chip(deltas.get("rewinds_qa_to_dev"), lower_better=True),
     }
+
+    cb = f.get("cycle_bar") or {}
+    cycle_bar = None
+    if cb.get("has_data"):
+        cycle_bar = {
+            "n": cb["n"],
+            "legs": [{"key": l["key"], "label": l["label"], "sub": l["sub"],
+                      "h": hrs(l["h"]), "pct": l["pct"], "color": l["color"]}
+                     for l in cb.get("legs") or []],
+            "legsSumH": hrs(cb.get("legs_sum_h")), "medianTotalH": hrs(cb.get("median_total_h")),
+            "p75TotalH": hrs(cb.get("p75_total_h")), "p90TotalH": hrs(cb.get("p90_total_h")),
+            "draft": ({"n": cb["draft"]["n"], "h": hrs(cb["draft"]["h"])}
+                      if cb.get("draft") else None),
+            "byRepo": [{"repo": r["repo"], "n": r["n"], "ttfrH": hrs(r["ttfr_h"]),
+                        "r2mH": hrs(r["r2m_h"]), "totalH": hrs(r["total_h"]),
+                        # widths for the mini stacked bars, scaled against the SLOWEST
+                        # repo so the rows are comparable to each other rather than each
+                        # normalised to itself
+                        "ttfrPct": _bar_pct(r["ttfr_h"], cb.get("by_repo") or []),
+                        "r2mPct": _bar_pct(r["r2m_h"], cb.get("by_repo") or [])}
+                       for r in cb.get("by_repo") or []],
+            "reposTotal": cb.get("repos_total") or 0, "repoMin": cb.get("repo_min") or 0,
+        }
 
     envelope["flow"] = {
         "hasData": True,
@@ -2414,11 +2457,25 @@ def flow_json(pr: dict, meta: dict) -> dict:
             "bounceRate": f["bounce_rate"], "bouncedN": f["bounced_n"],
             "rereqRate": f["rereq_rate"], "rereqN": f["rereq_n"],
         },
-        "cycle": cycle,
+        "healthTrend": {
+            "crRate": trend("cr_rate", "var(--warn)"),
+            "reopenRate": trend("reopen_rate", "var(--warn)"),
+            "bounceRate": trend("bounce_rate", "var(--warn)"),
+            "rereqRate": trend("rereq_rate", "var(--warn)"),
+        },
+        "cycle": cycle, "cycleBar": cycle_bar,
         "minItems": f["min_items"], "people": people,
         "cfd": cfd, "dwell": dwell, "rewinds": rewinds,
     }
     return envelope
+
+
+def _bar_pct(h, rows: list) -> float:
+    """One leg's share of the WIDEST row in the per-repo cycle breakdown, so the rows
+    can be read against each other. Normalising each row to its own total would make a
+    fast repo and a slow one draw identical bars."""
+    widest = max((((r.get("ttfr_h") or 0) + (r.get("r2m_h") or 0)) for r in rows), default=0)
+    return round(100.0 * (h or 0) / widest, 1) if widest else 0.0
 
 
 def render_report(model: dict) -> str:
