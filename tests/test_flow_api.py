@@ -183,6 +183,27 @@ class FlowJsonTest(unittest.TestCase):
         self.assertEqual(stage["nCurrent"], 4)
         self.assertEqual(stage["medianH"], "8h")
 
+    def test_durations_travel_as_a_formatted_string_and_a_raw_number(self):
+        """Every duration the Flow tables show is pre-formatted server-side ("18h",
+        "5d") because render._hours has no TypeScript twin. A DataTable column emits
+        that string as the cell AND the raw value as data-sort, so both have to be in
+        the payload: sorting "38.8h" against "3h" as text puts the slow row second.
+        The pairing is easy to half-do when a column is added, hence one test over all
+        of them rather than an assertion buried in each table's own test."""
+        out = render.flow_json({"flow": _flow()}, _meta())["flow"]
+        alice, bob = out["people"]
+        self.assertEqual((alice["ttmMed"], alice["ttmMedHours"]), ("18h", 18.0))
+        self.assertEqual((alice["ttfrMed"], alice["ttfrMedHours"]), ("3h", 3.0))
+        # a missing median is None on BOTH halves — never "—" on one and 0 on the other,
+        # which would sort an unmeasurable row alongside the fastest ones
+        self.assertIsNone(bob["ttmMed"])
+        self.assertIsNone(bob["ttmMedHours"])
+        self.assertIsNone(bob["ttfrMed"])
+        self.assertIsNone(bob["ttfrMedHours"])
+        stage = out["dwell"]["stages"][0]
+        self.assertEqual((stage["ageMedianH"], stage["ageMedianHours"]), ("5h", 5.0))
+        self.assertEqual((stage["medianH"], stage["medianHours"]), ("8h", 8.0))
+
     def test_rewinds_counts(self):
         out = render.flow_json({"flow": _flow()}, _meta())
         rewinds = out["flow"]["rewinds"]

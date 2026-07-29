@@ -2386,7 +2386,12 @@ def flow_json(pr: dict, meta: dict) -> dict:
             "frictionColor": (_friction_color(p["friction"]) if p.get("friction") is not None else None),
             "reopenPct": p["reopen_pct"], "bouncePct": p["bounce_pct"],
             "crRounds": p["cr_rounds"], "crPrs": p["cr_prs"], "extraReqs": p["extra_reqs"],
-            "ttmMed": hrs(p.get("ttm_med")), "ttfrMed": hrs(p.get("ttfr_med")),
+            # Formatted duration + the raw hours beside it, same pairing as the
+            # cycle bar's byRepo rows below: the string is what the cell shows, the
+            # number is what the table emits as data-sort. "38.8h" sorts before
+            # "3h" as text, which is a trap laid for whoever wires sorting up.
+            "ttmMed": hrs(p.get("ttm_med")), "ttmMedHours": p.get("ttm_med"),
+            "ttfrMed": hrs(p.get("ttfr_med")), "ttfrMedHours": p.get("ttfr_med"),
         }
         for p in (f.get("people") or [])
     ]
@@ -2408,10 +2413,15 @@ def flow_json(pr: dict, meta: dict) -> dict:
         "ageMaxH": hrs(dw.get("age_max_h")),
         "dwellMedianH": hrs(dw.get("dwell_median_h")), "dwellN": dw.get("dwell_n") or 0,
         "firstDate": dw.get("first_date"),
+        # Same formatted-string + raw-hours pairing as people/byRepo above, for the
+        # same reason: the two duration columns are pre-formatted ("2.5d", "40m"),
+        # so the numeric data-sort has to travel separately.
         "stages": [
             {"key": s["key"], "name": s["name"], "color": s["color"],
-             "nCurrent": s.get("n_current") or 0, "ageMedianH": hrs(s.get("age_median_h")),
-             "medianH": hrs(s.get("median_h")), "n": s.get("n") or 0}
+             "nCurrent": s.get("n_current") or 0,
+             "ageMedianH": hrs(s.get("age_median_h")), "ageMedianHours": s.get("age_median_h"),
+             "medianH": hrs(s.get("median_h")), "medianHours": s.get("median_h"),
+             "n": s.get("n") or 0}
             for s in (dw.get("stages") or [])
         ],
     }

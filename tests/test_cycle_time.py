@@ -271,6 +271,9 @@ class WholeCycleBarTest(unittest.TestCase):
                                        places=1)
         self.assertEqual(out["o/a"]["totalH"], "2h")
         self.assertEqual(out["o/b"]["totalH"], "20h")
+        # the raw hours behind each formatted duration, for DataTable's data-sort
+        self.assertEqual((out["o/a"]["totalHours"], out["o/b"]["totalHours"]), (2.0, 20.0))
+        self.assertEqual((out["o/a"]["ttfrHours"], out["o/a"]["r2mHours"]), (1.0, 1.0))
 
 
 class TilesCarryATrendTest(unittest.TestCase):

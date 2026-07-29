@@ -43,6 +43,18 @@ export type Column<R> = {
   colorKey?: string;
   unit?: string;
   dash?: boolean;
+  // Per-row data-tip ON THE CELL — port of the macro's `tip_key`/_dt_tip
+  // (templates/panels/01_helpers.j2), taken as a function of the row rather than
+  // a row field so a computed sentence ("4 rework round(s) across 3 PR(s)") needs
+  // no prose column in the JSON payload. Independent of `tip` above, which is the
+  // HEADER's tooltip; a column can carry both, as Flow's rework-rounds one does.
+  tipOf?: (row: R) => string | undefined;
+  // Per-row extra class(es) on the <td>, for a class that is a function of the
+  // VALUE rather than of the column. The one case that needs it is a `render`
+  // cell that wraps its value in a drill <span> only when non-zero: the span is
+  // an element child, which is exactly what disqualifies a cell from the
+  // automatic dim-zero rule below, so the zero rows would silently stop fading.
+  clsOf?: (row: R) => string | undefined;
   drillIf?: string;
   drill?: Record<string, string>;
   tags?: { ifKey: string; text?: string; textKey?: string; prefix?: string; suffix?: string; cls?: string }[];
@@ -64,9 +76,11 @@ function fmtValue(v: unknown, kind: ColumnKind | undefined): string {
 // numbers stand out. The JS runs on every td with no element children —
 // bar/heatmap/num/loc/pctp/raw/pair cells qualify; a 'text' cell WITH a
 // swatch <span> child does not (matches `if(td.children.length) return`).
-// Exported so any hand-rolled (non-DataTable) table — e.g. pages/Flow.tsx's
-// by-person/dwell tables — can apply the exact same rule to its own bare-text
-// `<td>`s instead of re-deriving the regex.
+// Exported so any hand-rolled (non-DataTable) table — e.g. pages/AiTools.tsx's,
+// or widgets/MarkerTable.tsx — can apply the exact same rule to its own bare-text
+// `<td>`s instead of re-deriving the regex. A DataTable column reaches for it via
+// `clsOf` when its `render` cell has to reproduce the class the kind cells get
+// for free (see pages/Flow.tsx's in-flight table).
 export function zeroClass(text: string): string {
   return /^0(\.0+)?\s*%?$/.test(text) || /^0\s*\/\s*0$/.test(text) || text === "—" ? " z" : "";
 }
@@ -99,9 +113,12 @@ function sortValue<R extends Record<string, unknown>>(col: Column<R>, row: R): s
   return String(col.key ? (row[col.key] ?? 0) : 0);              // num/loc/pctp/raw/pair/heatmap
 }
 
-// drill data-* attributes plus the data-sort raw value, merged for one <td>.
+// drill data-* attributes plus the per-row data-tip and the data-sort raw value,
+// merged for one <td>.
 function cellAttrs<R extends Record<string, unknown>>(col: Column<R>, row: R): Record<string, string> {
   const attrs = drillAttrs(col, row);
+  const tip = col.tipOf?.(row);
+  if (tip) attrs["data-tip"] = tip;
   const sv = sortValue(col, row);
   if (sv !== undefined) attrs["data-sort"] = sv;
   return attrs;
@@ -126,7 +143,10 @@ function Tags<R extends Record<string, unknown>>({ col, row }: { col: Column<R>;
 
 function Cell<R extends Record<string, unknown>>({ col, row }: { col: Column<R>; row: R }) {
   const kind = col.kind ?? "num";
-  const cls = [col.align === "num" ? "num" : "", col.cls || ""].filter(Boolean).join(" ") || undefined;
+  // The column's own class and the per-row one are one string from here on, so
+  // every branch below appends the same thing whether or not either is set.
+  const extra = [col.cls || "", col.clsOf?.(row) || ""].filter(Boolean).join(" ");
+  const cls = [col.align === "num" ? "num" : "", extra].filter(Boolean).join(" ") || undefined;
   if (col.render) return <td className={cls} {...cellAttrs(col, row)}>{col.render(row)}</td>;
 
   if (kind === "bar") {
@@ -135,7 +155,7 @@ function Cell<R extends Record<string, unknown>>({ col, row }: { col: Column<R>;
       ? fmtValue(row[col.contentKey], col.contentFmt)
       : `${width}%`;
     return (
-      <td className={`db${zeroClass(content)}${col.cls ? ` ${col.cls}` : ""}`}
+      <td className={`db${zeroClass(content)}${extra ? ` ${extra}` : ""}`}
           style={{ "--w": `${width}%` } as React.CSSProperties} {...cellAttrs(col, row)}>
         {content}
       </td>
@@ -147,7 +167,7 @@ function Cell<R extends Record<string, unknown>>({ col, row }: { col: Column<R>;
     const val = col.key ? row[col.key] : undefined;
     const content = fmtValue(val, "pctp");
     return (
-      <td className={`hm${zeroClass(content)}${col.cls ? ` ${col.cls}` : ""}`}
+      <td className={`hm${zeroClass(content)}${extra ? ` ${extra}` : ""}`}
           style={{ "--a": alpha } as React.CSSProperties} {...cellAttrs(col, row)}>
         {content}
       </td>
@@ -215,7 +235,7 @@ function Cell<R extends Record<string, unknown>>({ col, row }: { col: Column<R>;
 export type ColumnGroup = { label: ReactNode; span: number; tip?: string };
 
 export default function DataTable<R extends Record<string, unknown>>({
-  columns, rows, empty = "No data.", groups, cap, expanded,
+  columns, rows, empty = "No data.", groups, sticky, cap, expanded,
 }: {
   columns: Column<R>[];
   rows: R[];
@@ -223,6 +243,17 @@ export default function DataTable<R extends Record<string, unknown>>({
   // `groups`: renders the two-row grouped header (switches the table into
   // "grouped" mode — sticky first column + group borders, see report.css).
   groups?: ColumnGroup[];
+  // `sticky`: grouped mode WITHOUT the group header band — i.e. just the sticky
+  // first column. report.css hangs both off the same `table.grouped` selector
+  // (`table.grouped th:first-child,table.grouped td:first-child{position:sticky
+  // …}`), so a wide table that wants its first column pinned while it scrolls
+  // sideways, but has no columns to group, could not ask for it: Flow's
+  // by-person and time-in-stage tables were hand-rolled `<table class="grouped">`
+  // for exactly this. Rejected alternatives: a second CSS class duplicating the
+  // five grouped rules, and passing a one-entry `groups` band, which would add a
+  // header row saying nothing. `cap` behaves as in grouped mode here, since it is
+  // the same `table.grouped tbody tr.extra` rule that hides the tail.
+  sticky?: boolean;
   // `cap`: rows beyond this index get class="extra" (hidden by CSS unless
   // `expanded`/`.expanded` is set — table.grouped/.capped tbody tr.extra{
   // display:none}, see report.css) — port of data_table()'s cap param. In
@@ -234,7 +265,8 @@ export default function DataTable<R extends Record<string, unknown>>({
 }) {
   if (!rows || rows.length === 0) return <p className="hint">{empty}</p>;
   const capd = !!cap && rows.length > cap;
-  const tableCls = ["dt", groups ? "grouped" : "", capd && !groups ? "capped" : "", expanded ? "expanded" : ""]
+  const grouped = !!groups || !!sticky;
+  const tableCls = ["dt", grouped ? "grouped" : "", capd && !grouped ? "capped" : "", expanded ? "expanded" : ""]
     .filter(Boolean).join(" ");
   return (
     <table className={tableCls}>
@@ -268,7 +300,7 @@ export default function DataTable<R extends Record<string, unknown>>({
             {columns.map((col, ci) => <Cell key={ci} col={col} row={row} />)}
           </tr>
         ))}
-        {capd && !groups && (
+        {capd && !grouped && (
           <tr className="more" data-more={`▸ Show all ${rows.length}`} data-less={`▾ Show top ${cap} only`}>
             <td colSpan={columns.length}>{`▸ Show all ${rows.length}`}</td>
           </tr>

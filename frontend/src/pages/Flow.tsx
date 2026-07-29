@@ -24,7 +24,7 @@ import FilterBar from "../components/FilterBar";
 import VegaChart from "../components/VegaChart";
 import type { KpiDelta } from "../components/KpiTile";
 import { GhLink } from "../widgets";
-import DataTable, { zeroClass } from "../components/DataTable";
+import DataTable, { type Column, zeroClass } from "../components/DataTable";
 import { useReportData } from "../hooks/useReportData";
 import { fmtNum, fmtPct } from "../lib/format";
 import Loading from "../components/Loading";
@@ -53,13 +53,18 @@ type Person = {
   friction: string | null; frictionColor: string | null;
   reopenPct: number; bouncePct: number;
   crRounds: number; crPrs: number; extraReqs: number;
-  ttmMed: string | null; ttfrMed: string | null;
+  // …Med is the pre-formatted duration the cell shows, …MedHours the raw number
+  // behind it, for the same data-sort reason as CycleBarRepo's above.
+  ttmMed: string | null; ttmMedHours: number | null;
+  ttfrMed: string | null; ttfrMedHours: number | null;
 };
 type CfdSeries = { key: string; name: string; color: string };
 type Cfd = { hasData: boolean; nDates: number; firstDate: string | null; series: CfdSeries[]; spec: unknown };
 type DwellStage = {
   key: string; name: string; color: string; nCurrent: number;
-  ageMedianH: string | null; medianH: string | null; n: number;
+  ageMedianH: string | null; ageMedianHours: number | null;
+  medianH: string | null; medianHours: number | null;
+  n: number;
 };
 type Dwell = {
   hasData: boolean; ageMedianH: string | null; ageN: number; ageMaxH: string | null;
@@ -110,14 +115,16 @@ type AbandonReason = {
   key: string; label: string; sub: string; n: number; reviews: number;
   medianLivedD: number | null; oldestLivedD: number | null;
 };
+type AbandonRepo = { repo: string; n: number; reviews: number; swept: number };
+type SweptPr = { repo: string; number: number; login: string; livedD: number; title: string };
 type Abandoned = {
   periodScoped: true;
   n: number; merged: number; closedTotal: number; ratePct: number | null;
   reviewed: number; unreviewed: number; reviewsTotal: number; drafts: number;
   reasons: AbandonReason[];
   bands: { key: string; label: string; n: number }[];
-  repos: { repo: string; n: number; reviews: number; swept: number }[];
-  swept: { repo: string; number: number; login: string; livedD: number; title: string }[];
+  repos: AbandonRepo[];
+  swept: SweptPr[];
 };
 
 type FlowData = {
@@ -300,6 +307,34 @@ function CycleBarPanel({ bar }: { bar: CycleBar }) {
   );
 }
 
+// The dim-zero class DataTable puts on a plain-text cell itself, for the cells that
+// have to ask: a `render` cell whose value is wrapped in a drill <span> has an
+// element child, and an element child is what disqualifies a cell from the rule
+// (see DataTable's zeroClass). Passed as a column's `clsOf` so a zero row still
+// fades exactly as it did when these tables were hand-rolled.
+const zcls = (text: string) => zeroClass(text).trim() || undefined;
+
+// Three lists on this page name the worst individual pull requests — waiting on a
+// first review, ignored then closed, biggest open — and all three open with the same
+// two columns: the PR link and its author. Declared once, because a divergence
+// between them would be an accident rather than a decision. `prLabel` differs only
+// because the biggest-PRs table has no heading of its own and uses its first header
+// as the title.
+function prAndAuthorCols<R extends { repo: string; number: number; login: string }>(
+  prLabel: string,
+): Column<R>[] {
+  return [
+    {
+      label: prLabel,
+      render: (r) => (
+        <a className="gh" href={`https://github.com/${r.repo}/pull/${r.number}`}
+           target="_blank" rel="noopener">{r.repo}#{r.number}</a>
+      ),
+    },
+    { label: "Author", render: (r) => <GhLink login={r.login} /> },
+  ];
+}
+
 // Pull requests that were closed without merging. Reads the period, unlike InFlightPanel.
 //
 // It deliberately does NOT lead with review effort. The dominant reason is authors
@@ -362,32 +397,38 @@ function AbandonedPanel({ ab }: { ab: Abandoned }) {
         Why <span className="mut">— derived from who closed it, not guessed</span>
       </h3>
       <div className="card flow-tbl" style={{ overflowX: "auto" }}>
-        <table className="dt">
-          <thead>
-            <tr>
-              <th>Reason</th>
-              <th data-tip="Pull requests in this bucket">PRs</th>
-              <th data-tip="Reviews submitted on them. Shown as context — for a withdrawal after feedback this is review working, not review lost.">Reviews</th>
-              <th data-tip="Median time from opening to being closed">Median life</th>
-              <th data-tip="The longest-lived one in this bucket">Longest</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ab.reasons.filter((r) => r.n > 0).map((r) => (
-              <tr key={r.key}>
-                <td>
-                  {r.label} <span className="mut">— {r.sub}</span>
-                </td>
-                <td>
-                  <span className="dr" data-drill="pr" data-abandon-reason={r.key}>{fmtNum(r.n)}</span>
-                </td>
-                <td className={zeroClass(fmtNum(r.reviews)).trim() || undefined}>{fmtNum(r.reviews)}</td>
-                <td>{days(r.medianLivedD)}</td>
-                <td>{days(r.oldestLivedD)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable<AbandonReason>
+          rows={ab.reasons.filter((r) => r.n > 0)}
+          // Every bucket at zero means nothing here was abandoned at all. The
+          // hand-rolled version drew a header row over an empty body, which reads
+          // as a table that failed to load rather than as an answer.
+          empty="Nothing closed in this period was abandoned."
+          columns={[
+            {
+              label: "Reason",
+              render: (r) => <>{r.label} <span className="mut">— {r.sub}</span></>,
+            },
+            {
+              label: "PRs", tip: "Pull requests in this bucket", sortKey: "n",
+              // The drill attributes stay on an inner <span class="dr"> rather than
+              // moving to the <td> via `drill`: report.css styles the two
+              // differently (`.flow-tbl .dr[data-drill]` paints an accent dashed
+              // underline under the NUMBER, while `td[data-drill]` would stretch
+              // that border across the whole cell and replace the row separator).
+              render: (r) => (
+                <span className="dr" data-drill="pr" data-abandon-reason={r.key}>{fmtNum(r.n)}</span>
+              ),
+            },
+            {
+              label: "Reviews", kind: "num", key: "reviews",
+              tip: "Reviews submitted on them. Shown as context — for a withdrawal after feedback this is review working, not review lost.",
+            },
+            { label: "Median life", tip: "Median time from opening to being closed",
+              kind: "num", key: "medianLivedD", unit: "d", dash: true },
+            { label: "Longest", tip: "The longest-lived one in this bucket",
+              kind: "num", key: "oldestLivedD", unit: "d", dash: true },
+          ]}
+        />
       </div>
       <p className="conc" style={{ marginTop: 8 }}>
         An author closing their own pull request after feedback is <b>feedback working</b>, not effort
@@ -419,23 +460,13 @@ function AbandonedPanel({ ab }: { ab: Abandoned }) {
             <span className="mut">— never reviewed, closed by somebody else</span>
           </h3>
           <div className="card flow-tbl" style={{ overflowX: "auto" }}>
-            <table className="dt">
-              <thead>
-                <tr><th>PR</th><th>Author</th><th>Waited</th></tr>
-              </thead>
-              <tbody>
-                {ab.swept.map((s) => (
-                  <tr key={`${s.repo}#${s.number}`}>
-                    <td>
-                      <a className="gh" href={`https://github.com/${s.repo}/pull/${s.number}`}
-                         target="_blank" rel="noopener">{s.repo}#{s.number}</a>
-                    </td>
-                    <td><GhLink login={s.login} /></td>
-                    <td>{days(s.livedD)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<SweptPr>
+              rows={ab.swept}
+              columns={[
+                ...prAndAuthorCols<SweptPr>("PR"),
+                { label: "Waited", kind: "num", key: "livedD", unit: "d" },
+              ]}
+            />
           </div>
         </>
       )}
@@ -446,21 +477,15 @@ function AbandonedPanel({ ab }: { ab: Abandoned }) {
             By repository <span className="mut">— most abandoned first</span>
           </h3>
           <div className="card flow-tbl" style={{ overflowX: "auto" }}>
-            <table className="dt">
-              <thead>
-                <tr><th>Repository</th><th>Abandoned</th><th>Reviews on them</th><th>Closed unreviewed</th></tr>
-              </thead>
-              <tbody>
-                {ab.repos.map((r) => (
-                  <tr key={r.repo}>
-                    <td>{r.repo}</td>
-                    <td>{fmtNum(r.n)}</td>
-                    <td className={zeroClass(fmtNum(r.reviews)).trim() || undefined}>{fmtNum(r.reviews)}</td>
-                    <td className={zeroClass(fmtNum(r.swept)).trim() || undefined}>{fmtNum(r.swept)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<AbandonRepo>
+              rows={ab.repos}
+              columns={[
+                { label: "Repository", kind: "text", key: "repo" },
+                { label: "Abandoned", kind: "num", key: "n" },
+                { label: "Reviews on them", kind: "num", key: "reviews" },
+                { label: "Closed unreviewed", kind: "num", key: "swept" },
+              ]}
+            />
           </div>
         </>
       )}
@@ -558,41 +583,45 @@ function InFlightPanel({ inf }: { inf: InFlight }) {
             <span className="mut">— oldest open PR first; a separate list, not the table above</span>
           </h3>
           <div className="card flow-tbl" style={{ overflowX: "auto" }}>
-            <table className="dt">
-              <thead>
-                <tr>
-                  <th>Person</th>
-                  <th data-tip="Pull requests this person has open right now">Open</th>
-                  <th data-tip="Age of their oldest open pull request">Oldest</th>
-                  <th data-tip="Of their open PRs, how many nobody has reviewed yet">Unreviewed</th>
-                  <th data-tip="Of their open PRs, how many are still drafts">Drafts</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inf.people.map((p) => (
-                  <tr key={p.login}>
-                    <td><GhLink login={p.login} /></td>
-                    <td className={zeroClass(fmtNum(p.n)).trim() || undefined}>
-                      <span className="dr" data-drill="pr" data-pr-state="open"
-                            data-author={p.login} data-from={ALLTIME}>{fmtNum(p.n)}</span>
-                    </td>
-                    <td className={zeroClass(days(p.oldestAgeD)).trim() || undefined}>{days(p.oldestAgeD)}</td>
-                    <td className={zeroClass(fmtNum(p.unreviewed)).trim() || undefined}>
-                      {p.unreviewed ? (
-                        <span className="dr" data-drill="pr" data-pr-state="open_unreviewed"
-                              data-author={p.login} data-from={ALLTIME}>{fmtNum(p.unreviewed)}</span>
-                      ) : fmtNum(p.unreviewed)}
-                    </td>
-                    <td className={zeroClass(fmtNum(p.drafts)).trim() || undefined}>
-                      {p.drafts ? (
-                        <span className="dr" data-drill="pr" data-pr-state="open" data-flag="is_draft"
-                              data-author={p.login} data-from={ALLTIME}>{fmtNum(p.drafts)}</span>
-                      ) : fmtNum(p.drafts)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {/* Every drill cell here uses `render` rather than the column-level
+                `drill`, which would put the data-* attributes on the <td>: the
+                overlay binds to either, but report.css does not style them the same
+                (`.flow-tbl .dr[data-drill]` underlines the number in accent, a
+                `td[data-drill]` would run that dashed border the width of the cell).
+                The zero cells then need `clsOf` to keep the dim-zero class the
+                <span> child would otherwise cost them. */}
+            <DataTable<InFlightPerson>
+              rows={inf.people}
+              columns={[
+                { label: "Person", render: (p) => <GhLink login={p.login} /> },
+                {
+                  label: "Open", tip: "Pull requests this person has open right now",
+                  sortKey: "n", clsOf: (p) => zcls(fmtNum(p.n)),
+                  render: (p) => (
+                    <span className="dr" data-drill="pr" data-pr-state="open"
+                          data-author={p.login} data-from={ALLTIME}>{fmtNum(p.n)}</span>
+                  ),
+                },
+                { label: "Oldest", tip: "Age of their oldest open pull request",
+                  kind: "num", key: "oldestAgeD", unit: "d", dash: true },
+                {
+                  label: "Unreviewed", tip: "Of their open PRs, how many nobody has reviewed yet",
+                  sortKey: "unreviewed", clsOf: (p) => zcls(fmtNum(p.unreviewed)),
+                  render: (p) => (p.unreviewed ? (
+                    <span className="dr" data-drill="pr" data-pr-state="open_unreviewed"
+                          data-author={p.login} data-from={ALLTIME}>{fmtNum(p.unreviewed)}</span>
+                  ) : fmtNum(p.unreviewed)),
+                },
+                {
+                  label: "Drafts", tip: "Of their open PRs, how many are still drafts",
+                  sortKey: "drafts", clsOf: (p) => zcls(fmtNum(p.drafts)),
+                  render: (p) => (p.drafts ? (
+                    <span className="dr" data-drill="pr" data-pr-state="open" data-flag="is_draft"
+                          data-author={p.login} data-from={ALLTIME}>{fmtNum(p.drafts)}</span>
+                  ) : fmtNum(p.drafts)),
+                },
+              ]}
+            />
           </div>
           <p className="conc" style={{ marginTop: 8 }}>
             Deliberately its own list rather than a column on the friction table above: that table
@@ -613,23 +642,13 @@ function InFlightPanel({ inf }: { inf: InFlight }) {
             </span>
           </h3>
           <div className="card flow-tbl" style={{ overflowX: "auto" }}>
-            <table className="dt">
-              <thead>
-                <tr><th>PR</th><th>Author</th><th>Waiting</th></tr>
-              </thead>
-              <tbody>
-                {inf.staleUnreviewed.map((s) => (
-                  <tr key={`${s.repo}#${s.number}`}>
-                    <td>
-                      <a className="gh" href={`https://github.com/${s.repo}/pull/${s.number}`}
-                         target="_blank" rel="noopener">{s.repo}#{s.number}</a>
-                    </td>
-                    <td><GhLink login={s.login} /></td>
-                    <td>{days(s.ageD)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<StalePr>
+              rows={inf.staleUnreviewed}
+              columns={[
+                ...prAndAuthorCols<StalePr>("PR"),
+                { label: "Waiting", kind: "num", key: "ageD", unit: "d" },
+              ]}
+            />
           </div>
           <p className="conc" style={{ marginTop: 8 }}>
             These are waiting on the team rather than on their authors. Whether a review was ever
@@ -658,24 +677,16 @@ function InFlightPanel({ inf }: { inf: InFlight }) {
       </div>
       {inf.size.biggest.length > 0 && (
         <div className="card flow-tbl" style={{ overflowX: "auto", marginTop: 10 }}>
-          <table className="dt">
-            <thead>
-              <tr><th>Biggest open PRs</th><th>Author</th><th>Lines</th><th>Files</th></tr>
-            </thead>
-            <tbody>
-              {inf.size.biggest.map((b) => (
-                <tr key={`${b.repo}#${b.number}`}>
-                  <td>
-                    <a className="gh" href={`https://github.com/${b.repo}/pull/${b.number}`}
-                       target="_blank" rel="noopener">{b.repo}#{b.number}</a>
-                  </td>
-                  <td><GhLink login={b.login} /></td>
-                  <td>+{fmtNum(b.additions)}</td>
-                  <td>{fmtNum(b.files)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<BigPr>
+            rows={inf.size.biggest}
+            columns={[
+              ...prAndAuthorCols<BigPr>("Biggest open PRs"),
+              // `render` for the "+" — `unit` is a suffix, and a diff size reads as
+              // "+9,021", not "9,021+". The number itself is still what sorts.
+              { label: "Lines", sortKey: "additions", render: (b) => `+${fmtNum(b.additions)}` },
+              { label: "Files", kind: "num", key: "files" },
+            ]}
+          />
         </div>
       )}
       <p className="conc" style={{ marginTop: 8 }}>
@@ -753,38 +764,41 @@ function DwellPanel({ dwell }: { dwell: Dwell }) {
           </div>
         )}
       </div>
-      <table className="grouped" style={{ width: "100%" }}>
-        <thead>
-          <tr>
-            <th>Stage</th>
-            <th className="num" data-tip="items in this stage as of the latest snapshot">Now</th>
-            <th className="num" data-tip="median time current items have sat in this stage (now − last update)">
-              Median age
-            </th>
-            <th className="num" data-tip="median time items historically spent here before moving on">
-              Median dwell
-            </th>
-            <th className="num" data-tip="observed moves out of this stage">Moves</th>
-          </tr>
-        </thead>
-        <tbody>
-          {dwell.stages.map((s) => (
-            <tr key={s.key}>
-              <td><span className="dwdot" style={{ background: s.color }} />{s.name}</td>
-              <td className="num">
-                {s.nCurrent ? fmtNum(s.nCurrent) : <span style={{ color: "var(--mut)" }}>—</span>}
-              </td>
-              <td className="num">
-                {s.ageMedianH != null ? s.ageMedianH : <span style={{ color: "var(--mut)" }}>—</span>}
-              </td>
-              <td className="num">
-                {s.medianH != null ? s.medianH : <span style={{ color: "var(--mut)" }}>—</span>}
-              </td>
-              <td className={`num${zeroClass(fmtNum(s.n))}`}>{fmtNum(s.n)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* `sticky`, not `groups`: this table has nothing to group, but it is wide
+          enough to scroll sideways on a narrow screen and the stage name has to stay
+          visible while it does — which is the only reason it was hand-rolled as
+          <table class="grouped"> before. */}
+      <DataTable<DwellStage>
+        rows={dwell.stages}
+        sticky
+        columns={[
+          {
+            label: "Stage",
+            // `render` rather than swatch:"dot"/"edot": the built-in swatches are a
+            // 10px rounded square and a 9px round .edot, and this dot is the 8px
+            // .dwdot shared with the Delivery panel's stage list. Reproducing it
+            // exactly costs one line; a 1px-different dot on one table does not.
+            render: (s) => <><span className="dwdot" style={{ background: s.color }} />{s.name}</>,
+          },
+          {
+            label: "Now", align: "num", tip: "items in this stage as of the latest snapshot",
+            // An empty stage reads "—", not "0": the count is a snapshot fact, and
+            // `dash` cannot express it because the payload normalises the absent
+            // count to 0 rather than null. `clsOf` supplies the fade `dash` would
+            // have brought with it.
+            sortKey: "nCurrent", clsOf: (s) => zcls(s.nCurrent ? fmtNum(s.nCurrent) : "—"),
+            render: (s) => (s.nCurrent ? fmtNum(s.nCurrent) : "—"),
+          },
+          { label: "Median age", align: "num", kind: "raw", key: "ageMedianH", dash: true,
+            sortKey: "ageMedianHours",
+            tip: "median time current items have sat in this stage (now − last update)" },
+          { label: "Median dwell", align: "num", kind: "raw", key: "medianH", dash: true,
+            sortKey: "medianHours",
+            tip: "median time items historically spent here before moving on" },
+          { label: "Moves", align: "num", kind: "num", key: "n",
+            tip: "observed moves out of this stage" },
+        ]}
+      />
       <p className="conc">
         <b>Age</b> — how long current items have sat in their stage (latest snapshot − item's last update);
         available now, no history needed. <b>Dwell</b> — how long items historically spent in a stage before
@@ -846,6 +860,53 @@ function RewindsPanel({ rewinds }: { rewinds: Rewinds }) {
     </>
   );
 }
+
+// The by-person friction table. Declared out here rather than inline in the view
+// because it is nine columns of mostly tooltips, and because nothing in it depends
+// on the render (unlike the in-flight tables, which close over ALLTIME).
+const PEOPLE_COLS: Column<Person>[] = [
+  { label: "Person", render: (r) => <GhLink login={r.login} /> },
+  { label: "Items", kind: "num", key: "items",
+    tip: "Issues + PRs this person owns that were created in the period" },
+  {
+    label: "Friction / item", cls: "fr", sortKey: "friction",
+    tip: "2×(back-to-draft + reopened) + review-request & assignment churn, per owned item. Click to see the items.",
+    // `render`, for two reasons at once: the drill attributes belong on the inner
+    // <span class="dr"> (report.css styles `.flow-tbl .dr[data-drill]`, not a
+    // drilled <td>, and the span also carries the per-person friction colour), and
+    // the "too few items to score" case is a muted dash rather than a number.
+    render: (r) => (r.friction !== null ? (
+      <span
+        className="dr" data-drill="flowitems" data-author={r.login} data-scope="none"
+        style={{ color: r.frictionColor ?? undefined }}
+      >
+        {r.friction}
+      </span>
+    ) : (
+      <span className="mut">—</span>
+    )),
+  },
+  { label: "Reopened", kind: "pctp", key: "reopenPct",
+    tip: "Share of this person's items reopened at least once" },
+  { label: "Back to draft", kind: "pctp", key: "bouncePct",
+    tip: "Share of this person's PRs sent back to draft at least once" },
+  {
+    label: "Rework rounds", kind: "num", key: "crRounds",
+    tip: "Rework rounds — the count of CHANGES_REQUESTED reviews across their PRs. One PR can be sent back more than once, so this can exceed the number of PRs.",
+    // The header tooltip explains the metric; this one reports the row — the same
+    // count against the number of PRs it is spread over, which is the question the
+    // number itself invites.
+    tipOf: (r) => `${r.crRounds} rework round(s) across ${r.crPrs} PR(s) — a PR can be sent back more than once`,
+  },
+  { label: "Extra reviews", kind: "num", key: "extraReqs",
+    tip: "Count of extra review requests across their PRs" },
+  // Pre-formatted durations ("38.8h", "2.1d") — kind:"raw" so they are not
+  // re-formatted, with the raw hours as the sort key so they do not sort as text.
+  { label: "Med lead", kind: "raw", key: "ttmMed", dash: true, sortKey: "ttmMedHours",
+    tip: "Median open→merge for this person's merged PRs" },
+  { label: "Med to review", kind: "raw", key: "ttfrMed", dash: true, sortKey: "ttfrMedHours",
+    tip: "Median open→first-review-request for this person's PRs" },
+];
 
 export default function Flow() {
   const { data, error } = useReportData<FlowData>("flow");
@@ -1022,56 +1083,10 @@ export default function Flow() {
             {f.people.length ? (
               <>
                 <div className="card flow-tbl" style={{ overflowX: "auto" }}>
-                  <table className="grouped">
-                    <thead>
-                      <tr>
-                        <th>Person</th>
-                        <th data-tip="Issues + PRs this person owns that were created in the period">Items</th>
-                        <th data-tip="2×(back-to-draft + reopened) + review-request & assignment churn, per owned item. Click to see the items.">
-                          Friction / item
-                        </th>
-                        <th data-tip="Share of this person's items reopened at least once">Reopened</th>
-                        <th data-tip="Share of this person's PRs sent back to draft at least once">Back to draft</th>
-                        <th data-tip="Rework rounds — the count of CHANGES_REQUESTED reviews across their PRs. One PR can be sent back more than once, so this can exceed the number of PRs.">
-                          Rework rounds
-                        </th>
-                        <th data-tip="Count of extra review requests across their PRs">Extra reviews</th>
-                        <th data-tip="Median open→merge for this person's merged PRs">Med lead</th>
-                        <th data-tip="Median open→first-review-request for this person's PRs">Med to review</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {f.people.map((r) => (
-                        <tr key={r.login}>
-                          <td><GhLink login={r.login} /></td>
-                          <td className={zeroClass(fmtNum(r.items)).trim() || undefined}>{fmtNum(r.items)}</td>
-                          <td className="fr">
-                            {r.friction !== null ? (
-                              <span
-                                className="dr" data-drill="flowitems" data-author={r.login} data-scope="none"
-                                style={{ color: r.frictionColor ?? undefined }}
-                              >
-                                {r.friction}
-                              </span>
-                            ) : (
-                              <span className="mut">—</span>
-                            )}
-                          </td>
-                          <td className={zeroClass(`${r.reopenPct}%`).trim() || undefined}>{r.reopenPct}%</td>
-                          <td className={zeroClass(`${r.bouncePct}%`).trim() || undefined}>{r.bouncePct}%</td>
-                          <td
-                            data-tip={`${r.crRounds} rework round(s) across ${r.crPrs} PR(s) — a PR can be sent back more than once`}
-                            className={zeroClass(fmtNum(r.crRounds)).trim() || undefined}
-                          >
-                            {fmtNum(r.crRounds)}
-                          </td>
-                          <td className={zeroClass(fmtNum(r.extraReqs)).trim() || undefined}>{fmtNum(r.extraReqs)}</td>
-                          <td>{r.ttmMed !== null ? r.ttmMed : <span className="mut">—</span>}</td>
-                          <td>{r.ttfrMed !== null ? r.ttfrMed : <span className="mut">—</span>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {/* `sticky` for the same reason as the time-in-stage table: nine
+                      columns scroll sideways, and a friction number is unreadable
+                      once the person it belongs to has scrolled off the left. */}
+                  <DataTable<Person> columns={PEOPLE_COLS} rows={f.people} sticky />
                 </div>
                 <p className="conc">
                   Friction/item matches the <b>Flow</b> pillar on each person's score. “Med lead” and “Med to
