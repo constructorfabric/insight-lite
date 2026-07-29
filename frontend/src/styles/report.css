@@ -203,8 +203,12 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .period-tag{font-size:12px;font-weight:600;color:var(--acc);border:1px solid #aacbf0;
     border-radius:999px;padding:1px 8px;vertical-align:middle}
   table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
-  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line)}
-  th:first-child,td:first-child{text-align:left}
+  /* Left, in every table, for every cell — a house rule, not a per-table decision.
+     This used to right-align everything except the first column, which reads as broken
+     the moment a column holds words rather than digits, and which every hand-rolled
+     table then had to remember to override. One default, no exceptions to remember:
+     tabular-nums above still keeps digit columns vertically aligned with each other. */
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}
   th{color:var(--mut);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;
     border-bottom:1px solid var(--line2)}
   tbody tr:last-child td{border-bottom:none}
@@ -212,9 +216,8 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   /* grouped per-person table: visual separators + group-header band */
   table.grouped th.g, table.grouped td.g{border-left:2px solid var(--line)}
   table.grouped tr.grp th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;
-    color:var(--mut);text-align:center;background:var(--panel2);border-bottom:1px solid var(--line);
+    color:var(--mut);background:var(--panel2);border-bottom:1px solid var(--line);
     padding:5px 8px;font-weight:700}
-  table.grouped tr.grp th:first-child{text-align:left}
   /* sticky first column so the person stays visible when scrolling the wide table right */
   table.grouped th:first-child,table.grouped td:first-child{position:sticky;left:0;
     background:var(--panel);box-shadow:1px 0 0 var(--line);z-index:2}
@@ -359,15 +362,12 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .cyc-tail{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:12px;
     border-top:1px solid var(--line);font-size:12.5px}
   .cyc-tail span{color:var(--mut)} .cyc-tail b{font-variant-numeric:tabular-nums;color:var(--ink)}
-  /* the same split per repository — bars share one scale so rows compare */
-  .cyc-repo{width:100%;border-collapse:collapse;font-size:13px}
-  .cyc-repo th{text-align:left;font-size:11.5px;font-weight:700;color:var(--mut);
-    text-transform:uppercase;letter-spacing:.04em;padding:0 10px 7px 0}
-  .cyc-repo td{padding:7px 10px 7px 0;border-top:1px solid var(--line);vertical-align:middle}
-  .cyc-repo td.rb{width:46%}
-  .cyc-repo .rbar{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--panel2)}
-  .cyc-repo .rbar i{display:block;height:100%}
-  .cyc-repo td.rn{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+  /* the same split per repository. Rendered by the shared DataTable (table.dt), so
+     these are only the bar-cell specifics — everything else (padding, borders, the
+     left-aligned house rule, hover, dim-zeroes) comes from the table rules above. */
+  th.rb,td.rb{width:46%}
+  td.rb .rbar{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--panel2)}
+  td.rb .rbar i{display:block;height:100%}
   .flow-tbl td .dr,.flow-tbl td.fr{font-variant-numeric:tabular-nums}
   .flow-tbl td.fr{font-weight:800}
   .flow-tbl .dr[data-drill]{cursor:pointer;border-bottom:1px dashed var(--acc);color:var(--acc)}
@@ -504,7 +504,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-chain td.pil .w{font-weight:600;color:var(--mut);font-size:10.5px}
   .dsc-chain td.work{color:var(--ink)}
   .dsc-chain td.vs{color:var(--mut);white-space:nowrap}
-  .dsc-chain td.sp{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .dsc-chain td.sp{white-space:nowrap;font-variant-numeric:tabular-nums}
   .dsc-chain td.sp b{font-weight:800}
   .dsc-chain td.sp .ar{color:var(--mut);margin-left:5px}
   .dsc-chain tr.gap td.work,.dsc-chain tr.gap td.sp b{color:#ef4444}

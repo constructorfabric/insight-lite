@@ -18,7 +18,7 @@ table{width:100%;border-collapse:collapse;background:var(--panel);border:1px sol
   border-radius:12px;overflow:hidden;font-size:14px}
 th,td{padding:10px 12px;text-align:left;border-top:1px solid var(--line)}
 thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;border-top:none}
-.num{text-align:right;font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
 td.who b{font-weight:650} td.who .lg{color:var(--mut);font-size:12px;margin-left:6px}
 td.sc{font-weight:800}
 .stars{white-space:nowrap}

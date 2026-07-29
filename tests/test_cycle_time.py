@@ -156,28 +156,52 @@ def _seed_cycle(tmp, rows, name="c.db"):
 
 
 class WholeCycleBarTest(unittest.TestCase):
-    """The whole cycle as one length with its legs inside it — added because five
+    """The whole cycle as one length with its parts inside it — added because five
     medians measured over five different populations cannot be added into a total,
     which is what a reader looking at "cycle time" expects to see."""
 
-    # totals are 2, 22, 4, 32 -> chosen so the sum of the leg medians and the median
-    # total genuinely DISAGREE; most tidy fixtures make them coincide and would let a
-    # bug that conflates the two pass
+    # An ANTI-CORRELATED fixture, which is the shape real data turned out to have and
+    # the shape a tidy fixture never has: each PR is slow in one leg or the other, never
+    # both. Totals 2, 22, 4, 32 -> median 13h, while the two leg medians sum to 4h. The
+    # first version of this panel used that 4h as the bar's width and printed 13h
+    # directly beneath it.
     ROWS = [("o/a", 1, 1, True, True), ("o/a", 2, 20, True, True),
             ("o/a", 3, 1, True, True), ("o/a", 30, 2, True, True)]
 
-    def test_legs_and_both_totals_are_reported_separately(self):
+    def test_the_bar_is_the_median_total_not_the_sum_of_the_leg_medians(self):
         with TemporaryDirectory() as tmp:
             bar = semantic_metrics.flow_report(_seed_cycle(tmp, self.ROWS), None, *W)["cycle_bar"]
         self.assertTrue(bar["has_data"])
         self.assertEqual(bar["n"], 4)
+        self.assertAlmostEqual(bar["median_total_h"], 13.0, places=1)   # median of 2,22,4,32
+        # the leg medians are still reported, as numbers rather than as widths
         legs = {l["key"]: l["h"] for l in bar["legs"]}
         self.assertAlmostEqual(legs["ttfr"], 2.5, places=1)             # median of 1,2,3,30
         self.assertAlmostEqual(legs["review_to_merge"], 1.5, places=1)  # median of 1,20,1,2
-        self.assertAlmostEqual(bar["legs_sum_h"], 4.0, places=1)        # the bar's width
-        self.assertAlmostEqual(bar["median_total_h"], 13.0, places=1)   # median of 2,22,4,32
-        self.assertNotAlmostEqual(bar["legs_sum_h"], bar["median_total_h"], places=1,
-                                  msg="the fixture must exercise the divergence")
+        # and the number that used to be the bar's width is gone, not merely unused
+        self.assertNotIn("legs_sum_h", bar)
+        self.assertAlmostEqual(sum(l["h"] for l in bar["legs"]), 4.0, places=1,
+                               msg="the fixture must keep exercising the divergence")
+
+    def test_the_split_is_the_mean_of_per_pr_shares(self):
+        """0.5 + 2/22 + 0.75 + 30/32, averaged — each PR's own share of its OWN total,
+        which is why the two segments sum to exactly 100 whatever the data does."""
+        with TemporaryDirectory() as tmp:
+            bar = semantic_metrics.flow_report(_seed_cycle(tmp, self.ROWS), None, *W)["cycle_bar"]
+        expected = (0.5 + 2 / 22 + 0.75 + 30 / 32) / 4
+        self.assertAlmostEqual(bar["ttfr_share"], expected, places=3)
+        pct = {l["key"]: l["pct"] for l in bar["legs"]}
+        self.assertAlmostEqual(pct["ttfr"], round(100 * expected, 1), places=1)
+        self.assertAlmostEqual(pct["ttfr"] + pct["review_to_merge"], 100.0, places=1)
+
+    def test_a_pr_merged_in_the_same_instant_is_out_of_the_cohort_entirely(self):
+        """It has no split to measure. Keeping it in the medians while dropping it from
+        the shares would re-create the two-populations problem the panel removes."""
+        rows = self.ROWS + [("o/a", 0, 0, True, True)]
+        with TemporaryDirectory() as tmp:
+            bar = semantic_metrics.flow_report(_seed_cycle(tmp, rows), None, *W)["cycle_bar"]
+        self.assertEqual(bar["n"], 4)
+        self.assertAlmostEqual(bar["median_total_h"], 13.0, places=1)
 
     def test_the_tail_is_reported_not_just_the_middle(self):
         with TemporaryDirectory() as tmp:
@@ -185,10 +209,21 @@ class WholeCycleBarTest(unittest.TestCase):
         self.assertAlmostEqual(bar["p75_total_h"], 22.0, places=1)
         self.assertAlmostEqual(bar["p90_total_h"], 32.0, places=1)
 
-    def test_leg_shares_are_of_the_bar_and_add_to_100(self):
-        with TemporaryDirectory() as tmp:
-            bar = semantic_metrics.flow_report(_seed_cycle(tmp, self.ROWS), None, *W)["cycle_bar"]
-        self.assertAlmostEqual(sum(l["pct"] for l in bar["legs"]), 100.0, places=1)
+    def test_the_segments_always_fill_the_bar_whatever_the_data_does(self):
+        """Was a property of the fixture when widths came from leg/sum; now it is
+        arithmetic — ttfr/ttm + r2m/ttm = 1 per PR, so the means sum to 1 too. Pinned
+        across deliberately awkward shapes, including a repo where one leg is always
+        nearly the whole wait."""
+        for name, rows in (
+            ("anti-correlated", self.ROWS),
+            ("all wait is pre-review", [("o/a", 100, 1, True, True)] * 3),
+            ("all wait is in review", [("o/a", 1, 100, True, True)] * 3),
+            ("one PR only", [("o/a", 3, 7, True, True)]),
+        ):
+            with self.subTest(shape=name), TemporaryDirectory() as tmp:
+                bar = semantic_metrics.flow_report(
+                    _seed_cycle(tmp, rows), None, *W)["cycle_bar"]
+                self.assertAlmostEqual(sum(l["pct"] for l in bar["legs"]), 100.0, places=1)
 
     def test_cohort_is_only_prs_that_were_both_reviewed_and_merged(self):
         """The point of the panel is that the legs add up per PR, which they cannot do
@@ -217,18 +252,25 @@ class WholeCycleBarTest(unittest.TestCase):
         self.assertEqual(bar["repos_total"], 2, "the dropped repo is still counted")
         self.assertEqual(bar["repo_min"], 3)
 
-    def test_per_repo_bars_share_one_scale(self):
-        """Widths are measured against the slowest row, so a fast repo and a slow one
-        cannot draw the same bar (each normalised to itself would do exactly that)."""
+    def test_per_repo_row_length_is_its_total_against_the_slowest_repo(self):
+        """A row's length is its median TOTAL relative to the slowest row — not the sum
+        of its leg medians (which understates it, exactly as it did on the headline bar)
+        and not normalised to itself (which would make a fast repo and a slow one draw
+        the same picture). o/b is 10x slower, so it fills the row and o/a takes a tenth."""
         rows = ([("o/a", 1, 1, True, True)] * 3) + ([("o/b", 10, 10, True, True)] * 3)
         with TemporaryDirectory() as tmp:
             env = render.flow_json(
                 {"flow": semantic_metrics.flow_report(_seed_cycle(tmp, rows), None, *W)}, {})
-        rows_out = {r["repo"]: r for r in env["flow"]["cycleBar"]["byRepo"]}
-        fast = rows_out["o/a"]["ttfrPct"] + rows_out["o/a"]["r2mPct"]
-        slow = rows_out["o/b"]["ttfrPct"] + rows_out["o/b"]["r2mPct"]
-        self.assertAlmostEqual(slow, 100.0, places=1)
-        self.assertLess(fast, slow / 5)
+        out = {r["repo"]: r for r in env["flow"]["cycleBar"]["byRepo"]}
+        self.assertAlmostEqual(out["o/b"]["widthPct"], 100.0, places=1)
+        self.assertAlmostEqual(out["o/a"]["widthPct"], 10.0, places=1)   # 2h against 20h
+        # and each row's two segments fill exactly that row's own length
+        for repo, row in out.items():
+            with self.subTest(repo=repo):
+                self.assertAlmostEqual(row["ttfrPct"] + row["r2mPct"], row["widthPct"],
+                                       places=1)
+        self.assertEqual(out["o/a"]["totalH"], "2h")
+        self.assertEqual(out["o/b"]["totalH"], "20h")
 
 
 class TilesCarryATrendTest(unittest.TestCase):

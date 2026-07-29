@@ -2428,23 +2428,25 @@ def flow_json(pr: dict, meta: dict) -> dict:
     cb = f.get("cycle_bar") or {}
     cycle_bar = None
     if cb.get("has_data"):
+        repos_rows = cb.get("by_repo") or []
         cycle_bar = {
             "n": cb["n"],
             "legs": [{"key": l["key"], "label": l["label"], "sub": l["sub"],
                       "h": hrs(l["h"]), "pct": l["pct"], "color": l["color"]}
                      for l in cb.get("legs") or []],
-            "legsSumH": hrs(cb.get("legs_sum_h")), "medianTotalH": hrs(cb.get("median_total_h")),
+            "medianTotalH": hrs(cb.get("median_total_h")),
             "p75TotalH": hrs(cb.get("p75_total_h")), "p90TotalH": hrs(cb.get("p90_total_h")),
             "draft": ({"n": cb["draft"]["n"], "h": hrs(cb["draft"]["h"])}
                       if cb.get("draft") else None),
-            "byRepo": [{"repo": r["repo"], "n": r["n"], "ttfrH": hrs(r["ttfr_h"]),
-                        "r2mH": hrs(r["r2m_h"]), "totalH": hrs(r["total_h"]),
-                        # widths for the mini stacked bars, scaled against the SLOWEST
-                        # repo so the rows are comparable to each other rather than each
-                        # normalised to itself
-                        "ttfrPct": _bar_pct(r["ttfr_h"], cb.get("by_repo") or []),
-                        "r2mPct": _bar_pct(r["r2m_h"], cb.get("by_repo") or [])}
-                       for r in cb.get("by_repo") or []],
+            # Both the formatted duration and the raw hours: the strings are what the
+            # cell shows, the numbers are what DataTable emits as data-sort — sorting
+            # "38.8h" against "3h" as text would put the slow repo second.
+            "byRepo": [{"repo": r["repo"], "n": r["n"],
+                        "ttfrH": hrs(r["ttfr_h"]), "ttfrHours": r["ttfr_h"],
+                        "r2mH": hrs(r["r2m_h"]), "r2mHours": r["r2m_h"],
+                        "totalH": hrs(r["total_h"]), "totalHours": r["total_h"],
+                        **_repo_bar(r, repos_rows)}
+                       for r in repos_rows],
             "reposTotal": cb.get("repos_total") or 0, "repoMin": cb.get("repo_min") or 0,
         }
 
@@ -2470,12 +2472,21 @@ def flow_json(pr: dict, meta: dict) -> dict:
     return envelope
 
 
-def _bar_pct(h, rows: list) -> float:
-    """One leg's share of the WIDEST row in the per-repo cycle breakdown, so the rows
-    can be read against each other. Normalising each row to its own total would make a
-    fast repo and a slow one draw identical bars."""
-    widest = max((((r.get("ttfr_h") or 0) + (r.get("r2m_h") or 0)) for r in rows), default=0)
-    return round(100.0 * (h or 0) / widest, 1) if widest else 0.0
+def _repo_bar(row: dict, rows: list) -> dict:
+    """Bar geometry for one row of the per-repo cycle breakdown.
+
+    The row's LENGTH is its median total lead time measured against the slowest repo's,
+    so the rows can be read against each other — normalising each to its own total would
+    make a fast repo and a slow one draw identical bars. That length is then divided by
+    the repo's own mean per-PR share, for the same reason the headline bar is: the two
+    leg medians do not sum to the total, so using them as widths would misstate the
+    row's length as well as its split."""
+    widest = max(((r.get("total_h") or 0) for r in rows), default=0)
+    total = row.get("total_h") or 0
+    width = round(100.0 * total / widest, 1) if widest else 0.0
+    share = row.get("ttfr_share") or 0.0
+    return {"widthPct": width, "ttfrPct": round(width * share, 1),
+            "r2mPct": round(width * (1.0 - share), 1)}
 
 
 def render_report(model: dict) -> str:

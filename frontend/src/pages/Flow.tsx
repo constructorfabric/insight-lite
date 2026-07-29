@@ -24,7 +24,7 @@ import FilterBar from "../components/FilterBar";
 import VegaChart from "../components/VegaChart";
 import type { KpiDelta } from "../components/KpiTile";
 import { GhLink } from "../widgets";
-import { zeroClass } from "../components/DataTable";
+import DataTable, { zeroClass } from "../components/DataTable";
 import { useReportData } from "../hooks/useReportData";
 import { fmtNum, fmtPct } from "../lib/format";
 import Loading from "../components/Loading";
@@ -37,11 +37,14 @@ type Trend = { sparkPts?: string | null; sparkColor?: string; delta?: KpiDelta }
 type CycleSeg = { key: string; label: string; sub: string; h: string; n: number } & Trend;
 type CycleLeg = { key: string; label: string; sub: string; h: string; pct: number; color: string };
 type CycleBarRepo = {
-  repo: string; n: number; ttfrH: string; r2mH: string; totalH: string;
-  ttfrPct: number; r2mPct: number;
+  repo: string; n: number;
+  ttfrH: string; r2mH: string; totalH: string;
+  // raw hours beside the formatted strings, so DataTable's data-sort is numeric
+  ttfrHours: number; r2mHours: number; totalHours: number;
+  widthPct: number; ttfrPct: number; r2mPct: number;
 };
 type CycleBar = {
-  n: number; legs: CycleLeg[]; legsSumH: string; medianTotalH: string;
+  n: number; legs: CycleLeg[]; medianTotalH: string;
   p75TotalH: string; p90TotalH: string; draft: { n: number; h: string } | null;
   byRepo: CycleBarRepo[]; reposTotal: number; repoMin: number;
 };
@@ -186,41 +189,42 @@ function FTile({ value, label, sub, trend, tip }: {
   );
 }
 
-// The whole PR cycle as one length with its legs inside it — the shape a reader
+// The whole PR cycle as one length with its parts inside it — the shape a reader
 // expects of a "cycle time" and the one thing the five median cards cannot be
 // assembled into, because each of those is measured over a different set of PRs.
 //
-// Two totals are printed side by side and neither is hidden: the bar's own width (the
-// leg medians added up) and the median total lead time. They disagree by a little,
-// always, because the median of a sum is not the sum of the medians. Showing one and
-// calling it "the" cycle time would be the lie of omission this panel exists to avoid.
+// The bar's LENGTH is the median total lead time. Its SPLIT is the mean of each PR's
+// own share of its own total — never the leg medians used as widths. See
+// semantic_metrics.flow_cycle_bar for why: on real data those medians summed to 4.6h
+// under a total of 17.5h, so the bar contradicted the line printed beneath it.
 function CycleBarPanel({ bar }: { bar: CycleBar }) {
   return (
     <>
       <h3 className="sub">
         How long a change takes end to end{" "}
         <span className="mut">
-          — {fmtNum(bar.n)} pull requests that were reviewed and merged, so the legs add up
+          — {fmtNum(bar.n)} pull requests that were reviewed and merged, so the parts add
+          up to the whole for every one of them
         </span>
       </h3>
       <div className="cyc">
         <div className="cyc-bar">
           {bar.legs.map((l) => (
             <i key={l.key} style={{ width: `${l.pct}%`, background: l.color }}
-               data-tip={`${l.label}: ${l.h}`} />
+               data-tip={`${l.label}: ${fmtPct(l.pct)}% of the wait, median ${l.h}`} />
           ))}
         </div>
         <div className="cyc-scale">
-          <span>opened</span><span>merged · {bar.legsSumH}</span>
+          <span>opened</span><span>merged · {bar.medianTotalH}</span>
         </div>
         <div className="cyc-legs">
           {bar.legs.map((l) => (
             <div className="cyc-leg" key={l.key}>
               <span className="sw" style={{ background: l.color }} />
               <div>
-                <div className="lh">{l.h}</div>
+                <div className="lh">{fmtPct(l.pct)}%</div>
                 <div className="ll">{l.label}</div>
-                <div className="ls">{l.sub} · {fmtPct(l.pct)}% of the bar</div>
+                <div className="ls">{l.sub} · median {l.h}</div>
               </div>
             </div>
           ))}
@@ -235,24 +239,15 @@ function CycleBarPanel({ bar }: { bar: CycleBar }) {
         </div>
       </div>
       <p className="conc" style={{ marginTop: 8 }}>
-        {bar.legsSumH === bar.medianTotalH ? (
-          <>
-            The bar is <b>{bar.legsSumH}</b> wide because that is the two leg medians
-            added up, which here happens to land on the typical total as well. It often
-            does not — the median of a total is not the total of the medians — so both
-            are always printed rather than one standing in for the other.
-          </>
-        ) : (
-          <>
-            The bar is <b>{bar.legsSumH}</b> wide because that is the two leg medians
-            added up; the typical pull request takes <b>{bar.medianTotalH}</b>. Neither
-            is wrong — the median of a total is not the total of the medians — so both
-            are shown rather than picking whichever looked tidier.
-          </>
-        )}{" "}
-        The <b>slowest tenth</b> is here for a related reason: a median alone hides the
-        wait anybody actually complains about. Draft time overlaps the first leg (a PR
-        sits in draft before anyone reviews it), so it is listed rather than stacked.
+        The bar is <b>{bar.medianTotalH}</b> long — the typical total — and the split is
+        each pull request's <b>own share of its own total</b>, averaged. Those shares add
+        to 100% by construction, which the two leg medians do not: pull requests tend to
+        be slow in one leg <i>or</i> the other and rarely both, so each leg's median lands
+        among the small values of both groups and adding them understates the journey
+        badly. The medians are still printed above, as their own numbers. The{" "}
+        <b>slowest tenth</b> is here because a median alone hides the wait anybody
+        actually complains about, and draft time is listed rather than stacked because it
+        overlaps the first leg instead of preceding it.
       </p>
 
       {bar.byRepo.length > 1 && (
@@ -265,40 +260,39 @@ function CycleBarPanel({ bar }: { bar: CycleBar }) {
             </span>
           </h3>
           <div className="card flow-tbl" style={{ overflowX: "auto" }}>
-            <table className="cyc-repo">
-              <thead>
-                <tr>
-                  <th>Repository</th>
-                  <th className="rb">Opened → review → merged</th>
-                  <th data-tip="Median time until somebody first reviewed one">To review</th>
-                  <th data-tip="Median time from that first review to the merge">In review</th>
-                  <th data-tip="Median total lead time for this repository">Total</th>
-                  <th data-tip="Reviewed-and-merged PRs this is measured over">PRs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bar.byRepo.map((r) => (
-                  <tr key={r.repo}>
-                    <td>{r.repo}</td>
-                    <td className="rb">
-                      <div className="rbar">
-                        <i style={{ width: `${r.ttfrPct}%`, background: bar.legs[0]?.color }} />
-                        <i style={{ width: `${r.r2mPct}%`, background: bar.legs[1]?.color }} />
-                      </div>
-                    </td>
-                    <td className="rn">{r.ttfrH}</td>
-                    <td className="rn">{r.r2mH}</td>
-                    <td className="rn">{r.totalH}</td>
-                    <td className="rn">{fmtNum(r.n)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<CycleBarRepo & Record<string, unknown>>
+              rows={bar.byRepo}
+              columns={[
+                { label: "Repository", kind: "text", key: "repo" },
+                {
+                  // `render` rather than kind:"bar" — that kind draws ONE width from a
+                  // single key, and this cell is two segments whose split differs per
+                  // row. The escape hatch is what the component documents it for.
+                  label: "Opened → review → merged", cls: "rb", sortKey: "totalHours",
+                  render: (r) => (
+                    <div className="rbar" data-tip={`${r.totalH} total`}>
+                      <i style={{ width: `${r.ttfrPct}%`, background: bar.legs[0]?.color }} />
+                      <i style={{ width: `${r.r2mPct}%`, background: bar.legs[1]?.color }} />
+                    </div>
+                  ),
+                },
+                { label: "To review", tip: "Median time until somebody first reviewed one",
+                  kind: "raw", key: "ttfrH", sortKey: "ttfrHours" },
+                { label: "In review", tip: "Median time from that first review to the merge",
+                  kind: "raw", key: "r2mH", sortKey: "r2mHours" },
+                { label: "Total", tip: "Median total lead time for this repository",
+                  kind: "raw", key: "totalH", sortKey: "totalHours" },
+                { label: "PRs", tip: "Reviewed-and-merged PRs this is measured over",
+                  kind: "num", key: "n" },
+              ]}
+            />
           </div>
           <p className="conc">
-            The bars share <b>one scale</b> — each row's width is measured against the
-            slowest repository, not against its own total, so a fast repo and a slow one
-            do not draw the same picture.
+            Each row's <b>length</b> is its median total measured against the slowest
+            repository — not against its own total, or a fast repo and a slow one would
+            draw the same picture — and it is divided by that repository's own average
+            share, exactly as the bar above is. The two median columns beside it are
+            reported, never used as widths.
           </p>
         </>
       )}

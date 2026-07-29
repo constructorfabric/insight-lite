@@ -945,26 +945,48 @@ def flow_cycle_bar(items: list) -> dict:
     cohort is fixed once — merged PRs that also got a review — and over THAT set
     open→review and review→merge add up to open→merge for every single pull request.
 
-    Two totals are reported and neither is derived from the other: the sum of the leg
-    medians (which is what the bar's width is) and the median total lead time (the
-    honest typical). They differ because the median of a sum is not the sum of the
-    medians, and both are shown rather than picking whichever looks tidier. p75/p90
-    come from the same cohort's totals, because a median alone hides the tail that is
-    what people actually remember about a slow review."""
+    The bar's LENGTH is the median total lead time. Its SPLIT is the mean of each pull
+    request's own share of its own total — not the two leg medians laid end to end.
+    That first version was wrong on real data in a way no tidy fixture reveals: median
+    open→review was 2.8h and median review→merge 1.8h while the median total was 17.5h,
+    so the bar claimed a 4.6h journey directly above a line reading 17.5h.
+
+    The medians were not lying and neither was the total; adding medians was. Pull
+    requests fall into two camps — a long wait for a first look then an immediate merge,
+    or an instant look then days in review — and in each camp ONE leg is small. Taking
+    each leg's median across both camps lands in the small values of both, while every
+    individual total stays large.
+
+    Shares fix it by construction: ttfr/ttm + r2m/ttm = 1 for every pull request, so
+    the means of those two shares also sum to exactly 1 and the segments always fill
+    the bar. A mean is safe here precisely because it averages a RATIO bounded in
+    [0, 1] rather than hours — a five-day outlier contributes at most 1.0, the same as
+    a two-hour one, so it cannot stretch the split the way a mean of durations would.
+    The leg medians stay, reported as their own numbers instead of as bar widths.
+
+    p75/p90 come from the same cohort's totals, because a median alone hides the tail
+    people actually remember about a slow review."""
+    # ttm > 0 is part of the cohort, not a separate filter applied later: a pull request
+    # merged in the instant it was opened has no split to measure, and letting it into
+    # the medians while leaving it out of the shares would re-create the two-populations
+    # problem this panel exists to remove.
     full = [r for r in items
             if r["is_pr"] and r["ttfr"] is not None and r["r2m"] is not None
-            and r["ttm"] is not None]
+            and r["ttm"] is not None and r["ttm"] > 0]
     if not full:
         return {"has_data": False, "n": 0}
-    ttfr_h = _median([r["ttfr"] for r in full])
-    r2m_h = _median([r["r2m"] for r in full])
-    legs_sum = (ttfr_h or 0) + (r2m_h or 0)
+
+    def ttfr_share_of(rows):
+        """Mean of each row's own first-review share of its own total lead time."""
+        return sum(r["ttfr"] / r["ttm"] for r in rows) / len(rows)
+
+    share = ttfr_share_of(full)
     legs = [{"key": "ttfr", "label": "Waiting for a first review",
-             "sub": "opened → somebody looked", "h": ttfr_h, "color": "#f59e0b"},
+             "sub": "opened → somebody looked", "h": _median([r["ttfr"] for r in full]),
+             "pct": round(100.0 * share, 1), "color": "#f59e0b"},
             {"key": "review_to_merge", "label": "In review until merged",
-             "sub": "first review → merged", "h": r2m_h, "color": "#2f80ed"}]
-    for leg in legs:
-        leg["pct"] = round(100.0 * (leg["h"] or 0) / legs_sum, 1) if legs_sum else 0.0
+             "sub": "first review → merged", "h": _median([r["r2m"] for r in full]),
+             "pct": round(100.0 - 100.0 * share, 1), "color": "#2f80ed"}]
     totals = sorted(r["ttm"] for r in full)
 
     def q(p):
@@ -980,11 +1002,12 @@ def flow_cycle_bar(items: list) -> dict:
         by_repo.append({"repo": repo, "n": len(rs),
                         "ttfr_h": _median([x["ttfr"] for x in rs]),
                         "r2m_h": _median([x["r2m"] for x in rs]),
-                        "total_h": _median([x["ttm"] for x in rs])})
+                        "total_h": _median([x["ttm"] for x in rs]),
+                        "ttfr_share": ttfr_share_of(rs)})
     by_repo.sort(key=lambda x: (-(x["total_h"] or 0), x["repo"]))
     return {
         "has_data": True, "n": len(full), "legs": legs,
-        "legs_sum_h": round(legs_sum, 1), "median_total_h": _median(totals),
+        "ttfr_share": round(share, 4), "median_total_h": _median(totals),
         "p75_total_h": q(0.75), "p90_total_h": q(0.90),
         "draft": ({"n": len(drafts), "h": _median(drafts)} if drafts else None),
         "by_repo": by_repo[:_CYCLE_BAR_REPOS], "repos_shown": min(len(by_repo), _CYCLE_BAR_REPOS),
@@ -1129,16 +1152,19 @@ _reg.register_for(flow_report, [
                 formula="median(ready_for_review_event - created_at) over cohort PRs",
                 snippet="d2r.append(hours(created_at, ready_for_review_at))"),
     _reg.metric("flow_lead_time_decomposed", type="computed", group="flow", unit="hours",
-                desc="Total PR lead time split into its two legs (opened → first review, "
-                     "first review → merged) over ONE cohort: merged PRs that also got a "
-                     "review, where the legs provably add up to the total per pull request. "
-                     "Reported alongside the median total, which is NOT the sum of the leg "
-                     "medians — the median of a sum never is — plus p75/p90 of the total so "
-                     "the tail is visible. Also split per repository (≥3 completed PRs).",
-                formula="cohort = merged AND reviewed; legs = median(ttfr), median(r2m); "
-                        "total = median(ttm), p75(ttm), p90(ttm) over the same cohort",
-                snippet="full = [r for r in items if r['is_pr'] and r['ttfr'] and r['r2m'] "
-                        "and r['ttm']]"),
+                desc="Median total PR lead time, split into the share spent waiting for a "
+                     "first review versus in review until merged. One cohort: PRs that were "
+                     "reviewed and merged with a non-zero lead time, so the two legs add up "
+                     "to the total for every single PR. The split is the MEAN of each PR's "
+                     "own share of its own total, which sums to 100% by construction — "
+                     "adding the two leg medians does not, and on real data understated the "
+                     "journey four-fold, because PRs are slow in one leg or the other and "
+                     "rarely both. A mean is safe here only because it averages a ratio in "
+                     "[0,1], not hours. Leg medians and p75/p90 of the total are reported "
+                     "beside it; also split per repository (≥3 qualifying PRs).",
+                formula="cohort = reviewed AND merged AND ttm>0; length = median(ttm); "
+                        "split = mean(ttfr_i / ttm_i) and its complement",
+                snippet="share = sum(r['ttfr'] / r['ttm'] for r in full) / len(full)"),
     _reg.metric("flow_kpi_trend", type="computed", group="flow", unit="series",
                 desc="The mini-trend under each flow tile: the same rate or median "
                      "re-aggregated over ~8 equal sub-windows of the selected period, from "
