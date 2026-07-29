@@ -457,8 +457,15 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_owner ON dashboard(owner_login);
 #
 # "Other" is the catch-all bucket and keeps a deliberate grey; it is never generated.
 OTHER_COMPANY_COLOR = "#8b949e"
+# Eight, and deliberately not more: padding this list out to lower the collision odds
+# meant adding a second red and a second blue, which buys a statistic at the cost of the
+# thing a palette is for — telling two series apart at a glance. Eight distinguishable
+# colours plus a one-click pin beats twelve where four are near-duplicates.
+# The teal here was #0a7ea4, which sits 58 units from the blue in RGB — close enough
+# that two adjacent series read as the same colour. #14b8a6 is 95 from its nearest
+# neighbour; the palette's tightest pair is now the purple/magenta one at 89.
 COMPANY_PALETTE = ["#0969da", "#8250df", "#1a7f37", "#bf8700", "#cf222e",
-                   "#0a7ea4", "#d946ef", "#6e7781"]
+                   "#14b8a6", "#d946ef", "#6e7781"]
 
 
 def _name_hash(s) -> int:
@@ -488,18 +495,23 @@ def pinned_company_colors() -> dict:
 
 
 def company_color_map(names, pinned: dict | None = None) -> dict:
-    """{company: colour} for a set of names — stable, and without duplicate colours.
+    """{company: colour}. A name's colour depends on THAT NAME and nothing else.
 
-    Each name hashes to a palette slot. When two names want the same slot, the later one
-    in SORTED order takes the next free slot, so the result does not depend on how the
-    caller happened to order the input. Two companies sharing a colour in one chart is
-    worse than a colour that shifts when a colliding company appears or leaves; with more
-    companies than palette entries, reuse is unavoidable and slots wrap.
+    The first version of this resolved collisions by probing to the next free palette
+    slot, which sounded better and was not: the outcome then depended on which OTHER
+    companies were in the set. In practice the Config screen listed two companies the
+    report did not draw, one of them took a slot, and a third company was pushed to a
+    different colour — so the swatch in the editor disagreed with the chart it was meant
+    to describe. A colour that depends on the company's neighbours is the same class of
+    bug as one that depends on its rank.
+
+    So: no probing. Two names CAN land on the same colour, and when that actually
+    matters, a human pins one of them on Manage → Config — which is a deliberate,
+    one-click answer to a rare event, rather than a rule that quietly repaints a third
+    party to avoid it.
     """
     pins = dict(pinned if pinned is not None else pinned_company_colors())
     out: dict = {}
-    taken: set = set()
-    reals = []
     for n in names:
         name = str(n)
         if name in pins:
@@ -507,17 +519,7 @@ def company_color_map(names, pinned: dict | None = None) -> dict:
         elif name == "Other":
             out[name] = OTHER_COMPANY_COLOR
         else:
-            reals.append(name)
-    for name in sorted(set(reals)):                  # deterministic collision order
-        start = _name_hash(name) % len(COMPANY_PALETTE)
-        slot = start
-        for step in range(len(COMPANY_PALETTE)):
-            cand = (start + step) % len(COMPANY_PALETTE)
-            if cand not in taken:
-                slot = cand
-                break
-        taken.add(slot)
-        out[name] = COMPANY_PALETTE[slot]
+            out[name] = COMPANY_PALETTE[_name_hash(name) % len(COMPANY_PALETTE)]
     return out
 
 

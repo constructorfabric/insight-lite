@@ -56,15 +56,38 @@ class DerivedFromNameTest(unittest.TestCase):
             self.assertRegex(colour, r"^#[0-9a-fA-F]{6}$", f"{name} -> {colour!r}")
 
 
-class NoDuplicatesTest(unittest.TestCase):
-    def test_a_set_within_the_palette_gets_distinct_colours(self):
-        """Two companies sharing a colour in one chart is the failure this trades a
-        little stability for: collisions resolve to the next free slot."""
-        names = [f"Company {c}" for c in "ABCDEFGH"][:len(store.COMPANY_PALETTE)]
-        m = store.company_color_map(names, pinned={})
-        self.assertEqual(len(set(m.values())), len(names), f"duplicate colours in {m}")
+class IndependentOfTheOtherCompaniesTest(unittest.TestCase):
+    """A name's colour must not depend on which other companies are in the set.
 
-    def test_collision_resolution_does_not_depend_on_input_order(self):
+    The first fix for the rank bug resolved palette collisions by probing to the next
+    free slot. That reintroduced the same class of defect one level down: the Config
+    screen lists companies the report does not draw (placeholders from the email-domain
+    rules), one of them took a slot, and a real company was pushed to a different
+    colour — so the editor's swatch disagreed with the chart it described. Collisions
+    are allowed now; a human pins one company when it matters.
+    """
+
+    def test_a_company_gets_the_same_colour_in_any_set(self):
+        alone = store.company_color_map(["Globex"], pinned={})["Globex"]
+        crowded = store.company_color_map(
+            ["Globex"] + [f"Filler {i}" for i in range(20)], pinned={})["Globex"]
+        self.assertEqual(alone, crowded)
+
+    def test_the_editor_list_and_the_report_list_agree(self):
+        """The exact shape of the bug: the editor list is a superset of the report's."""
+        report = ["Acme Corp", "Globex", "Initech", "Other"]
+        editor = report + ["Example Inc", "Partner Ltd"]
+        a = store.company_color_map(report, pinned={})
+        b = store.company_color_map(editor, pinned={})
+        self.assertEqual({k: b[k] for k in report}, a)
+
+    def test_it_is_a_pure_function_of_the_name(self):
+        for name in ("Globex", "Acme Corp", "Umbrella", "Initech"):
+            self.assertEqual(
+                store.company_color_map([name], pinned={})[name],
+                store.COMPANY_PALETTE[store._name_hash(name) % len(store.COMPANY_PALETTE)])
+
+    def test_input_order_is_irrelevant(self):
         names = [f"Company {c}" for c in "ABCDEFGH"]
         self.assertEqual(store.company_color_map(names, pinned={}),
                          store.company_color_map(list(reversed(names)), pinned={}))
@@ -73,6 +96,18 @@ class NoDuplicatesTest(unittest.TestCase):
         names = [f"Co {i}" for i in range(len(store.COMPANY_PALETTE) * 2)]
         m = store.company_color_map(names, pinned={})
         self.assertEqual(len(m), len(names))
+
+    def test_the_palette_has_no_near_duplicate_colours(self):
+        """Padding the palette to lower collision odds once added a second red and a
+        second blue, which defeats the point of a palette."""
+        def rgb(h):
+            return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+        pal = store.COMPANY_PALETTE
+        self.assertEqual(len(set(pal)), len(pal), "duplicate hex in the palette")
+        for i, a in enumerate(pal):
+            for b in pal[i + 1:]:
+                dist = sum((x - y) ** 2 for x, y in zip(rgb(a), rgb(b))) ** 0.5
+                self.assertGreater(dist, 80, f"{a} and {b} are too close to tell apart")
 
 
 class PinsTest(unittest.TestCase):
