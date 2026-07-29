@@ -83,6 +83,76 @@ class BlobShapeTest(unittest.TestCase):
                             f"{login} has a non-example address")
 
 
+class GranularTablesTest(unittest.TestCase):
+    """The granular tables are a SECOND view of the dataset, and they need their own
+    assertions.
+
+    BlobShapeTest above checks the run blob, which feeds the run-based report. Every
+    React view and every MCP tool reads `commits` / `pull_request` / `issue` instead —
+    and for a while those told a completely different story: the seeding gate was
+    `if (n + pi) % 3 == 0: continue`, which with 12 people collapsed to `pi % 3`, so
+    four of them (alice, dave, grace, judy) had ZERO rows and the other eight had
+    byte-identical totals. The blob's 12x spread was intact the whole time, so
+    test_the_data_is_not_flat passed and the People view still showed 8 identical
+    people. Checking the blob is not checking the data.
+    """
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        d = Path(self._tmp.name)
+        (d / "history").mkdir()
+        self._env = patch.dict(os.environ, {
+            "DATA_DIR": str(d), "REPORT_DB": str(d / "history" / "report.db")})
+        self._env.start()
+        demo.seed(anchor="2026-06-30")
+        self.blob = demo.build("2026-06-30")
+
+    def tearDown(self):
+        self._env.stop()
+        self._tmp.cleanup()
+
+    def _by_author(self, table, col="author_login"):
+        import store
+        conn = store.connect()
+        try:
+            rows = conn.execute(
+                f"SELECT {col} a, COUNT(*) n FROM {table} GROUP BY a").fetchall()
+        finally:
+            conn.close()
+        return {r[0]: r[1] for r in rows}
+
+    def test_every_person_has_commits(self):
+        counts = self._by_author("commits")
+        missing = sorted(set(self.blob["people"]) - set(counts))
+        self.assertEqual(missing, [],
+                         f"these people are in the blob but have no commit rows, so "
+                         f"they are invisible to every React view: {missing}")
+
+    def test_every_person_has_pull_requests(self):
+        counts = self._by_author("pull_request")
+        missing = sorted(set(self.blob["people"]) - set(counts))
+        self.assertEqual(missing, [], f"no pull requests for {missing}")
+
+    def test_commit_volume_is_not_flat(self):
+        """Identical totals make every ranking, median and top-N panel meaningless —
+        and would hide a sorting bug behind plausible-looking output."""
+        counts = self._by_author("commits")
+        self.assertGreater(len(set(counts.values())), 3,
+                           f"commit totals are near-identical: {sorted(counts.values())}")
+        self.assertGreater(max(counts.values()), min(counts.values()) * 3,
+                           f"no meaningful spread: {sorted(counts.values())}")
+
+    def test_the_tables_agree_with_the_blob_about_who_is_busiest(self):
+        """Shape, not equality: the two are different windows and different metrics, but
+        they describe one fictional company and must not contradict each other."""
+        counts = self._by_author("commits")
+        blob_commits = {lg: p["commits"] for lg, p in self.blob["people"].items()}
+        busiest = max(blob_commits, key=lambda k: blob_commits[k])
+        quietest = min(blob_commits, key=lambda k: blob_commits[k])
+        self.assertGreater(counts[busiest], counts[quietest],
+                           f"{busiest} leads the blob but not the commit table")
+
+
 class RendersEndToEndTest(unittest.TestCase):
     """The point of the whole exercise: a seeded store renders the actual report."""
 

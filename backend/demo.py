@@ -279,14 +279,35 @@ def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
 
         logins = list(blob["people"])
         keys = list(blob["repos"])
+        # How often each person shows up in the granular tables, in proportion to the
+        # volume the blob already gives them. The two have to agree in SHAPE: the blob
+        # feeds the run-based report, these tables feed every React view and the MCP
+        # tools, and a dataset that is varied in one and flat in the other tells two
+        # different stories about the same fictional company.
+        #
+        # This replaces `if (n + pi) % 3 == 0: continue`, which read as "not everyone
+        # every day" and was not. n advances once per person per day, so with 12 people
+        # it advances by a multiple of 3 every day and the test collapsed to `pi % 3`:
+        # the same four people (indices 0, 3, 6, 9) were skipped on EVERY day and never
+        # appeared in the granular tables at all, while the other eight committed every
+        # single weekday and so came out with byte-identical totals. The People view
+        # showed 8 of 12 people, all with the same numbers, and every ranking on demo
+        # data was meaningless. GranularTablesTest now pins both properties.
+        weights = [p["commits"] for p in blob["people"].values()]
+        top = max(weights) or 1
+        # One accumulator per person, advanced by their share each weekday and spent
+        # when it reaches a whole day — an even spread rather than a burst, and the
+        # busiest person lands every day while the quietest lands roughly every 12th.
+        due = [0.0] * len(logins)
         n = 0
         day = start
         while day <= end:
             if day.weekday() < 5:                     # weekdays only, so heatmaps read
                 for pi, login in enumerate(logins):
-                    if (n + pi) % 3 == 0:             # not everyone every day
-                        n += 1
+                    due[pi] += weights[pi] / top
+                    if due[pi] < 1.0:                 # not everyone every day
                         continue
+                    due[pi] -= 1.0
                     key = keys[(n + pi) % len(keys)]
                     n += 1
                     ai = n % 5 == 0
