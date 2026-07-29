@@ -244,6 +244,64 @@ def _elements(repos: dict, people: dict) -> dict:
     return out
 
 
+# How many review behaviours the PR index cycles through. 13 is prime, and every other
+# modulus in the seeding loop below is smaller (3, 4, 5, 6, 7, 9, 11), so no PR's camp
+# can be predicted from its rework events or vice versa. A round 10 would have aliased
+# with `n % 5`, tying "asked for a second review" to two specific camps.
+_PR_CAMPS = 13
+
+
+def _pr_legs(n: int) -> tuple[int, int]:
+    """Minutes opened → first review, and first review → merged, for demo PR `n`.
+
+    The two legs are deliberately ANTI-CORRELATED, because that is the shape real pull
+    requests have and the shape an evenly-timed fixture never has. Every PR here used to
+    open at 09:00, get looked at at 12:00 and merge at 15:00-ish, so median(ttfr) +
+    median(r2m) came out equal to median(ttm) to the decimal — which let the first
+    version of semantic_metrics.flow_cycle_bar() draw the bar as the sum of the two leg
+    medians and still look right. On real data that bar read 4.6h directly under a line
+    saying 17.5h. See that function's docstring: the fixture was the reason nobody saw it.
+
+    Four camps, because two are not enough to reproduce it. median(ttfr) is only small
+    when MORE than half the PRs got a quick first look, and median(r2m) is only small
+    when more than half merged quickly after it; both can hold at once only if some PRs
+    are quick in BOTH legs. A clean 50/50 "slow to look" / "slow to land" split leaves
+    each leg median sitting on the boundary between its fast and slow group — halfway up
+    the slow band — and the sum lands back near the median total, which is the very
+    artefact this is meant to remove. So:
+
+      3/13  nobody looked for a day or two, then it merged on sight
+      3/13  looked at within a couple of hours, then it sat in review for days
+      5/13  a small change: reviewed and merged the same morning
+      2/13  slow in both legs — the tail people actually remember
+
+    Not a tidy 4/3/4/2 either, deliberately: that left each quick group at 7/13 — a 54%
+    majority — and the panel also splits BY REPOSITORY, where a ~90-PR slice can drift
+    the other side of 50% and hand that repo a 14h leg median. Three of the eight repos
+    did exactly that. Quick-in-both at 5/13 puts both quick groups at 8/13 with room to
+    spare, so every repo row shows the divergence too, not just the headline.
+
+    The result is leg medians of a couple of hours each against a median total of about a
+    day, and a p90 several days out, matching production's 17.5h / 2.6d / 5.7d.
+
+    Still no randomness: like everything else in this module the value is a pure function
+    of the index, which is a stronger guarantee than a seeded RNG would give — it does
+    not depend on how many PRs were emitted before this one, so reordering the seeding
+    loop cannot change the dataset."""
+    camp = (n * 3) % _PR_CAMPS
+    quick_look = 70 + (n % 4) * 30            # 1.2h – 2.7h
+    quick_land = 55 + (n % 5) * 25            # 0.9h – 2.6h
+    if camp < 3:
+        return 840 + (n % 9) * 240, quick_land            # 14h – 46h before a first look
+    if camp < 6:
+        return quick_look, 780 + (n % 7) * 300            # 13h – 43h in review
+    if camp < 11:
+        return quick_look, quick_land
+    # The tail: 70h to 200h end to end, so p75 and p90 sit meaningfully above the median
+    # instead of a hair above it (they were 10.0h and 11.0h against a median of 8.5h).
+    return 2400 + (n % 7) * 660, 1800 + (n % 5) * 1020
+
+
 def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
     """Write the demo dataset: granular tables, the run blob, snapshots, traffic."""
     if db_path:
@@ -255,6 +313,12 @@ def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
         tzinfo=timezone.utc)
     start = datetime.strptime(blob["window_start"], "%Y-%m-%d").replace(
         tzinfo=timezone.utc)
+    # The moment the data stops. A pull request whose merge would fall past it has not
+    # merged yet — see the `landed` branch in the PR insert below. It is `end` itself and
+    # NOT end-of-day: `end` is 06:00 today on a default run, so a cutoff of end-of-day
+    # would still hand a handful of rows a merge timestamp later than the wall clock the
+    # report is read at, which is the discrepancy this exists to close.
+    merge_cutoff = end
 
     conn = store.connect()
     try:
@@ -324,17 +388,52 @@ def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
                          int(ai), 30 + n % 45,
                          AI_TOOLS[n % len(AI_TOOLS)] if ai else "",
                          f"demo commit {n}"))
-                    merged = day.replace(hour=15 + n % 6)
+                    # The PR's own clock. Opened at 09:00 as before, but the first review
+                    # and the merge are now offsets from _pr_legs() rather than fixed
+                    # hours on the same day, which is what gives the cycle panel an
+                    # anti-correlated cohort to measure. Deriving `merged` from
+                    # `reviewed` rather than computing both from `opened` keeps
+                    # ttfr + r2m == ttm exact by construction — that identity is what
+                    # the whole-cycle bar is built on, so it must be a property of the
+                    # timestamps and not something the arithmetic has to be trusted for.
+                    opened = day.replace(hour=9)
+                    ttfr_min, r2m_min = _pr_legs(n)
+                    reviewed = opened + timedelta(minutes=ttfr_min)
+                    merged = reviewed + timedelta(minutes=r2m_min)
+                    # A PR whose merge would land past the end of the data has NOT merged
+                    # yet, so it is seeded OPEN rather than closed with a merge timestamp
+                    # in the future. Two reasons that matters. It was internally
+                    # inconsistent: panels counting merges without a date filter saw every
+                    # PR while the ones that window by merged_at (the Trend throughput
+                    # line, store.py's merged-in-window count) saw fewer, and the
+                    # difference was rows claiming a merge that had not happened. And it
+                    # is the only thing that gives the demo any open work at all — every
+                    # PR used to open and merge on the same day, so "What is open right
+                    # now" rendered "No open pull requests in this scope" in every
+                    # screenshot of the section the Flow page now leads with. The merge
+                    # rate drops off 100% as a side effect, which is also closer to any
+                    # real org than a fixture where nothing is ever in progress.
+                    #
+                    # UPPERCASE state, because that is what the collector writes: the
+                    # GraphQL query asks for states:[MERGED, OPEN, CLOSED] and collect.py
+                    # stores the enum verbatim. This fixture had been writing 'closed'
+                    # lowercase, which most queries survive only because they wrap the
+                    # column in UPPER() — store.in_flight() and the metrics it registers
+                    # compare state='OPEN' directly, so a lowercase 'open' here would have
+                    # seeded eight open PRs that the panel then reported as none.
+                    landed = merged <= merge_cutoff
                     conn.execute(
                         "INSERT OR REPLACE INTO pull_request (repo, number, org,"
                         " author_login, created_at, merged_at, review_requested_at,"
                         " classification, is_migration, is_bot, state, closed_at,"
                         " additions, deletions, changed_files, review_count,"
                         " comment_count, is_revert, is_draft, title)"
-                        " VALUES (?,?,?,?,?,?,?,?,0,0,'closed',?,?,?,?,?,?,0,0,?)",
-                        (key, n, ORG, login, _iso(day.replace(hour=9)),
-                         _iso(merged), _iso(day.replace(hour=10)),
-                         ("feature", "bug", "chore")[n % 3], _iso(merged),
+                        " VALUES (?,?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,0,0,?)",
+                        (key, n, ORG, login, _iso(opened),
+                         _iso(merged) if landed else None, _iso(day.replace(hour=10)),
+                         ("feature", "bug", "chore")[n % 3],
+                         "MERGED" if landed else "OPEN",
+                         _iso(merged) if landed else None,
                          62 + n % 150, 14 + n % 35, 3 + n % 8, 1 + n % 4, 2 + n % 5,
                          f"demo pull request {n}"))
                     # issues and reviews too, so the work-type tiles (bugs / features /
@@ -381,18 +480,25 @@ def seed(db_path: str | None = None, anchor: str | None = None) -> dict:
                             " actor_login, created_at) VALUES (?,?,?,?,?,?)",
                             (key, "issue", n, "reopened", login,
                              _iso(day.replace(hour=17))))
-                    for ri2 in range(1 + n % 3):
+                    nrev = 1 + n % 3
+                    for ri2 in range(nrev):
                         reviewer = logins[(pi + 1 + ri2) % len(logins)]
                         # CHANGES_REQUESTED is what "sent back for changes" and the
                         # rework-rounds figure count; approvals and plain comments do
                         # not, so a dataset with only those reads 0% there.
                         state = ("CHANGES_REQUESTED" if (n + ri2) % 4 == 0
                                  else "APPROVED" if ri2 == 0 else "COMMENTED")
+                        # Spread the later reviews across the review→merge leg rather
+                        # than at fixed hourly offsets: ttfr is read as MIN(submitted_at)
+                        # per PR, so the first one has to be exactly `reviewed`, and a
+                        # fixed +1h/+2h would have post-dated the merge for the camps
+                        # that land within the hour.
                         conn.execute(
                             "INSERT OR REPLACE INTO review (repo, pr_number,"
                             " reviewer_login, state, submitted_at) VALUES (?,?,?,?,?)",
                             (key, n, reviewer, state,
-                             _iso(day.replace(hour=12 + ri2))))
+                             _iso(reviewed + timedelta(
+                                 minutes=ri2 * r2m_min // nrev))))
             day += timedelta(days=1)
 
         for w, row in enumerate(blob["_weeks"]):
