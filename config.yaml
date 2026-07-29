@@ -287,6 +287,13 @@ companies:
     partner.example: Partner Ltd
   overrides: {}          # login -> company
   default: Other
+  # Chart colour per company. Leave this empty and each company gets a colour derived
+  # from its NAME — stable across runs, which matters because these charts get read
+  # week over week: a colour that followed commit RANK (as it once did) swapped two
+  # companies' colours the moment they swapped places, quietly invalidating the
+  # comparison. Pin a name here to override the generated one, e.g. to keep a colour
+  # a team already reads as theirs.
+  colors: {}             # company -> "#rrggbb", e.g.  Example Inc: "#0969da"
 
 # Identity bridging: map a commit email to the GitHub login it belongs to, for
 # cases automatic matching cannot reach (someone whose corporate commits and

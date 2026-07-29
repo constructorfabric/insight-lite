@@ -14,6 +14,25 @@ import html as _h
 # {type, title, detail}. Prepend new releases at the top.
 CHANGELOG = [
     {
+        "date": "2026-07-29",
+        "changes": [
+            {"type": "fix", "title": "A company keeps the same colour from one report to the next",
+             "detail": "Company colours were handed out in order of commit volume: the busiest "
+                       "company took the first colour, the next one the second, and so on. Two "
+                       "companies therefore swapped colours the moment they swapped places — so "
+                       "comparing this week's chart against last week's could mean comparing two "
+                       "different companies with nothing saying so. A colour is now derived from "
+                       "the company's name, so it stays put whatever the numbers do. The same "
+                       "company also gets the same colour everywhere: the contributors chart, the "
+                       "company table, the trend breakdowns and the dots on Manage → Identity each "
+                       "used to pick from their own list, so one company could be purple in one "
+                       "panel and amber in another on the same page. Colours have therefore "
+                       "changed once, now, and should not change again. If a company should keep "
+                       "a specific colour, it can be pinned in the configuration under "
+                       "companies → colors."},
+        ],
+    },
+    {
         "date": "2026-07-28",
         "changes": [
             {"type": "fix", "title": "The identity roster no longer has a YAML copy",

@@ -130,11 +130,8 @@ def build_model(d: dict) -> dict:
     ]
 
     # ---- contribution by company -----------------------------------------
-    # "Other" is the catch-all bucket, so it keeps a deliberate grey. Every real
-    # company takes the next palette colour instead of a name pinned here: named
-    # defaults only ever matched one organisation.
-    CO_COLORS = {"Other": "#8b949e"}
-    PALETTE = ["#bf8700", "#cf222e", "#0a7ea4", "#6e7781"]
+    # Colours come from store.company_color_map: derived from the company NAME (or an
+    # explicit pin in companies.colors), never from its rank — see the comment there.
     comp: dict = {}
     for l, p in people.items():
         co = p.get("company", "Other")
@@ -155,15 +152,14 @@ def build_model(d: dict) -> dict:
     company_rows = sorted(comp.values(), key=lambda x: -x["commits"])
     co_total = sum(c["commits"] for c in company_rows) or 1
     loc_total = sum(c["meaningful_additions"] for c in company_rows) or 1
-    pi = 0
+    import store as _store
+    _co_pins = _store.pinned_company_colors()
+    _co_colors = _store.company_color_map([c["company"] for c in company_rows], _co_pins)
     for c in company_rows:
         c["pct"] = pct(c["commits"], co_total)
         c["loc_pct"] = pct(c["meaningful_additions"], loc_total)
         c["ai_pct"] = pct(c["ai_commits"], c["commits"])
-        if c["company"] in CO_COLORS:
-            c["color"] = CO_COLORS[c["company"]]
-        else:
-            c["color"] = PALETTE[pi % len(PALETTE)]; pi += 1
+        c["color"] = _co_colors[c["company"]]
 
     # ---- AI-tool usage (commit-marker floor) --------------
     ai_total = sum(p.get("ai_commits", 0) for p in people.values())
@@ -202,14 +198,18 @@ def build_model(d: dict) -> dict:
         co_seen |= set(s.get("by_company", {}))
     latest = hist[-1]["by_company"] if hist else {}
     trend_cos = sorted(co_seen, key=lambda co: -latest.get(co, {}).get("commits", 0))
-    PAL2 = ["#bf8700", "#cf222e", "#0a7ea4", "#6e7781", "#8250df", "#1a7f37"]
+    # A company present in history but absent from the current company_rows used to fall
+    # to a second palette indexed by trend position — a different colour for the same
+    # company in the same report. One source now covers both.
+    _trend_colors = _store.company_color_map(trend_cos, _co_pins)
 
     def _series(metric):
         rows, mx = [], 1
-        for i, co in enumerate(trend_cos):
+        for co in trend_cos:
             vals = [s.get("by_company", {}).get(co, {}).get(metric, 0) for s in hist]
             mx = max([mx] + vals)
-            rows.append({"company": co, "color": co_color.get(co, PAL2[i % len(PAL2)]),
+            rows.append({"company": co,
+                         "color": co_color.get(co) or _trend_colors[co],
                          "vals": vals})
         return rows, mx
 
@@ -547,15 +547,15 @@ def build_model(d: dict) -> dict:
     # else got three tiles reading 0 and a chart with three flat lines — with nothing
     # saying why. Picked by current headcount so the block shows whoever actually turned
     # up, and capped at three because that is what the layout has room for.
-    CONTRIB_PALETTE = ["#8250df", "#1a7f37", "#0969da", "#bf8700", "#cf222e"]
     contrib_raw = d.get("_contrib", [])
     _latest_by_co = (contrib_raw[-1].get("by_company") or {}) if contrib_raw else {}
     CO3 = [co for co, _ in sorted(_latest_by_co.items(),
                                   key=lambda kv: (-(kv[1] or 0), kv[0]))
            if co and co != "Other" and (_latest_by_co.get(co) or 0) > 0][:3]
+    # Was a palette of its own, indexed by rank — so a company could be purple in this
+    # chart and amber in the company table of the SAME report. Same source as everywhere.
     CONTRIB_COLORS = {"Total": "#1f2328"}
-    for i, co in enumerate(CO3):
-        CONTRIB_COLORS[co] = CONTRIB_PALETTE[i % len(CONTRIB_PALETTE)]
+    CONTRIB_COLORS.update(_store.company_color_map(CO3, _co_pins))
     contrib_block = None
     if contrib_raw:
         cur = contrib_raw[-1]

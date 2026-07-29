@@ -440,11 +440,90 @@ CREATE TABLE IF NOT EXISTS dashboard (
 CREATE INDEX IF NOT EXISTS idx_dashboard_owner ON dashboard(owner_login);
 """
 
-# "Other" is the catch-all bucket, so it keeps a deliberate grey. Every real
-# company takes the next palette colour instead of a name pinned here: named
-# defaults only ever matched one organisation.
-CO_COLORS = {"Other": "#8b949e"}
-_PALETTE = ["#bf8700", "#cf222e", "#0a7ea4", "#6e7781"]
+# ---- company colours ------------------------------------------------------------
+#
+# A company's colour comes from its NAME, so it survives the thing that used to change
+# it: rank. The previous rule handed out palette entries in descending-commit order, so
+# the moment two companies swapped places they swapped colours, and a reader comparing
+# this week's chart with last week's was comparing different things. (Before the names
+# were de-hardcoded for open sourcing, three were pinned here by name and the rank
+# fallback only ever caught strangers — which is why the flaw stayed invisible until the
+# pins went away.)
+#
+# The hash is spelled out rather than using hash(): Python randomises str hashing per
+# process unless PYTHONHASHSEED is set, so hash() would give a different colour on every
+# restart — precisely the bug this removes. Same rule as the element and work-type
+# colours elsewhere in the codebase, so all three families behave alike.
+#
+# "Other" is the catch-all bucket and keeps a deliberate grey; it is never generated.
+OTHER_COMPANY_COLOR = "#8b949e"
+COMPANY_PALETTE = ["#0969da", "#8250df", "#1a7f37", "#bf8700", "#cf222e",
+                   "#0a7ea4", "#d946ef", "#6e7781"]
+
+
+def _name_hash(s) -> int:
+    h = 0
+    for ch in str(s).strip().lower():
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    return h
+
+
+def pinned_company_colors() -> dict:
+    """Explicit `companies.colors: {name: "#rrggbb"}` from the config, or {}.
+
+    Pins win over generated colours — that is what they are for, and the way to keep a
+    colour a team already reads as "us". `companies` is a BASE_KEY, so a pin written in
+    config.yaml is captured into the override table with the rest of the structure.
+
+    A failure here loses PINS, not data: callers fall back to generated colours, which
+    are themselves stable. Hence {} rather than raising — but the except is narrow on
+    purpose, so a real bug in the config layer still surfaces where it belongs.
+    """
+    try:
+        import ghclient
+    except ImportError:                  # pragma: no cover - config layer unavailable
+        return {}
+    raw = ((ghclient.load_config() or {}).get("companies") or {}).get("colors") or {}
+    return {str(k): str(v) for k, v in raw.items() if k and v}
+
+
+def company_color_map(names, pinned: dict | None = None) -> dict:
+    """{company: colour} for a set of names — stable, and without duplicate colours.
+
+    Each name hashes to a palette slot. When two names want the same slot, the later one
+    in SORTED order takes the next free slot, so the result does not depend on how the
+    caller happened to order the input. Two companies sharing a colour in one chart is
+    worse than a colour that shifts when a colliding company appears or leaves; with more
+    companies than palette entries, reuse is unavoidable and slots wrap.
+    """
+    pins = dict(pinned if pinned is not None else pinned_company_colors())
+    out: dict = {}
+    taken: set = set()
+    reals = []
+    for n in names:
+        name = str(n)
+        if name in pins:
+            out[name] = pins[name]
+        elif name == "Other":
+            out[name] = OTHER_COMPANY_COLOR
+        else:
+            reals.append(name)
+    for name in sorted(set(reals)):                  # deterministic collision order
+        start = _name_hash(name) % len(COMPANY_PALETTE)
+        slot = start
+        for step in range(len(COMPANY_PALETTE)):
+            cand = (start + step) % len(COMPANY_PALETTE)
+            if cand not in taken:
+                slot = cand
+                break
+        taken.add(slot)
+        out[name] = COMPANY_PALETTE[slot]
+    return out
+
+
+def company_color(name, pinned: dict | None = None) -> str:
+    """Single name. Prefer company_color_map for a set — only that de-duplicates."""
+    return company_color_map([name], pinned)[str(name)]
 
 # column order for the granular writers (also INSERT order)
 # first_seen is the one commit column collectors do not supply — write_commits owns it,
@@ -1247,15 +1326,12 @@ def aggregate(conn: sqlite3.Connection, since: str, until: str,
     company_rows = sorted(comp.values(), key=lambda x: -x["commits"])
     co_total = sum(c["commits"] for c in company_rows) or 1
     loc_co_total = sum(c["meaningful_additions"] for c in company_rows) or 1
-    pi = 0
+    co_colors = company_color_map([c["company"] for c in company_rows])
     for c in company_rows:
         c["pct"] = _pct(c["commits"], co_total)
         c["loc_pct"] = _pct(c["meaningful_additions"], loc_co_total)
         c["ai_pct"] = _pct(c["ai_commits"], c["commits"])
-        if c["company"] in CO_COLORS:
-            c["color"] = CO_COLORS[c["company"]]
-        else:
-            c["color"] = _PALETTE[pi % len(_PALETTE)]; pi += 1
+        c["color"] = co_colors[c["company"]]
 
     ct_total = sum(r["n"] for r in ctype_rows) or 1
     commit_types = sorted(({"type": r["t"] or "other", "count": r["n"],

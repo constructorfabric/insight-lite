@@ -206,25 +206,17 @@ def _load_run() -> dict:
 
 
 def _company_colors(roster: dict) -> dict:
-    """Company → colour, using the SAME rule as the report (store.aggregate): the
-    fixed CO_COLORS for known companies, else a rank-ordered fallback palette by
-    descending commits. Keeps the Identity screen's company dots consistent with the
-    company colours everywhere else in the report."""
+    """Company → colour, from the SAME source as the report: store.company_color_map,
+    which derives the colour from the company name (or an explicit pin) rather than from
+    its commit rank. This used to reimplement the rank rule locally, so the Identity
+    screen's dots agreed with the report only as long as both happened to rank companies
+    the same way — and drifted apart whenever the roster's totals differed from the
+    report's window."""
     try:
         import store
-        fixed, palette = store.CO_COLORS, store._PALETTE
-    except Exception:                    # noqa: BLE001 — degrade to neutral dots
+    except ImportError:                  # pragma: no cover — degrade to neutral dots
         return {}
-    totals: dict = {}
-    for r in roster.values():
-        totals[r["company"]] = totals.get(r["company"], 0) + r.get("commits", 0)
-    colors, pi = {}, 0
-    for co in sorted(totals, key=lambda c: -totals[c]):
-        if co in fixed:
-            colors[co] = fixed[co]
-        else:
-            colors[co] = palette[pi % len(palette)]; pi += 1
-    return colors
+    return store.company_color_map({r["company"] for r in roster.values()})
 
 
 def editor_payload(roster: dict, data: dict) -> dict:
