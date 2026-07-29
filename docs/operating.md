@@ -94,19 +94,28 @@ python backend/render.py && open report.html                # preview render-onl
 
 **2. Ship it** — one command, `scripts/deploy.sh`:
 ```bash
-./scripts/deploy.sh                 # push code+config, rebuild container, re-render (fast).
-                            # Use for code / render / template / server.py changes.
+./scripts/deploy.sh                 # deploy HEAD (must be pushed, and published by CI)
+./scripts/deploy.sh sha-<commit>    # deploy a specific published tag — also the rollback
 ./scripts/deploy.sh --refresh       # ...then run a full collect (reportctl all). Use when
-                            # collect.py, config.yaml or bot_logins changed. Hits GitHub.
+                            # collection logic or taxonomy changed. Hits GitHub.
 ```
-`scripts/deploy.sh` rsyncs code + `config.yaml`, rebuilds the container, and refreshes. It
-**never overwrites** server-side data/secrets: `report.db` (which holds the curated
-identity + config overrides), the API cache, git clones, `.env`, and generated
-`report.html` / `data.json` are left alone. It does take a `report.db` backup into
-`history/backups/` before the image swap (newest 10 retained) — that snapshot is the
-recovery path for a roster. Host/key/dir are overridable via `DEPLOY_HOST` / `DEPLOY_KEY` /
-`DEPLOY_DIR`. (There were once `--identity` / `--pull-identity` flags that rsynced a
-`people.yaml` between laptop and server; the file is gone, see below.)
+Nothing is built or rsynced. CI publishes an image for every commit whose test suite
+passed, and a deploy chooses **which** published commit runs: the script verifies the tag
+exists in the registry, backs up `report.db`, sets `INSIGHT_TAG` in the server's `.env`,
+pulls, recreates, and then checks its own work — that the running container really is the
+pinned image, that the row counts did not move across the swap, and that `/` lands on the
+report rather than the setup wizard. (`/health` answers `ok` on an empty database, so it
+cannot be the deploy gate on its own.)
+
+Server-side state is untouched by a deploy: `report.db` (curated identity + config
+overrides), the API cache, git clones and `.env` live under the server's `DATA_DIR`,
+never in the image. The `report.db` backup lands in `history/backups/` (newest 10 kept)
+and is the recovery path if one is ever needed. Host/key/dir are overridable via
+`DEPLOY_HOST` / `DEPLOY_KEY` / `DEPLOY_DIR`.
+
+A long-lived deployment loads `docker-compose.prod.yml` on top of `docker-compose.yml`
+(pinned image, state on the host at `./data`) via `COMPOSE_FILE` in its own `.env` — see
+the header of that file for why it is set there and not passed with `-f`.
 
 **Identity is server-owned, and Save applies instantly.** Edit companies/aliases in
 the browser at `/identity` and **Save** — one click writes the server's `override`
@@ -116,14 +125,17 @@ the already-collected data (granular tables, person dim, `data.json`) and re-ren
 `report.html` — seconds, no GitHub fetch (`reportctl reindex`, also run inline by the
 Save endpoint). Open the Report and the change is already there. (Blame-based
 surviving-LOC for merged accounts fully reconciles on the next `reportctl all`.)
-A normal `./scripts/deploy.sh` will **not** clobber these edits. To bring the curated file
-back into git, run `./scripts/deploy.sh --pull-identity` and commit. Push local identity to
-the server only with `./scripts/deploy.sh --identity` (a deliberate override).
+A deploy will **not** clobber these edits — there is no path that pushes a local roster to
+the server, deliberately. The `--identity` / `--pull-identity` flags that once rsynced a
+`people.yaml` are gone with the file: a push would have to reach into the authoritative
+`override` table from outside the app, which is exactly how a roster was lost once. If a
+roster ever has to be restored, the transport is a `report.db` snapshot from
+`history/backups/`.
 
 **Server management**
 ```bash
-ssh -i ~/.ssh/deploy_key user@your-server
-cd ~/insight-report
+ssh -i ~/.ssh/deploy_key user@your-server   # see scripts/deploy.env
+cd ~/<deploy-dir>
 docker compose ps                       # container status
 docker compose logs -f report           # portal logs
 docker compose exec report python backend/reportctl.py all   # manual full refresh

@@ -1,0 +1,42 @@
+# Overlay for a long-lived deployment. Two deliberate differences from the file
+# everyone else runs, and one guard.
+#
+# 1. The image is PINNED, via INSIGHT_TAG, instead of tracking :latest. A deploy
+#    becomes an explicit one-line change and a rollback is the same edit backwards.
+#    With :latest, an unrelated `docker compose up -d` — a reboot, a cron line, a
+#    restart after an unrelated change — would silently move the deployment to
+#    whatever CI published last. `:?` makes a missing pin fail loudly at parse time
+#    rather than falling back to a floating tag.
+#
+# 2. State stays on the host at ./data instead of the report-data named volume.
+#    An installation that has accumulated real history has it there already, backups
+#    are a plain tar of that directory, and `sqlite3 data/history/report.db` from the
+#    host keeps working. Moving it into a named volume would be a data migration
+#    bought for nothing.
+#
+# `!override` (not a plain list) because Compose otherwise CONCATENATES volumes across
+# files: without it the base file's report-data volume would ALSO be mounted at
+# /work/data, and which one wins is not something to leave to merge order.
+#
+# THE GUARD: Compose only loads this file if it is told to. Set it in the deployment's
+# .env, never on the command line —
+#
+#     COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#     COMPOSE_PROFILES=oauth        # if the OAuth gate is in use
+#     INSIGHT_TAG=sha-<commit>
+#
+# so that a plain `docker compose up -d` typed by a human, or run by cron, or run by
+# a deploy script that predates this file, still gets the right configuration. Pass
+# `-f` by hand instead and the day someone forgets it the containers come up on the
+# EMPTY named volume, pass their health check, and quietly serve the setup wizard in
+# place of the report.
+services:
+  report:
+    image: ghcr.io/constructorfabric/insight-lite:${INSIGHT_TAG:?set INSIGHT_TAG in .env to a published tag, e.g. sha-<commit> — refusing to fall back to :latest}
+    volumes: !override
+      - ./data:/work/data
+
+  mcp:
+    image: ghcr.io/constructorfabric/insight-lite:${INSIGHT_TAG:?set INSIGHT_TAG in .env to a published tag, e.g. sha-<commit> — refusing to fall back to :latest}
+    volumes: !override
+      - ./data:/work/data

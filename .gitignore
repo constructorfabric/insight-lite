@@ -52,3 +52,6 @@ assets/app/*
 frontend/visual/baseline/
 frontend/visual/candidate/
 frontend/visual/diff/
+
+# per-installation deploy target (host/key/dir) — never in git
+scripts/deploy.env
