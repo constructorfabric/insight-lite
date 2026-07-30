@@ -245,19 +245,36 @@ class WholeCycleBarTest(unittest.TestCase):
         self.assertIsNone(render.flow_json({"flow": f}, {})["flow"]["cycleBar"])
 
     def test_per_repo_split_needs_enough_prs_and_counts_what_it_dropped(self):
-        rows = self.ROWS + [("o/b", 1, 1, True, True), ("o/b", 2, 2, True, True)]
+        """Ten PRs, not three. Measured against production, three ranked noise: sorted
+        slowest-first the top two rows were repos with n=3 (184h and 136h) while the
+        repo with n=200 sat last with the narrowest bar, and a reader scans bar widths
+        rather than the n column."""
+        rows = ([("o/a", 1, 1, True, True)] * 10) + ([("o/b", 2, 2, True, True)] * 9)
         with TemporaryDirectory() as tmp:
             bar = semantic_metrics.flow_report(_seed_cycle(tmp, rows), None, *W)["cycle_bar"]
-        self.assertEqual([r["repo"] for r in bar["by_repo"]], ["o/a"])  # o/b has only 2
+        self.assertEqual([r["repo"] for r in bar["by_repo"]], ["o/a"])  # o/b has only 9
         self.assertEqual(bar["repos_total"], 2, "the dropped repo is still counted")
-        self.assertEqual(bar["repo_min"], 3)
+        self.assertEqual(bar["repo_min"], 10)
+
+    def test_no_repo_with_enough_prs_leaves_the_split_empty_but_counted(self):
+        """The case the threshold creates, and the reason the view has to say something:
+        a small org can have no repository that clears it. by_repo is empty while
+        repos_total still reports how many there were, so the page can explain the
+        absence instead of silently dropping the table (see pages/Flow.tsx)."""
+        rows = ([("o/a", 1, 1, True, True)] * 4) + ([("o/b", 2, 2, True, True)] * 4)
+        with TemporaryDirectory() as tmp:
+            bar = semantic_metrics.flow_report(_seed_cycle(tmp, rows), None, *W)["cycle_bar"]
+        self.assertTrue(bar["has_data"], "the headline bar still holds — 8 PRs measured")
+        self.assertEqual(bar["by_repo"], [])
+        self.assertEqual(bar["repos_total"], 2)
+        self.assertEqual(bar["n"], 8)
 
     def test_per_repo_row_length_is_its_total_against_the_slowest_repo(self):
         """A row's length is its median TOTAL relative to the slowest row — not the sum
         of its leg medians (which understates it, exactly as it did on the headline bar)
         and not normalised to itself (which would make a fast repo and a slow one draw
         the same picture). o/b is 10x slower, so it fills the row and o/a takes a tenth."""
-        rows = ([("o/a", 1, 1, True, True)] * 3) + ([("o/b", 10, 10, True, True)] * 3)
+        rows = ([("o/a", 1, 1, True, True)] * 10) + ([("o/b", 10, 10, True, True)] * 10)
         with TemporaryDirectory() as tmp:
             env = render.flow_json(
                 {"flow": semantic_metrics.flow_report(_seed_cycle(tmp, rows), None, *W)}, {})

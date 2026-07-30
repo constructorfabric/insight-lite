@@ -23,6 +23,7 @@ import type { ReactNode } from "react";
 import FilterBar from "../components/FilterBar";
 import VegaChart from "../components/VegaChart";
 import type { KpiDelta } from "../components/KpiTile";
+import Section from "../components/Section";
 import { GhLink } from "../widgets";
 import DataTable, { type Column, zeroClass } from "../components/DataTable";
 import { useReportData } from "../hooks/useReportData";
@@ -139,31 +140,6 @@ type FlowData = {
   abandoned?: Abandoned;
 };
 
-// One section of the page, stating the question it answers and who asks it.
-//
-// The page used to be an undivided scroll of everything known about flow, which read
-// as "for everybody", i.e. for nobody: a lead looking for what to unblock today and
-// somebody reviewing how the process performs over a quarter were given the same wall.
-// Naming the question is most of the fix; collapsing everything except the two
-// sections that answer "what do I do this week" is the rest.
-//
-// `open` is the INITIAL state only. React writes the attribute on mount and, because
-// the value never changes between renders, leaves it alone afterwards — so a reader's
-// own expand/collapse survives a period or scope change.
-function Section({ q, who, open, children }: {
-  q: string; who: string; open?: boolean; children: ReactNode;
-}) {
-  return (
-    <details className="flow-sec" open={open}>
-      <summary>
-        <span className="fs-q">{q}</span>
-        <span className="fs-who">{who}</span>
-      </summary>
-      <div className="fs-body">{children}</div>
-    </details>
-  );
-}
-
 // One .fcard, with the optional delta chip and mini-trend a movable metric carries.
 // Deliberately the same visual grammar as the Overview KPI tile (KpiTile.tsx): a
 // right-aligned pill above the number, a sparkline under the labels. A flow number
@@ -257,7 +233,8 @@ function CycleBarPanel({ bar }: { bar: CycleBar }) {
         overlaps the first leg instead of preceding it.
       </p>
 
-      {bar.byRepo.length > 1 && (
+      {bar.byRepo.length > 1 ? (
+
         <>
           <h3 className="sub" style={{ marginTop: 20 }}>
             The same split per repository{" "}
@@ -302,6 +279,19 @@ function CycleBarPanel({ bar }: { bar: CycleBar }) {
             reported, never used as widths.
           </p>
         </>
+      ) : (
+        // Saying so rather than letting the section vanish: a missing table reads as
+        // "nothing to see", when the truth is "not enough of this to rank". Same rule
+        // as cycleMissing above.
+        <p className="conc" style={{ marginTop: 16 }}>
+          No per-repository split: ranking medians needs at least{" "}
+          <b>{bar.repoMin} reviewed-and-merged pull requests</b> per repository, and
+          {bar.reposTotal === 1
+            ? " this scope has only one repository"
+            : ` none of the ${fmtNum(bar.reposTotal)} repositories here clears that`}
+          . A median over a handful of pull requests would rank noise — the bar above,
+          measured over all {fmtNum(bar.n)} of them, is the number that holds.
+        </p>
       )}
     </>
   );
@@ -919,17 +909,6 @@ export default function Flow() {
 
   return (
     <>
-      <p className="sub">
-        Org <b>{data.meta.org}</b> ·{" "}
-        {data.meta.allTime ? (
-          <>
-            <b>all-time history</b> (since {data.meta.windowStart})
-          </>
-        ) : (
-          <>window {data.meta.windowStart} → today ({data.meta.lookbackDays} days)</>
-        )}{" "}
-        · generated {data.meta.generatedText} UTC
-      </p>
 
       <FilterBar
         periodPresets={data.periodPresets} period={data.period} scope={data.scope}
