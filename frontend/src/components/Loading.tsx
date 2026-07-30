@@ -32,7 +32,7 @@ export default function Loading({ label = "Loading the report…" }: { label?: s
   const filters = useFilterModel();
   return (
     <div role="status" aria-live="polite">
-      <span className="sk-sr">{label}</span>
+      <span className="vh">{label}</span>
 
       {/* The filter strip is the REAL bar, not a placeholder: its options come from
           the `#filter-model` island the server inlines (see hooks/useFilterModel),

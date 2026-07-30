@@ -9,8 +9,13 @@ import { useState } from "react";
 import { setReportQuery } from "../hooks/useReportData";
 
 // One help per control, sitting next to the control it explains — a single combined
-// legend made the reader work out which half applied to which. Each string is used both
-// as the tooltip and as the accessible label, from one constant so they cannot drift.
+// legend made the reader work out which half applied to which.
+//
+// Each string is the visual tooltip (`data-tip`, read by reportChromeEffects) AND the
+// accessible description: it goes into the DOM once, visually hidden, and the button
+// points at it with aria-describedby. The button's own aria-label stays a NAME — three
+// sentences of prose is a description, and announcing it as the label means a screen
+// reader reads the whole explanation where it should be reading "help".
 const PERIOD_HELP = [
   "Follows the period — KPIs, by company, % by category, work type, By Element, "
     + "platform/app, weekly activity, contribution trend, per-person activity, traffic, "
@@ -44,6 +49,37 @@ function fmtDay(s: string | null | undefined): string {
   }
 }
 
+// The custom-range DRAFT — open//from//to as typed, before Apply writes it to the URL.
+//
+// Module scope, not component state, because this component is rendered from two
+// places on one page: components/Loading while the payload is in flight, then the page
+// itself once it lands. Those are different parent trees, so React unmounts one bar and
+// mounts the other, and anything held in useState goes with it — on Delivery that swap
+// lands ~1.9s in, long enough to have opened the range and typed a date into it.
+//
+// One page, one draft: an MPA navigation reloads the module, which is exactly when the
+// draft should be forgotten.
+const draft: { open: boolean; from: string | null; to: string | null } = {
+  open: false, from: null, to: null,
+};
+
+// The "?" beside a control's label. `of` names the control so the button announces as
+// "What Period covers"; `text` is both the hover tooltip and, via the hidden <span>,
+// what a screen reader gets when it reaches the description.
+function Help({ id, text, of }: { id: string; text: string; of: string }) {
+  return (
+    <>
+      <button
+        type="button" className="legend-help" data-tip={text}
+        aria-label={`What ${of} covers`} aria-describedby={id}
+      >
+        ?
+      </button>
+      <span id={id} className="vh">{text}</span>
+    </>
+  );
+}
+
 export default function FilterBar({
   periodPresets, period, scope, scopeTargets,
 }: {
@@ -52,9 +88,20 @@ export default function FilterBar({
   scope: string;
   scopeTargets: ScopeTargets;
 }) {
-  const [customOpen, setCustomOpen] = useState(false);
-  const [fromVal, setFromVal] = useState(period.from || "");
-  const [toVal, setToVal] = useState(period.to || "");
+  // `?? period.x` on first render only: once you have typed something the draft owns
+  // the field, including when you clear it (hence null-vs-"" rather than falsy).
+  const [customOpen, setOpen] = useState(draft.open);
+  const [fromVal, setFrom] = useState(draft.from ?? period.from ?? "");
+  const [toVal, setTo] = useState(draft.to ?? period.to ?? "");
+  const setCustomOpen = (next: boolean | ((v: boolean) => boolean)) => {
+    setOpen((v) => {
+      const value = typeof next === "function" ? next(v) : next;
+      draft.open = value;
+      return value;
+    });
+  };
+  const setFromVal = (v: string) => { draft.from = v; setFrom(v); };
+  const setToVal = (v: string) => { draft.to = v; setTo(v); };
 
   const isCustom = period.preset === "custom";
 
@@ -62,8 +109,7 @@ export default function FilterBar({
     <div className="topbar">
       <div className="period-bar" aria-label="Period filter">
         <span className="period-lbl">Period</span>
-        <button type="button" className="legend-help" data-tip={PERIOD_HELP}
-                aria-label={PERIOD_HELP}>?</button>
+        <Help id="period-help" text={PERIOD_HELP} of="Period" />
         <div className="pseg" role="group" aria-label="Preset windows">
           {periodPresets.map((p) => (
             <button
@@ -102,6 +148,9 @@ export default function FilterBar({
             onClick={() => {
               setReportQuery({ from: fromVal || null, to: toVal || null, p: null,
                                tgran: null, tdim: null });
+              // Applied — the values live in the URL now, so the draft has nothing
+              // left to protect and the inputs go back to reflecting the period.
+              draft.from = draft.to = null;
               setCustomOpen(false);
             }}
           >
@@ -116,8 +165,7 @@ export default function FilterBar({
           it would break every shared link and bookmark for a label change. */}
       <div className="period-bar" aria-label="Repository scope">
         <span className="period-lbl">Scope</span>
-        <button type="button" className="legend-help" data-tip={SCOPE_HELP}
-                aria-label={SCOPE_HELP}>?</button>
+        <Help id="scope-help" text={SCOPE_HELP} of="Scope" />
         <select
           id="global-scope"
           value={scope}
