@@ -236,6 +236,13 @@ class NavCarryTest(unittest.TestCase):
         for view in ("activity", "work", "impact", "score"):
             self.assertIn(f'href="/person?view={view}&p=30d&person=ainetx"', html)
 
+    def test_the_key_list_is_derived_not_restated(self):
+        # server.py reads exactly these off the request; if the list it reads and the
+        # rule that carries them ever disagreed, a param would be read and dropped
+        # (or carried and never read) with nothing failing.
+        self.assertEqual(set(shell.CARRY_KEYS),
+                         set(shell.CARRY_GLOBAL) | set(shell.CARRY_SUBJECT))
+
     def test_model_advertises_the_same_rule_it_applied(self):
         # The client merges the live query using the zone's `carry` list; if that list
         # disagreed with what the server merged, the two renderers would produce
@@ -246,4 +253,32 @@ class NavCarryTest(unittest.TestCase):
             applied = set(shell.zone_carry(zone["key"], self._QUERY) or {})
             self.assertTrue(applied <= allowed, zone["key"])
             for key in allowed:
-                self.assertIn(key, shell._CARRY_KEYS, zone["key"])
+                self.assertIn(key, shell.CARRY_KEYS, zone["key"])
+
+
+class FilterInputsCostTest(unittest.TestCase):
+    """The island must not put a model BUILD on the page path.
+
+    load_data() + build_model() measured 3.5s against production. _filter_inputs peeks
+    the cache instead, so a cold page costs one skeleton strip rather than a shell that
+    blocks for seconds — the opposite of what the island is for."""
+
+    def test_page_path_peeks_the_cache_and_never_builds(self):
+        import server
+        with patch.object(server, "_report_model") as build, \
+             patch.object(server, "_cached_report_model", return_value=None) as peek:
+            got = server.Handler._filter_inputs(object.__new__(server.Handler))
+        self.assertIsNone(got, "no cached model → no island, and the page still renders")
+        peek.assert_called_once()
+        build.assert_not_called()
+
+    def test_a_cached_model_becomes_the_island(self):
+        import server
+        model = {"window_labels": ["30d", "all"], "all_label": "All-time",
+                 "scope_targets": {"element": ["studio"]}}
+        with patch.object(server, "_report_model") as build, \
+             patch.object(server, "_cached_report_model", return_value=model):
+            got = server.Handler._filter_inputs(object.__new__(server.Handler))
+        self.assertEqual(sorted(got), ["periodPresets", "scopeTargets"])
+        self.assertEqual(got["scopeTargets"], {"element": ["studio"]})
+        build.assert_not_called()

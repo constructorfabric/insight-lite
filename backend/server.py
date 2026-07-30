@@ -694,6 +694,19 @@ def _report_version():
         conn.close()
 
 
+def _cached_report_model():
+    """The cached model if it is present AND current, else None. Never builds.
+
+    For callers that WANT the model but must not pay for it — see the page path's
+    _filter_inputs. Everything that needs a model to answer at all goes through
+    _report_model, which builds and can serve stale."""
+    version = _report_version()
+    with _RENDER_LOCK:
+        if _RENDER["version"] == version and _RENDER["model"] is not None:
+            return _RENDER["model"]
+    return None
+
+
 def _report_model(version):
     """Cached build_model for `version`; rebuilds on a version change. Renders OUTSIDE
     the lock (build_model is slow) then swaps in. On a render failure — e.g. no data
@@ -909,28 +922,35 @@ class Handler(BaseHTTPRequestHandler):
         ua = (self.headers.get("User-Agent") or "").lower()
         return (not ua) or any(b in ua for b in _BOT_UA)
 
-    # Params that travel with you across report pages: the two global filters and,
-    # for the pages that have a subject, the subject. Read straight off the request —
-    # a link rendered on this page should land on the next one with what you already
-    # picked still applied. (Manage pages are excluded downstream, in shell.py: the
-    # period does not mean anything to /config.)
-    _CARRY_PARAMS = ("p", "from", "to", "slice", "person")
-
     def _report_carry(self) -> dict:
-        return {k: _nav_param(self.path, k) for k in self._CARRY_PARAMS}
+        """What travels with you across report pages: the global filters and, on a page
+        that has one, its subject. Read straight off the request — a link rendered here
+        should land on the next page with what you already picked still applied.
+
+        The key list and the per-zone rule both live in shell (CARRY_KEYS / zone_carry),
+        so reading and carrying cannot drift apart."""
+        return {k: _nav_param(self.path, k) for k in shell.CARRY_KEYS}
 
     def _filter_inputs(self) -> dict | None:
         """The filter bar's query-independent inputs, for render_spa_page to inline as
-        the `#filter-model` island (see render.filter_model). Both come off the cached
-        report model, so on a warm cache this costs a dict lookup; the bar then paints
-        with the rest of the shell instead of behind a skeleton.
+        the `#filter-model` island (see render.filter_model), so the bar paints with the
+        shell instead of behind a skeleton.
 
-        Returns None — and the page falls back to the skeleton strip — if there is no
-        model yet (fresh install, collection still running). A filter bar is not worth
-        failing a page render over, so every failure mode is swallowed."""
+        PEEKS at the model cache — never _report_model(), which BUILDS on a miss. That
+        build is load_data() + build_model(), measured at 3.5s against production, and
+        putting it on the page path would mean the first request after every collection
+        blocks the whole shell on it: a slower page, in the name of a faster filter bar.
+        The /api/report/* call on that same page has to build anyway, so a cold cache
+        costs one skeleton strip and warms it for every page after.
+
+        None — the caller falls back to that skeleton — whenever there is nothing
+        cached, including a fresh install with no model at all. A filter bar is not
+        worth failing a page render over, so every failure mode is swallowed."""
         try:
             import render as _r
-            model = _report_model(_report_version())
+            model = _cached_report_model()
+            if model is None:
+                return None
             fm = _r.filter_model({"window_labels": model.get("window_labels"),
                                   "all_label": model.get("all_label"),
                                   "scope_targets": model.get("scope_targets")})
