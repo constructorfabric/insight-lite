@@ -868,7 +868,17 @@ FLOW_KPI_KEYS = ("cr_rate", "reopen_rate", "bounce_rate", "rereq_rate",
 FLOW_DELTA_KEYS = FLOW_KPI_KEYS + ("rewinds_qa_to_dev",)
 
 _FLOW_SPARK_BUCKETS = 8      # sub-windows behind each flow tile's mini-trend
-_CYCLE_BAR_REPO_MIN = 3      # completed PRs a repo needs to get its own cycle bar
+# Completed PRs a repo needs before its median is ranked. Ten, not three, because
+# three was measured against real data and ranked noise: sorted slowest-first, the top
+# two rows were repos with n=3 (184h and 136h medians) while the repo with n=200 sat
+# last with the narrowest bar. A reader scans bar widths, not the n column, so the
+# table presented its least trustworthy row as its headline finding.
+#
+# The cost of ten is 3% of the cohort (on that data: 6 repos kept of 22, covering
+# 476 of 510 PRs). A threshold of 20 would also drop a genuinely active repo (n=18),
+# and five keeps two-PR samples in the ranking, so ten is where the noise stops and
+# real repositories start.
+_CYCLE_BAR_REPO_MIN = 10
 _CYCLE_BAR_REPOS = 6         # repos shown in the per-repo cycle breakdown
 
 
