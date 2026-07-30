@@ -816,6 +816,21 @@ def setup_boot() -> dict:
             "extra_repos": ", ".join(cfg.get("extra_repos", []) or [])}
 
 
+def _nav_param(path: str, name: str) -> str:
+    """One query value off a request path, or "" — for threading a page's subject into
+    the sidebar's view links (see shell._carry_href)."""
+    from urllib.parse import parse_qs
+    return (parse_qs(urlparse(path).query).get(name, [""])[0] or "").strip()
+
+
+def _nav_view(path: str, default: str, allowed: tuple) -> str:
+    """Which view of a broken-up page is being asked for. Unknown values fall back to
+    the default rather than 404ing: `?view=` is navigation state, and a stale link
+    should land on the page rather than on an error."""
+    v = _nav_param(path, "view")
+    return v if v in allowed else default
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -893,6 +908,35 @@ class Handler(BaseHTTPRequestHandler):
     def _looks_like_bot(self) -> bool:
         ua = (self.headers.get("User-Agent") or "").lower()
         return (not ua) or any(b in ua for b in _BOT_UA)
+
+    # Params that travel with you across report pages: the two global filters and,
+    # for the pages that have a subject, the subject. Read straight off the request —
+    # a link rendered on this page should land on the next one with what you already
+    # picked still applied. (Manage pages are excluded downstream, in shell.py: the
+    # period does not mean anything to /config.)
+    _CARRY_PARAMS = ("p", "from", "to", "slice", "person")
+
+    def _report_carry(self) -> dict:
+        return {k: _nav_param(self.path, k) for k in self._CARRY_PARAMS}
+
+    def _filter_inputs(self) -> dict | None:
+        """The filter bar's query-independent inputs, for render_spa_page to inline as
+        the `#filter-model` island (see render.filter_model). Both come off the cached
+        report model, so on a warm cache this costs a dict lookup; the bar then paints
+        with the rest of the shell instead of behind a skeleton.
+
+        Returns None — and the page falls back to the skeleton strip — if there is no
+        model yet (fresh install, collection still running). A filter bar is not worth
+        failing a page render over, so every failure mode is swallowed."""
+        try:
+            import render as _r
+            model = _report_model(_report_version())
+            fm = _r.filter_model({"window_labels": model.get("window_labels"),
+                                  "all_label": model.get("all_label"),
+                                  "scope_targets": model.get("scope_targets")})
+            return {"periodPresets": fm["periodPresets"], "scopeTargets": fm["scopeTargets"]}
+        except Exception:                    # noqa: BLE001 — see docstring
+            return None
 
     def _log_page_open(self) -> None:
         """Best-effort server-side page-open event. Swallows every error (a locked
@@ -2400,7 +2444,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("overview", "overview", "Overview", report_chrome=True).encode(),
+                render.render_spa_page("overview", "overview", "Overview",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/trend":
             # React route for the Trend view (see
@@ -2416,7 +2462,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("trend", "trend", "Trend", report_chrome=True).encode(),
+                render.render_spa_page("trend", "trend", "Trend",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/delivery":
             # React route for the Delivery view (see
@@ -2432,7 +2480,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("delivery", "delivery", "Delivery", report_chrome=True).encode(),
+                render.render_spa_page("delivery", "delivery", "Delivery",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/flow":
             # React route for the Flow view (see
@@ -2448,7 +2498,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("flow", "flow", "Flow", report_chrome=True).encode(),
+                render.render_spa_page("flow", "flow", "Flow",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/people":
             # React route for the People view (see
@@ -2464,7 +2516,11 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("people", "people", "People", report_chrome=True).encode(),
+                render.render_spa_page(
+                    "people", "people-" + _nav_view(self.path, "roster",
+                                                    ("roster", "categories", "reviews")),
+                    "People", report_chrome=True, filter_inputs=self._filter_inputs(),
+                    nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/person":
             # React route for the Person view (see
@@ -2481,7 +2537,12 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("person", "person", "Person", report_chrome=True).encode(),
+                render.render_spa_page(
+                    "person", "person-" + _nav_view(
+                        self.path, "overview",
+                        ("overview", "activity", "work", "impact", "score")),
+                    "Person", report_chrome=True, filter_inputs=self._filter_inputs(),
+                    nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/repositories":
             # React route for the Repositories view (see
@@ -2502,7 +2563,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("repositories", "repos", "Repositories", report_chrome=True).encode(),
+                render.render_spa_page("repositories", "repos", "Repositories",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/elements":
             # React route for the "By Element" view (see
@@ -2522,7 +2585,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("elements", "elements", "Elements", report_chrome=True).encode(),
+                render.render_spa_page("elements", "elements", "Elements",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/traffic":
             # React route for the "Traffic" view (see
@@ -2544,7 +2609,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("traffic", "traffic", "Traffic", report_chrome=True).encode(),
+                render.render_spa_page("traffic", "traffic", "Traffic",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/ai-tools":
             # React route for the "AI tools" view (see
@@ -2567,7 +2634,9 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("ai-tools", "fabric", "AI tools", report_chrome=True).encode(),
+                render.render_spa_page("ai-tools", "fabric", "AI tools",
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
+                                       nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/identity":
             import render as _render

@@ -27,9 +27,14 @@ export type ReportQuery = {
   person?: string | null;
   tgran?: string | null;
   tdim?: string | null;
+  /** Which VIEW of a page broken into several (Person, People) — the sidebar's pane
+      links carry it, and the route reads it too so the pane can highlight one. Not
+      sent to /api/report/*: the payload is the same for every view of a page, only
+      what is rendered differs. */
+  view?: string | null;
 };
 
-const QUERY_KEYS = ["p", "from", "to", "slice", "person", "tgran", "tdim"] as const;
+const QUERY_KEYS = ["p", "from", "to", "slice", "person", "tgran", "tdim", "view"] as const;
 
 function readQuery(): ReportQuery {
   if (typeof window === "undefined") return {};
@@ -114,7 +119,12 @@ export function useReportData<T = unknown>(
     if (typeof window === "undefined") return;
     const mySeq = ++seq.current;
     setState((s) => ({ ...s, loading: true, error: null }));
-    let qs = toSearchString(query);
+    // `view` stays in the browser URL (so changing the period keeps the view) but is
+    // stripped from the request: every view of a page reads the SAME payload, only the
+    // rendering differs, so sending it would key the cache on something the server
+    // does not vary by.
+    const { view: _view, ...forApi } = query;
+    let qs = toSearchString(forApi);
     if (extra) {
       for (const [k, v] of Object.entries(extra)) {
         if (v) qs += (qs ? "&" : "") + `${k}=${encodeURIComponent(v)}`;

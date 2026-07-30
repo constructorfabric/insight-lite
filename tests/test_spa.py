@@ -164,3 +164,86 @@ class AssetAppEndpointTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FilterIslandTest(unittest.TestCase):
+    """The filter bar's options ride in a `#filter-model` island so the bar can paint
+    with the shell instead of behind a skeleton until /api/report/* answers (see
+    render.filter_model and frontend/src/hooks/useFilterModel.ts).
+
+    What must hold: the island carries ONLY what does not depend on the request, and
+    the page still renders without it."""
+
+    _ASSETS = {"js": "/assets/app/assets/flow-X.js", "css": []}
+
+    def _page(self, filter_inputs):
+        with patch.object(spa, "entry_assets", return_value=self._ASSETS):
+            return render.render_spa_page("flow", "flow", "Flow", report_chrome=True,
+                                          filter_inputs=filter_inputs)
+
+    def test_island_holds_the_query_independent_inputs_only(self):
+        fm = render.filter_model({"window_labels": ["7d", "all"], "all_label": "All-time",
+                                  "scope_targets": {"repo": ["a"]},
+                                  # request-dependent: must NOT reach the island
+                                  "scope": "repo:a",
+                                  "period": {"preset": "7d", "label": "7 days",
+                                             "from": None, "to": None}})
+        html = self._page({"periodPresets": fm["periodPresets"],
+                           "scopeTargets": fm["scopeTargets"]})
+        body = html.split('<script id="filter-model" type="application/json">')[1]
+        island = json.loads(body.split("</script>")[0])
+        self.assertEqual(sorted(island), ["periodPresets", "scopeTargets"])
+        self.assertEqual(island["periodPresets"][-1], {"key": "all", "label": "All-time"})
+        self.assertEqual(island["scopeTargets"], {"repo": ["a"]})
+
+    def test_no_island_when_there_is_no_model_yet(self):
+        # _filter_inputs returns None on a fresh install; the page must still render
+        # (the client then falls back to its skeleton strip).
+        html = self._page(None)
+        self.assertNotIn('id="filter-model"', html)
+        self.assertIn('<div id="root">', html)
+
+    def test_island_cannot_close_its_own_script_tag(self):
+        html = self._page({"scopeTargets": {"repo": ["</script><script>x=1</script>"]}})
+        self.assertNotIn("</script><script>x=1", html)
+        self.assertIn("<\\/script>", html)
+
+
+class NavCarryTest(unittest.TestCase):
+    """shell.zone_carry decides which report-query params a nav link keeps. Both
+    renderers consult it — the server here, components/Sidebar.tsx via the `carry`
+    list in the nav model — so this pins the rule itself."""
+
+    _QUERY = {"p": "30d", "slice": "repo:a", "person": "ainetx", "from": "", "to": ""}
+
+    def test_manage_links_carry_nothing(self):
+        self.assertIsNone(shell.zone_carry("manage", self._QUERY))
+
+    def test_global_filters_carry_into_every_report_zone(self):
+        for zone in ("overview", "development", "person", "people", "ai"):
+            kept = shell.zone_carry(zone, self._QUERY)
+            self.assertEqual(kept.get("p"), "30d", zone)
+            self.assertEqual(kept.get("slice"), "repo:a", zone)
+
+    def test_the_subject_carries_only_inside_its_own_zone(self):
+        self.assertEqual(shell.zone_carry("person", self._QUERY).get("person"), "ainetx")
+        for zone in ("overview", "development", "people", "ai"):
+            self.assertNotIn("person", shell.zone_carry(zone, self._QUERY), zone)
+
+    def test_person_view_links_keep_whose_page_it_is(self):
+        # The bug this rule exists for: switching Person views dropped the person.
+        html = shell.sidebar_html("person-overview", {"person": "ainetx", "p": "30d"})
+        for view in ("activity", "work", "impact", "score"):
+            self.assertIn(f'href="/person?view={view}&p=30d&person=ainetx"', html)
+
+    def test_model_advertises_the_same_rule_it_applied(self):
+        # The client merges the live query using the zone's `carry` list; if that list
+        # disagreed with what the server merged, the two renderers would produce
+        # different links for the same page.
+        model = json.loads(shell.nav_model_json("flow", self._QUERY))
+        for zone in model["zones"]:
+            allowed = set(zone["carry"])
+            applied = set(shell.zone_carry(zone["key"], self._QUERY) or {})
+            self.assertTrue(applied <= allowed, zone["key"])
+            for key in allowed:
+                self.assertIn(key, shell._CARRY_KEYS, zone["key"])

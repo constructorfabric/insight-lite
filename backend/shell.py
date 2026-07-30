@@ -13,11 +13,13 @@ from __future__ import annotations
 
 # ── Navigation model ─────────────────────────────────────────────────────────
 #
-# ONE model, rendered twice: this module renders it to HTML (every page, incl. the
-# legacy Jinja ones), and render_spa_page inlines it as JSON for the React sidebar
-# to render with real lucide components. Two renderers over one model rather than
-# two hand-kept lists, which is the failure mode the whole nav convergence with the
-# big Insight exists to avoid — reproducing it inside one app would be worse.
+# ONE model, rendered twice: this module renders it to HTML, and render_spa_page
+# inlines it as JSON for the React sidebar (frontend/src/components/Sidebar.tsx) to
+# render with real lucide components. Two renderers over one model rather than two
+# hand-kept lists, which is the failure mode the whole nav convergence with the big
+# Insight exists to avoid — reproducing it inside one app would be worse. The server
+# render is not a fallback: it is what makes the sidebar correct before any JS runs,
+# so mounting React over it moves nothing on the page.
 #
 # The shape mirrors insight-front's src/lib/portal/nav-model.ts: an icon rail of
 # ZONES, each holding the items that belong to it. Lite has exactly one direction
@@ -50,27 +52,70 @@ NAV_ZONES = (
         {"key": "traffic", "label": "Traffic", "href": "/traffic",
          "icon": "Activity"},
     )},
+    # Two zones, as in the portal. Each gets a pane of its own parts — see the `items`
+    # below; a zone whose pane held one row would just duplicate the rail icon lit
+    # beside it, which is what these lists exist to avoid.
+    #
+    # What lite does NOT copy is the portal's Person pane, which is a person PICKER over
+    # an org tree (manager, division, department). Lite has none of that — the person
+    # table carries name, company, is_member and activity metrics, and GitHub hands out
+    # no employment hierarchy — so a picker here would be a flat list of every login in
+    # a sidebar, a worse version of the combo box already on the page.
+    #
+    # Identity is not in People either, though the portal's People zone holds an
+    # "Employees" entry. That one is a VIEW of the roster; the portal keeps "Identities"
+    # — managing them — under Manage, and lite's /identity is that: it edits companies
+    # and aliases and writes override rows. So it stays in Manage.
+    # Pane labels are deliberately terse — one or two words. The pane is ~108px of text
+    # at 236px of sidebar, and "Where the work goes" was being cut mid-word. The page
+    # heading carries the fuller phrase; this is its short form, not a second name for a
+    # different thing.
+    #
+    # Each of these two is one route broken into VIEWS by `?view=`, so the pane holds
+    # real addresses rather than in-page anchors — a pane entry you can send to a
+    # colleague, and one kind of thing in one list. The page renders the requested view
+    # only; the header (subject picker, profile, KPI tiles) is context and stays on all
+    # of them. Item keys are `<zone>-<view>` because that is what the route passes as
+    # `active` once it has read the query.
     {"key": "person", "label": "Person", "icon": "User", "items": (
-        {"key": "person", "label": "Person", "href": "/person",
-         "icon": "User"},
+        # The profile card and the KPI tiles live HERE, not above every view. They were
+        # page-wide context until it turned out they are just content: on "Lasting
+        # impact" the same seven tiles were repeated above numbers that had nothing to
+        # do with them. What stays on every view is the subject bar — who this page is
+        # about — and that is in the page, not in this pane.
+        {"key": "person-overview", "label": "Overview",
+         "href": "/person?view=overview", "icon": "LayoutGrid"},
+        {"key": "person-activity", "label": "Activity",
+         "href": "/person?view=activity", "icon": "Activity"},
+        {"key": "person-work", "label": "Composition",
+         "href": "/person?view=work", "icon": "Layers"},
+        {"key": "person-impact", "label": "Impact",
+         "href": "/person?view=impact", "icon": "TrendingUp"},
+        {"key": "person-score", "label": "Score",
+         "href": "/person?view=score", "icon": "Gauge"},
     )},
     {"key": "people", "label": "People", "icon": "Users", "items": (
-        {"key": "people", "label": "People", "href": "/people",
-         "icon": "Users"},
+        {"key": "people-roster", "label": "Roster",
+         "href": "/people?view=roster", "icon": "Users"},
+        {"key": "people-categories", "label": "Categories",
+         "href": "/people?view=categories", "icon": "ChartColumn"},
+        {"key": "people-reviews", "label": "Reviews",
+         "href": "/people?view=reviews", "icon": "GitPullRequest"},
     )},
-    {"key": "aicost", "label": "AI & Cost", "icon": "DollarSign", "items": (
+    # The portal's counterpart zone is "AI & Cost" (credits burn-down, spend by tool,
+    # pricing). Lite has no source of spend at all — /api/report/ai-tools carries
+    # aiUsage, studio/gears provenance, trackers and bots, and nothing priced — so the
+    # zone is named for the half that exists. A dollar sign over usage-only data is
+    # exactly the "menu entry for something we do not have" Denis objected to. If a
+    # spend source ever lands here, this becomes the portal's zone verbatim.
+    {"key": "ai", "label": "AI usage", "icon": "Sparkles", "items": (
         {"key": "fabric", "label": "AI tools", "href": "/ai-tools",
          "icon": "Sparkles"},
     )},
-    # "Report" is intentionally NOT an entry: every zone above leads into the
-    # report, so a dedicated Report button would be redundant. `active` may still
-    # be "report" (on the legacy monolith) — nothing is highlighted there.
-    #
-    # "Full report" is gone. It pointed at /report#all, and bare /report has
+    # "Full report" used to sit here. It pointed at /report#all, and bare /report had
     # redirected to /overview since the React cutover — so the entry navigated to
-    # Overview while claiming to open the one-pager. The monolith stays reachable
-    # at /report/legacy for the pixel-parity baseline; it is simply no longer
-    # offered, which also matches the big Insight, where no monolith exists.
+    # Overview while claiming to open a one-pager. The monolith it named is now gone
+    # entirely, which also matches the big Insight, where no such page exists.
     {"key": "manage", "label": "Manage", "icon": "Settings2", "items": (
         {"key": "update", "label": "Update", "href": "/update", "icon": "RefreshCw"},
         {"key": "datahealth", "label": "Data health", "href": "/data-health",
@@ -114,29 +159,92 @@ SHELL_CSS = """
   .sidebar{position:sticky;top:0;flex:0 0 236px;width:236px;height:100vh;overflow-y:auto;font-size:14.5px;line-height:1.55;
     padding:20px 14px;border-right:1px solid var(--line);background:var(--bg,#f5f6f9);z-index:40;
     display:flex;flex-direction:column}
-  .sidebar .brand{display:flex;align-items:center;gap:11px;font-size:15px;font-weight:800;
+  .sidebar .brand{font-size:15px;font-weight:800;
     line-height:1.15;margin:0 6px 18px;letter-spacing:-.02em}
   .sidebar .brand span{display:block;font-size:11px;font-weight:600;color:var(--mut);margin-top:2px}
-  .sidebar .brand .logo{flex:none;width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
-    background:linear-gradient(135deg,var(--acc,#5b5bf0),#8b5cf6);box-shadow:0 4px 12px rgba(91,91,240,.35)}
-  .sidebar .brand .logo svg{width:18px;height:18px;stroke:#fff;stroke-width:2.2;fill:none;
-    stroke-linecap:round;stroke-linejoin:round}
+  /* Rail + pane, the shape the big Insight's portal shell has. 56 + 180 = the 236px
+     the single column already occupied, so the content area loses nothing.
+     The rail's entries are plain links, not zone-pinning state as in the portal:
+     lite navigates per page (server-routed MPA), so a zone link points at its first
+     item and the pane always shows whichever zone the CURRENT page belongs to. Same
+     look, no client state, and the Python and React renderers emit the same markup —
+     which is what keeps React mounting over it from moving anything. */
+  .sb-cols{display:flex;flex:1 1 auto;min-height:0;gap:8px}
+  /* The rail keeps a fixed 44px SLOT in the flow and its hover expansion is pure
+     DECORATION: the widened panel and the labels are painted by a pseudo-element and
+     an absolutely-positioned span, both pointer-events:none, while the clickable
+     anchors stay 44px wide.
+     That distinction is the whole design. The first version widened the anchors
+     themselves, so the open rail (186px) covered the pane (which starts at 44+8) —
+     and moving the mouse rightwards to reach a pane item kept it inside the rail, so
+     the pane became unreachable without leaving the sidebar entirely. Expanding over
+     the very thing you are reaching for is a trap, not an affordance. Now the cursor
+     only ever meets the 44px column: move right and the rail collapses behind you,
+     and you land on the pane. */
+  .sb-rail{position:relative;flex:0 0 44px;align-self:stretch}
+  .sb-rail:hover,.sb-rail:focus-within{z-index:95}
+  .sb-rail::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;
+    border-radius:12px;pointer-events:none;
+    transition:width .14s ease,background .14s ease,box-shadow .14s ease}
+  .sb-rail:hover::before,.sb-rail:focus-within::before{width:186px;
+    background:var(--bg,#f5f6f9);box-shadow:0 12px 36px rgba(16,24,40,.20)}
+  .sb-rail-inner{display:flex;flex-direction:column;gap:3px;width:44px;height:100%}
+  .sb-pane{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0;
+    padding-left:8px;border-left:1px solid var(--line)}
+  /* Manage sits at the bottom of the rail, the way it sat at the bottom of the
+     single column — it is tooling, not a view of the data. */
+  .sb-rail .rz-bottom{margin-top:auto}
+  .rz{position:relative;display:flex;align-items:center;justify-content:center;
+    width:44px;height:40px;flex:none;color:var(--ink2,#475467);
+    text-decoration:none;cursor:pointer}
+  /* The hover/active BACKGROUND is a pseudo-element, not the anchor's own, because
+     the two have to be different sizes: the anchor stays 44px so the pointer never
+     strays over the pane, while the highlight has to grow with the open rail and wrap
+     the label too. Drawn 44px wide, widened to the panel's width on rail hover.
+     Painted first (::before precedes the children) and pointer-events:none, so it
+     neither covers the glyph nor becomes a hit target. */
+  .rz::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;border-radius:11px;
+    pointer-events:none;transition:width .14s ease,background .14s ease,box-shadow .14s ease}
+  .sb-rail:hover .rz::before,.sb-rail:focus-within .rz::before{width:186px}
+  .rz svg{position:relative;flex:none;width:19px;height:19px;stroke:currentColor;
+    stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
+  .rz:hover{color:var(--ink)}
+  .rz:hover::before{background:var(--panel2,#eaeef2)}
+  .rz.active{color:var(--acc-ink,#4a45d6)}
+  .rz.active::before{background:var(--panel,#fff);
+    box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08))}
+  .rz.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
+  /* Always in the DOM so a screen reader gets it; clipped out of sight when the rail
+     is closed, and never a pointer target. */
+  .rz .rz-l{position:absolute;left:44px;top:50%;transform:translateY(-50%);
+    font:600 13px/1.4 inherit;white-space:nowrap;pointer-events:none;
+    opacity:0;transition:opacity .12s ease}
+  .sb-rail:hover .rz-l,.sb-rail:focus-within .rz-l{opacity:1}
+  /* Suppressed after you pick a zone, until the pointer leaves the rail.
+     A rail click navigates, so the destination loads with the cursor still parked on
+     the rail; left to plain :hover it would open again over the pane you came to see.
+     The first attempt gated expansion on pointer MOVEMENT instead, which made it
+     flicker: collapsed on load, then popped open at the first twitch of the mouse.
+     Leaving and returning re-enables it. Two classes beat the one-class rules above,
+     which is what makes this an override rather than a fight. */
+  .sb-rail.rail-dismissed:hover::before{width:44px;background:transparent;box-shadow:none}
+  .sb-rail.rail-dismissed:hover .rz::before{width:44px}
+  .sb-rail.rail-dismissed:hover .rz-l{opacity:0}
   .navgroup{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--mut);padding:2px 11px 6px}
-  .sidenav .navgroup{padding-top:0}
-  .tabs{display:flex;flex-direction:column;gap:2px}
-  .tabs .tab,.sidenav a{display:flex;align-items:center;gap:11px;text-align:left;text-decoration:none;
-    border:none;background:transparent;color:var(--ink2,#475467);border-radius:10px;padding:8px 11px;
-    font:600 13.5px/1.4 inherit;white-space:nowrap;cursor:pointer}
-  .tabs .tab svg,.sidenav a svg{flex:none;width:18px;height:18px;stroke:currentColor;stroke-width:1.9;
+  .sb-pane .tab{display:flex;align-items:center;gap:10px;text-align:left;text-decoration:none;
+    border:none;background:transparent;color:var(--ink2,#475467);border-radius:10px;padding:8px 10px;
+    font:600 13px/1.4 inherit;cursor:pointer;min-width:0}
+  /* The label is its own span so it can ellipsis: as a bare text node it was a flex
+     child that overflow:hidden simply CUT, mid-glyph. Labels are short by policy (see
+     NAV_ZONES) — this is what happens when one is not. */
+  .sb-pane .tab>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sb-pane .tab svg{flex:none;width:17px;height:17px;stroke:currentColor;stroke-width:1.9;
     fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
-  .tabs .tab:hover,.sidenav a:hover{background:var(--panel2,#eaeef2);color:var(--ink)}
-  .tabs .tab.active,.sidenav a.active{background:var(--panel,#fff);color:var(--acc-ink,#4a45d6);
+  .sb-pane .tab:hover{background:var(--panel2,#eaeef2);color:var(--ink)}
+  .sb-pane .tab.active{background:var(--panel,#fff);color:var(--acc-ink,#4a45d6);
     box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08));font-weight:700}
-  .tabs .tab.active svg,.sidenav a.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
-  .sidenav{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
-    display:flex;flex-direction:column;gap:2px}
-  .sidenav a{font-size:13px}
+  .sb-pane .tab.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
   .wrap{flex:1 1 auto;min-width:0}
   @media(max-width:900px){
     .app{display:block}
@@ -259,6 +367,9 @@ _SIDEBAR_JS = """
 
 # Line-icons (Lucide-style, 24-grid) per nav item — one visual language everywhere.
 _ICONS = {
+    "Gauge": '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+    "GitPullRequest": '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>',
+    "Settings2": '<path d="M14 17H5"/><path d="M19 7h-9"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
     "LayoutGrid": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
     "TrendingUp": '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
     "Package": '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
@@ -288,7 +399,55 @@ def _icon(key: str) -> str:
 
 
 
-def sidebar_html(active: str) -> str:
+# Every key the report query can hold — what the client is allowed to merge into a
+# link, so a new param cannot leak into navigation just by existing in some URL.
+_CARRY_KEYS = ("p", "from", "to", "slice", "person")
+# The two GLOBAL filters. Every report page reads them, so every report link should
+# arrive with them still applied.
+CARRY_GLOBAL = ("p", "from", "to", "slice")
+# A page SUBJECT, and the one zone where it means anything. `?person=` on /elements
+# would be a param nothing reads, kept alive in everyone's URL bar; inside the Person
+# zone it is the whole point — switching to Activity must not forget whose activity.
+CARRY_SUBJECT = {"person": "person"}
+
+
+def zone_carry(zone_key: str, carry: dict | None) -> dict | None:
+    """The subset of the report query (see server.py's _report_carry) that links into
+    this zone should keep.
+
+    Manage takes none of it: it is settings, and `?p=30d` means nothing to /config —
+    it would only survive in someone's bookmark.
+
+    One rule, consulted by BOTH renderers (sidebar_html / nav_model_json here,
+    components/Sidebar.tsx on the client), because the two disagreeing about which
+    links keep your filters is exactly the bug this exists to prevent."""
+    if not carry or zone_key == "manage":
+        return None
+    return {k: v for k, v in carry.items()
+            if k in CARRY_GLOBAL or CARRY_SUBJECT.get(k) == zone_key}
+
+
+def _carry_href(href: str, carry: dict | None) -> str:
+    """Merge `carry` into `href`, keeping whatever the href already specifies.
+
+    A view switch must not lose the page's subject: /person?view=work has to keep the
+    `?person=` that says whose page it is, and the same goes for the period and scope
+    on every report link. The server merges the values from the REQUEST, which is what
+    makes the sidebar work with no bundle at all; the React sidebar merges from the
+    LIVE query on top of that, because a person picked after page load never reached
+    the server (see components/Sidebar.tsx)."""
+    if not carry:
+        return href
+    path, _, qs = href.partition("?")
+    keep = {k: v for k, v in carry.items() if v}
+    if not keep:
+        return href
+    from urllib.parse import quote
+    extra = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in sorted(keep.items()))
+    return f"{path}?{qs}&{extra}" if qs else f"{path}?{extra}"
+
+
+def sidebar_html(active: str, carry: dict | None = None) -> str:
     """Full sidebar markup, rendered from NAV_ZONES. `active` = which page this is,
     matched against an item's `key`.
 
@@ -297,52 +456,110 @@ def sidebar_html(active: str) -> str:
     called preventDefault() regardless of href, so this only ever mattered when
     navigating FROM another page).
 
-    Two markup shapes survive — `<a class="tab">` inside `<nav class="tabs">` for
-    report items, `<a href … class="active">` inside `<nav class="sidenav">` for
-    manage ones. Not because anything reads them back any more (the monolith did,
-    and it is gone) but because SHELL_CSS styles the two selectors differently. The
-    React sidebar replacing this is where that shape gets settled; unifying it here
-    first would mean restyling every page for a renderer about to be replaced."""
-    tabs, modes = [], []
-    for zone in NAV_ZONES:
-        target = modes if zone["key"] == "manage" else tabs
-        # A single-item zone gets no heading: "Person" above one Person link reads
-        # as a mistake rather than as structure.
-        if len(zone["items"]) > 1:
-            target.append('<div class="navgroup">%s</div>' % zone["label"])
-        for it in zone["items"]:
-            on = it["key"] == active
-            if target is modes:
-                target.append('<a href="%s"%s>%s%s</a>' % (
-                    it["href"], ' class="active"' if on else "", _icon(it["icon"]), it["label"]))
-            else:
-                target.append('<a class="tab%s" href="%s">%s%s</a>' % (
-                    " active" if on else "", it["href"], _icon(it["icon"]), it["label"]))
-    tabs, modes = "".join(tabs), "".join(modes)
-    logo = ('<span class="logo"><svg class="i" viewBox="0 0 24 24" aria-hidden="true">'
-            '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>')
+    The shape is an icon RAIL of zones plus a PANE of the active zone's items — what
+    the big Insight's portal shell looks like. Two differences from it, both because
+    lite is a server-routed MPA rather than an SPA: a rail entry is a plain link to
+    its zone's first item instead of pinning zone state, and the pane always shows
+    whichever zone the current page belongs to. No client state, so this and
+    components/Sidebar.tsx emit identical markup — which is what lets React mount
+    over this without anything moving.
+
+    A zone with one item still gets a pane holding that one item, deliberately: the
+    alternative (no pane) would change the sidebar's width depending on which page you
+    are on, and a layout that resizes as you navigate is worse than a pane with one
+    row in it. The group HEADING is what a single item does not earn."""
+    caption = report_caption()
+    zones = list(NAV_ZONES)
+    # Which zone the current page belongs to. Falls back to the first: `active` is ""
+    # or unknown on a page outside the nav (e.g. /calibrate), and a rail with nothing
+    # lit beside an empty pane reads as broken rather than as "not in the menu".
+    current = next((z for z in zones
+                    if any(i["key"] == active for i in z["items"])), zones[0])
+
+    rail = []
+    for z in zones:
+        on = z is current
+        bottom = " rz-bottom" if z["key"] == "manage" else ""
+        rail.append(
+            '<a class="rz%s%s" href="%s" aria-label="%s">%s<span class="rz-l">%s</span></a>' % (
+                " active" if on else "", bottom,
+                _carry_href(z["items"][0]["href"], zone_carry(z["key"], carry)),
+                z["label"], _icon(z["icon"]), z["label"]))
+
+    pane = []
+    if len(current["items"]) > 1:
+        pane.append('<div class="navgroup">%s</div>' % current["label"])
+    for it in current["items"]:
+        pane.append('<a class="tab%s" href="%s">%s<span>%s</span></a>' % (
+            " active" if it["key"] == active else "",
+            _carry_href(it["href"], zone_carry(current["key"], carry)),
+            _icon(it["icon"]), it["label"]))
+
     return (
         '<header class="navbar">'
         '<button class="navburger" type="button" aria-label="Toggle menu" aria-expanded="false"'
         ' aria-controls="app-sidebar">&#9776;</button>'
-        '<div class="navbar-title">Constructor&nbsp;Insight<span>Contribution &amp; Usage</span></div>'
+        '<div class="navbar-title">Constructor&nbsp;Insight'
+        '<span>' + (caption or "Contribution &amp; Usage") + '</span></div>'
         '</header>'
         '<div class="nav-backdrop" aria-hidden="true"></div>'
         '<aside class="sidebar" id="app-sidebar">'
-        '<div class="brand">' + logo + '<div>Constructor&nbsp;Insight'
-        '<span>Contribution &amp; Usage</span></div></div>'
-        # The group headings come from the zones now, not from here: one "Report"
-        # heading over everything was the flat structure this replaces.
-        '<nav class="tabs" aria-label="Report views">' + tabs + '</nav>'
-        '<nav class="sidenav" aria-label="Manage tools">' + modes + '</nav>'
+        '<div class="brand"><div>Constructor&nbsp;Insight'
+        '<span>' + (caption or "Contribution &amp; Usage") + '</span></div></div>'
+        '<div class="sb-cols">'
+        '<nav class="sb-rail" aria-label="Sections">'
+        '<div class="sb-rail-inner">' + "".join(rail) + '</div></nav>'
+        '<nav class="sb-pane" aria-label="' + current["label"] + '">' + "".join(pane) + '</nav>'
+        '</div>'
         '</aside>' + _SIDEBAR_JS)
 
 
-def nav_model_json() -> str:
-    """NAV_ZONES as JSON for the React sidebar, inlined by render_spa_page.
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-    Inlined rather than fetched: the sidebar is above the fold on every page, and a
-    round-trip would show an empty rail first. It also keeps the model server-owned,
-    which is the point — the React side renders it, it does not restate it."""
+
+def report_caption() -> str:
+    """"<org> · <when the data was built>", for the sidebar's brand block.
+
+    This replaces a line every page used to print above its own heading:
+    "Org constructorfabric · all-time history (since 2008-01-01) · generated
+    2026-07-29 03:33 UTC" — ten pages rendering the same sentence, and the longest
+    part of it was a lie. `since 2008-01-01` is not when the data starts; it is the
+    sentinel the all-time window uses for "no lower bound". Showing a placeholder in
+    the shape of a fact is worse than showing nothing, and the period control already
+    says "All-time" in one word.
+
+    What is left is what a reader actually needs from chrome: whose org this is, and
+    how old the numbers are. Degrades to the plain tagline if the store cannot be read
+    (a fresh install has no run yet), because chrome must never be the thing that
+    breaks a page."""
+    try:
+        import store
+        conn = store.connect()
+        try:
+            row = conn.execute(
+                "SELECT org, generated_at FROM runs ORDER BY date DESC LIMIT 1").fetchone()
+        finally:
+            conn.close()
+        if not row or not row["generated_at"]:
+            return ""
+        g = str(row["generated_at"])
+        when = f"{int(g[8:10])} {_MONTHS[int(g[5:7]) - 1]} {g[11:16]} UTC"
+        return f"{row['org']} · {when}" if row["org"] else when
+    except Exception:                      # noqa: BLE001 — chrome, never fatal
+        return ""
+
+
+def nav_model_json(active: str = "", carry: dict | None = None) -> str:
+    """The navigation model plus which entry is current, as JSON for the React
+    sidebar. Inlined by render_spa_page rather than fetched: the sidebar is above the
+    fold on every page, and a round-trip would mean rendering it twice or showing it
+    empty first. `active` travels in the payload instead of being sniffed back out of
+    the server markup's `.active` class — the server already knows it."""
     import json
-    return json.dumps(NAV_ZONES, separators=(",", ":"))
+    zones = [{**z, "carry": sorted(zone_carry(z["key"], {k: 1 for k in _CARRY_KEYS}) or {}),
+              "items": [{**i, "href": _carry_href(i["href"], zone_carry(z["key"], carry))}
+                        for i in z["items"]]}
+             for z in NAV_ZONES]
+    return json.dumps({"active": active, "zones": zones,
+                       "caption": report_caption()}, separators=(",", ":"))

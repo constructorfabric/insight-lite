@@ -214,17 +214,6 @@ export default function AiTools() {
 
   return (
     <>
-      <p className="sub">
-        Org <b>{data.meta.org}</b> ·{" "}
-        {data.meta.allTime ? (
-          <>
-            <b>all-time history</b> (since {data.meta.windowStart})
-          </>
-        ) : (
-          <>window {data.meta.windowStart} → today ({data.meta.lookbackDays} days)</>
-        )}{" "}
-        · generated {data.meta.generatedText} UTC
-      </p>
 
       <FilterBar
         periodPresets={data.periodPresets} period={data.period} scope={data.scope}

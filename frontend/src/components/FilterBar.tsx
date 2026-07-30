@@ -8,6 +8,27 @@
 import { useState } from "react";
 import { setReportQuery } from "../hooks/useReportData";
 
+// One help per control, sitting next to the control it explains — a single combined
+// legend made the reader work out which half applied to which. Each string is used both
+// as the tooltip and as the accessible label, from one constant so they cannot drift.
+const PERIOD_HELP = [
+  "Follows the period — KPIs, by company, % by category, work type, By Element, "
+    + "platform/app, weekly activity, contribution trend, per-person activity, traffic, "
+    + "code review, bot activity, AI-marked share, per-tool AI split.",
+  "Always all-time, by nature — contributors (cumulative), surviving-LOC, repo "
+    + "coverage, content markers (Studio/Gears), cpt lines.",
+].join("\n");
+
+const SCOPE_HELP = [
+  "Narrows the whole report to part of the org: one organisation, one element (a named "
+    + "group of repositories), or a single repository.",
+  "Everything measured over the selected period is then recomputed from only those "
+    + "repositories — KPIs, per-person activity, cycle times, review load.",
+  "The all-time panels stay org-wide — contributors, surviving-LOC, repo coverage — "
+    + "because they are not measured over a window at all, so there is nothing for a "
+    + "scope to narrow.",
+].join("\n");
+
 export type PeriodPreset = { key: string; label: string };
 export type ScopeTargets = { org?: string[]; element?: string[]; repo?: string[] };
 export type Period = { preset: string; label: string; from: string | null; to: string | null };
@@ -41,6 +62,8 @@ export default function FilterBar({
     <div className="topbar">
       <div className="period-bar" aria-label="Period filter">
         <span className="period-lbl">Period</span>
+        <button type="button" className="legend-help" data-tip={PERIOD_HELP}
+                aria-label={PERIOD_HELP}>?</button>
         <div className="pseg" role="group" aria-label="Preset windows">
           {periodPresets.map((p) => (
             <button
@@ -87,8 +110,14 @@ export default function FilterBar({
         </span>
         <span id="period-msg" className="period-note" />
       </div>
-      <div className="period-bar" aria-label="Repository slice">
-        <span className="period-lbl">Slice</span>
+      {/* "Scope", not "Slice". The word was never explained anywhere and read as jargon;
+          the select's own id has been `global-scope` all along, so this aligns the label
+          with what the code already calls it. The QUERY PARAM stays `?slice=` — renaming
+          it would break every shared link and bookmark for a label change. */}
+      <div className="period-bar" aria-label="Repository scope">
+        <span className="period-lbl">Scope</span>
+        <button type="button" className="legend-help" data-tip={SCOPE_HELP}
+                aria-label={SCOPE_HELP}>?</button>
         <select
           id="global-scope"
           value={scope}
@@ -122,21 +151,7 @@ export default function FilterBar({
             </optgroup>
           )}
         </select>
-        <span className="period-note" id="slice-msg">
-          scopes every windowed panel; all-time panels (Contributors, Surviving-LOC) stay org-wide
-        </span>
       </div>
-      <details className="period-legend" id="legendDisc" open>
-        <summary>What the period &amp; slice affect</summary>
-        <div className="legend-body">
-          <b>Period-filtered:</b> KPIs · by company · % by category · work type · By Element ·
-          platform/app · weekly activity · contribution trend · per-person activity · traffic ·
-          code review · bot activity · AI-marked share · per-tool AI split.{" "}
-          <b>Always all-time</b> (by nature): contributors (cumulative) · surviving-LOC · repo
-          coverage · content markers (Studio/Gears) · cpt lines. <b>Slice</b> scopes every windowed
-          panel; all-time panels stay org-wide.
-        </div>
-      </details>
     </div>
   );
 }

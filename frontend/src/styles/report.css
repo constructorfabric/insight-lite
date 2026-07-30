@@ -153,6 +153,28 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:20px;border:1px solid var(--line);color:var(--mut);margin-left:6px}
   .tag.ext{color:var(--warn);border-color:#d4b75c}
   .tag.legacy{color:var(--app);border-color:#c4a7e7}
+  /* The SUBJECT row: who this page is about, as opposed to the .topbar above it,
+     which holds the two GLOBAL controls (period, repo slice) that travel with you from
+     page to page. The person does not narrow what you see — it decides whose page this
+     is — so putting it in the global bar and then captioning it "not actually global"
+     would be arguing with the layout. Its own row, sticky under the chrome so it does
+     not scroll away, and visibly attached to the page rather than to the frame. */
+  .subjectbar{position:sticky;top:0;z-index:45;display:flex;align-items:center;
+    flex-wrap:wrap;gap:10px;margin:0 0 16px;padding:10px 14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    box-shadow:var(--sh)}
+  .subjectbar .subj-lbl{font-size:11px;font-weight:700;color:var(--mut);
+    text-transform:uppercase;letter-spacing:.05em;flex:none}
+  /* Was a full sentence, which wrapped onto a second right-aligned line and cost the
+     row its shape — the wording moved into the "?" (SUBJECT_HELP in Person.tsx). */
+  .subjectbar .subj-scope{display:inline-flex;align-items:center;gap:6px;
+    font-size:11.5px;color:var(--mut);margin-left:auto;flex:none}
+  /* The two picker controls are flat siblings of the label, so pin them to one
+     height and let the combo take the slack — the row then never reflows as the
+     company list changes width. */
+  .subjectbar .person-combo{flex:1 1 240px;max-width:360px}
+  .subjectbar .person-search{width:100%;height:34px;box-sizing:border-box}
+  .subjectbar .person-select{height:34px;flex:0 1 auto;max-width:200px}
   .period-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 0}
   .period-bar .period-lbl{font-size:11px;font-weight:700;color:var(--mut);margin-right:2px;
     text-transform:uppercase;letter-spacing:.05em}
@@ -174,28 +196,18 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .period-custom .papply{border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:6px;
     padding:5px 11px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
   .period-note{font-size:12px;color:var(--mut);margin-left:2px}
-  .period-legend{font-size:11.5px;color:var(--mut);margin-top:8px;line-height:1.5;opacity:.85}
-  .period-legend b{font-weight:600;color:var(--mut)}
-  /* the legend text is a disclosure: forced-open with the summary hidden on desktop,
-     collapsed by default on mobile (JS drops the open attr) so it doesn't eat the screen */
-  .period-legend>summary{display:none}
-  .period-legend[open]>summary{margin-bottom:4px}
-  @media(max-width:640px){
-    .period-legend>summary{display:inline-flex;align-items:center;gap:5px;list-style:none;
-      cursor:pointer;font-size:12px;font-weight:600;color:var(--acc);opacity:1}
-    .period-legend>summary::-webkit-details-marker{display:none}
-    .period-legend>summary::before{content:"▸";font-size:10px;transition:transform .15s}
-    .period-legend[open]>summary::before{transform:rotate(90deg)}
-    #slice-msg{display:none}  /* folded into the legend on mobile to save vertical space */
-  }
+  /* One "?" per global control, next to its label (see FilterBar's PERIOD_HELP /
+     SCOPE_HELP). Sized to sit on the control row without stretching it. */
+  .legend-help{flex:none;width:22px;height:22px;padding:0;border-radius:999px;
+    border:1px solid var(--line2);background:var(--panel);color:var(--mut);
+    font:700 12px/1 inherit;cursor:help;box-shadow:none}
+  .legend-help:hover{color:var(--ink);border-color:var(--acc)}
   @media(min-width:901px){
     /* desktop: one row — slice pinned left, period pushed right; legend wraps below */
     .topbar{display:flex;flex-wrap:wrap;align-items:center;column-gap:20px}
     .topbar>.period-bar{margin:0}
-    .topbar>[aria-label="Repository slice"]{order:1}
+    .topbar>[aria-label="Repository scope"]{order:1}
     .topbar>[aria-label="Period filter"]{order:2;margin-left:auto}
-    .topbar>.period-legend{order:3;flex-basis:100%;margin-top:6px}
-    #slice-msg{display:none}  /* redundant with the legend in the one-row layout */
   }
   .alltime-tag{font-size:11px;font-weight:600;color:var(--mut);border:1px solid var(--line);
     border-radius:999px;padding:1px 7px;vertical-align:middle;margin-left:6px}
@@ -232,7 +244,8 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .tblbar button{border:1px solid var(--line);background:var(--panel);color:var(--ink);
     border-radius:999px;padding:5px 11px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
   .tblbar button:hover{border-color:var(--acc);color:var(--acc)}
-  .tblbar .cnt{font-size:12px;color:var(--mut)}
+  .cnt{font-size:12px;color:var(--mut);margin:8px 0 0}
+  .cnt-top{margin:0 0 8px}
   .person-select{border:1px solid var(--line);border-radius:8px;padding:6px 10px;
     font:inherit;font-size:13px;background:var(--bg);color:var(--ink);max-width:420px}
   .person-pick{font-size:13px;color:var(--mut);font-weight:600}
@@ -253,6 +266,23 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .combo-item .mut{color:var(--mut);font-size:12px}
   .combo-em{color:var(--mut);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .combo-empty{padding:8px 11px;color:var(--mut);font-size:12px}
+  /* Person page with nobody picked. Not an error and not a placeholder — the one
+     screen where the page can only tell you what it is and offer a way in. */
+  .pempty{padding:4px 2px}
+  .pempty-lead{margin:0 0 10px;font-size:15px;font-weight:600;color:var(--ink)}
+  .pempty-what{margin:0 0 18px;padding:0;list-style:none;
+    display:grid;gap:6px;font-size:13px;color:var(--ink2)}
+  .pempty-what b{color:var(--ink);font-weight:600}
+  .pempty-cap{margin:0 0 8px;font-size:11px;font-weight:700;color:var(--mut);
+    text-transform:uppercase;letter-spacing:.05em}
+  .pempty-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .pempty-chip{display:inline-flex;align-items:center;gap:8px;
+    border:1px solid var(--line);background:var(--panel);color:var(--ink);
+    border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;font-weight:600;
+    cursor:pointer}
+  .pempty-chip:hover{border-color:var(--acc);color:var(--acc)}
+  .pempty-chip .mut{color:var(--mut);font-weight:500;font-size:12px}
+  .pempty-chip:hover .mut{color:var(--acc)}
   /* per-person weekly table: green additions, red deletions, numeric alignment */
   table.person-weekly td,table.person-weekly th{font-variant-numeric:tabular-nums}
   table.person-weekly .pw-lines{white-space:nowrap}
