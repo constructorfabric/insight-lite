@@ -69,8 +69,8 @@ h1{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
 def catalog_json() -> dict:
     """Data for the React /views route — view_registry grouped in GROUPS order
     (empty groups dropped), each view carrying its resolved source `where` (what
-    _card() resolves via vr.resolve_ref). The React page reproduces render_page()'s
-    card markup from this verbatim."""
+    _card() resolves via vr.resolve_ref) — the React page builds its cards from
+    this verbatim."""
     by_group: dict = {}
     for v in vr.all_views():
         by_group.setdefault(v["group"], []).append(v)

@@ -14,9 +14,8 @@ import json as _json
 
 def calibrate_json(rater: str = "") -> dict:
     """Data for the React /calibrate route: the score board with each person's
-    all-rater summary + this rater's own rating, plus the pillar weights. Kept
-    PARALLEL to render_page()'s assembly (raw values; React escapes on output) so
-    render_page — the pixel-gate baseline — stays byte-for-byte unchanged."""
+    all-rater summary + this rater's own rating, plus the pillar weights. Raw
+    values; the React page escapes on output."""
     import store
     conn = store.connect()
     try:

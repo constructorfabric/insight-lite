@@ -107,12 +107,6 @@ def apply(do_render: bool = True) -> dict:
         store.upsert_run(conn, blob)          # DB run table is the source of truth
     conn.close()
 
-    # keep the identity editor in sync (regenerated from the data + the overrides)
-    try:
-        directory.refresh_editor()
-    except Exception:                # noqa: BLE001 — editor refresh is best-effort
-        pass
-
     if do_render:
         render.main()
     return {"people": len(people), "aliases": len(alias), "folded_rows": folded,

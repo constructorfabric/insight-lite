@@ -59,6 +59,11 @@ function toSearchString(q: ReportQuery): string {
   if (q.person) parts.push(`person=${encodeURIComponent(q.person)}`);
   if (q.tgran) parts.push(`tgran=${encodeURIComponent(q.tgran)}`);
   if (q.tdim) parts.push(`tdim=${encodeURIComponent(q.tdim)}`);
+  // `view` too, or every setReportQuery call would rewrite the URL without it: click a
+  // period on Person > Activity and you landed back on Overview while the sidebar still
+  // highlighted Activity. It is dropped from the REQUEST separately (see `forApi`
+  // below) — the payload is the same for every view of a page.
+  if (q.view) parts.push(`view=${encodeURIComponent(q.view)}`);
   return parts.join("&");
 }
 

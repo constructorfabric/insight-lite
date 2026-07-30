@@ -1874,9 +1874,7 @@ class ReconfigTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}), \
                  patch.object(reconfig, "render"), \
-                 patch.object(reconfig, "ROOT", tmp), \
-                 patch.object(configstore, "refresh_editor"), \
-                 patch.object(directory, "refresh_editor"):
+                 patch.object(reconfig, "ROOT", tmp):
                 conn = store.connect()
                 # 'zrepo' is in no base list -> base class app; overlay flips to platform
                 store.write_repos_dim(conn, [{"key": "o/zrepo", "org": "o", "name": "zrepo",
@@ -2001,8 +1999,7 @@ class BotOverrideTest(unittest.TestCase):
         import store, reindex, directory
         with TemporaryDirectory() as tmp:
             with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}), \
-                 patch.object(reindex, "render"), \
-                 patch.object(directory, "refresh_editor"):
+                 patch.object(reindex, "render"):
                 conn = store.connect()
                 store.write_people_dim(conn, [{"login": "noisy", "company": "Other",
                                                "is_member": False, "emails": []}])
@@ -2167,7 +2164,6 @@ class ReindexTest(unittest.TestCase):
         import importlib, store, directory, reindex
         with TemporaryDirectory() as tmp:
             with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}), \
-                 patch.object(directory, "refresh_editor"), \
                  patch.object(reindex, "render") as _r:
                 conn = store.connect()
                 # the curated roster: rows in the override table, which is where reindex

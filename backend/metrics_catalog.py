@@ -44,10 +44,9 @@ def _metric_row(m: dict) -> str:
 
 
 def catalog_json() -> dict:
-    """Data for the React /metrics route — the same registry render_page() draws,
-    grouped in GROUPS order (empty groups dropped), plus the header counts. Each
-    metric dict is passed through verbatim (name/type/desc/unit/formula/where/
-    snippet), so the React page can reproduce render_page()'s markup exactly."""
+    """Data for the React /metrics route — metric_registry grouped in GROUPS order
+    (empty groups dropped), plus the header counts. Each metric dict is passed
+    through verbatim (name/type/desc/unit/formula/where/snippet)."""
     metrics = mreg.all_metrics()
     by_group: dict = {}
     for m in metrics:
