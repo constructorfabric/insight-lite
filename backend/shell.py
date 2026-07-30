@@ -1,34 +1,104 @@
 #!/usr/bin/env python3
-"""Shared app-shell: one identical left sidebar for every page (Report, Identity,
-Update). Section links point at /report#<section> — on the Report page JS switches
-the section in place; from any other page they navigate into the report at that
-section. The Update/Report/Identity mode switch is pinned to the sidebar bottom.
+"""Shared app-shell: the navigation model, plus one identical left sidebar rendered
+from it on every page.
 
-Used by render.py (Report), directory.py (Identity editor) and server.py (Update
-portal) so the sidebar markup + CSS never drift between pages.
+Every entry links straight at its own route — this used to hand out `/report#<section>`
+links that a monolith's JS intercepted, and both the monolith and the interception are
+gone. Manage tools are pinned to the sidebar bottom.
+
+Used by render.py (render_spa_page, i.e. every React route) and server.py, so the
+sidebar markup and CSS cannot drift between pages.
 """
 from __future__ import annotations
 
-SECTIONS = [
-    ("overview", "Overview"), ("trend", "Trend"),
-    ("delivery", "Delivery"), ("flow", "Flow"),
-    ("people", "People"), ("person", "Person"),
-    ("repos", "Repositories"), ("elements", "Elements"),
-    ("usage", "Traffic"), ("fabric", "AI tools"),
-    ("all", "Full report"),
-]
-# "Report" is intentionally NOT a mode link: the section tabs above always lead
-# into the report, so a dedicated Report button would be redundant. `active` may
-# still be "report" (on the report page) — no mode link is highlighted there.
-MODES = [("update", "/update", "Update"), ("datahealth", "/data-health", "Data health"),
-         ("identity", "/identity", "Identity"),
-         ("config", "/config", "Config"), ("semantic", "/semantic", "Taxonomy"),
-         ("setup", "/setup", "Setup"), ("metrics", "/metrics", "Metrics"),
-         ("mcp", "/mcp-info", "MCP"), ("usage", "/usage-insights", "Usage insights"),
-         ("dashboards", "/dashboards", "Dashboards"),
-         ("changelog", "/whats-new", "What's new")]
+# ── Navigation model ─────────────────────────────────────────────────────────
+#
+# ONE model, rendered twice: this module renders it to HTML (every page, incl. the
+# legacy Jinja ones), and render_spa_page inlines it as JSON for the React sidebar
+# to render with real lucide components. Two renderers over one model rather than
+# two hand-kept lists, which is the failure mode the whole nav convergence with the
+# big Insight exists to avoid — reproducing it inside one app would be worse.
+#
+# The shape mirrors insight-front's src/lib/portal/nav-model.ts: an icon rail of
+# ZONES, each holding the items that belong to it. Lite has exactly one direction
+# (GitHub), so the direction level that portal shows collapses away and a zone's
+# items ARE the second level. A zone gets a group heading only when it has more
+# than one item — a heading over a single entry is noise.
+#
+# `icon` is a lucide COMPONENT NAME, deliberately: it is the vocabulary
+# nav-model.ts already declares (`icon: LucideIcon`), so the two products name the
+# same glyph the same way. The React side imports it from lucide-react; this module
+# looks it up in _ICONS, whose paths were copied out of lucide to begin with.
+NAV_ZONES = (
+    {"key": "overview", "label": "Overview", "icon": "LayoutGrid", "items": (
+        {"key": "overview", "label": "Overview", "href": "/overview",
+         "icon": "LayoutGrid"},
+        {"key": "trend", "label": "Trend", "href": "/trend",
+         "icon": "TrendingUp"},
+    )},
+    {"key": "development", "label": "Development", "icon": "GitPullRequest", "items": (
+        {"key": "delivery", "label": "Delivery", "href": "/delivery",
+         "icon": "Package"},
+        {"key": "flow", "label": "Flow", "href": "/flow",
+         "icon": "RefreshCw"},
+        {"key": "repos", "label": "Repositories", "href": "/repositories",
+         "icon": "Folder"},
+        {"key": "elements", "label": "Elements", "href": "/elements",
+         "icon": "Layers"},
+        # Traffic is GitHub-specific and has no portal counterpart; it lives under
+        # Development rather than at the root.
+        {"key": "traffic", "label": "Traffic", "href": "/traffic",
+         "icon": "Activity"},
+    )},
+    {"key": "person", "label": "Person", "icon": "User", "items": (
+        {"key": "person", "label": "Person", "href": "/person",
+         "icon": "User"},
+    )},
+    {"key": "people", "label": "People", "icon": "Users", "items": (
+        {"key": "people", "label": "People", "href": "/people",
+         "icon": "Users"},
+    )},
+    {"key": "aicost", "label": "AI & Cost", "icon": "DollarSign", "items": (
+        {"key": "fabric", "label": "AI tools", "href": "/ai-tools",
+         "icon": "Sparkles"},
+    )},
+    # "Report" is intentionally NOT an entry: every zone above leads into the
+    # report, so a dedicated Report button would be redundant. `active` may still
+    # be "report" (on the legacy monolith) — nothing is highlighted there.
+    #
+    # "Full report" is gone. It pointed at /report#all, and bare /report has
+    # redirected to /overview since the React cutover — so the entry navigated to
+    # Overview while claiming to open the one-pager. The monolith stays reachable
+    # at /report/legacy for the pixel-parity baseline; it is simply no longer
+    # offered, which also matches the big Insight, where no monolith exists.
+    {"key": "manage", "label": "Manage", "icon": "Settings2", "items": (
+        {"key": "update", "label": "Update", "href": "/update", "icon": "RefreshCw"},
+        {"key": "datahealth", "label": "Data health", "href": "/data-health",
+         "icon": "ShieldCheck"},
+        {"key": "identity", "label": "Identity", "href": "/identity", "icon": "Contact"},
+        {"key": "config", "label": "Config", "href": "/config", "icon": "Settings"},
+        {"key": "semantic", "label": "Taxonomy", "href": "/semantic", "icon": "Network"},
+        {"key": "setup", "label": "Setup", "href": "/setup", "icon": "SlidersHorizontal"},
+        {"key": "metrics", "label": "Metrics", "href": "/metrics", "icon": "ChartColumn"},
+        {"key": "mcp", "label": "MCP", "href": "/mcp-info", "icon": "Plug"},
+        # `usage-insights`, not `usage`: that key was ALSO the Traffic section's, and
+        # both /traffic and /usage-insights passed active="usage" — so whichever of
+        # the two you opened, the sidebar highlighted both of them.
+        {"key": "usage-insights", "label": "Usage insights", "href": "/usage-insights",
+         "icon": "Gauge"},
+        {"key": "dashboards", "label": "Dashboards", "href": "/dashboards",
+         "icon": "LayoutDashboard"},
+        {"key": "changelog", "label": "What's new", "href": "/whats-new", "icon": "Bell"},
+    )},
+)
 # /calibrate is intentionally NOT in the sidebar — it's a private calibration tool
 # reachable by direct URL only, so it doesn't surface to everyone.
+
+
+def nav_zones() -> tuple:
+    """The navigation model. A function so the React payload and the HTML renderer
+    below read the same object rather than one of them holding a stale copy."""
+    return NAV_ZONES
 
 # CSS uses var() with hard fallbacks so it works on pages that don't define the
 # full palette (the identity editor / portal lack --panel2).
@@ -189,27 +259,25 @@ _SIDEBAR_JS = """
 
 # Line-icons (Lucide-style, 24-grid) per nav item — one visual language everywhere.
 _ICONS = {
-    "overview": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
-    "trend": '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
-    "delivery": '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
-    "flow": '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M21 21v-5h-5"/>',
-    "people": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
-    "person": '<circle cx="12" cy="7.5" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/>',
-    "repos": '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>',
-    "elements": '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
-    "usage": '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
-    "fabric": '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6 6l1.5 1.5M16.5 16.5 18 18M18 6l-1.5 1.5M7.5 16.5 6 18"/>',
-    "all": '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
-    "update": '<path d="M3 12a9 9 0 0 1 9-9 9.7 9.7 0 0 1 6.7 2.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.7 9.7 0 0 1-6.7-2.7L3 16"/><path d="M8 16H3v5"/>',
-    "identity": '<rect x="2" y="5" width="20" height="14" rx="2.5"/><circle cx="8.5" cy="12" r="2.3"/><path d="M13 10h6M13 14h4M5 16.4a3.5 3.5 0 0 1 7 0"/>',
-    "config": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V3a2 2 0 1 1 4 0a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4a1.7 1.7 0 0 0-1.6 1Z"/>',
-    "semantic": '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/>',
-    "setup": '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h13M21 18h-1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="19" cy="18" r="2"/>',
-    "metrics": '<path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8" rx="1"/><rect x="12" y="6" width="3" height="12" rx="1"/><rect x="17" y="13" width="3" height="5" rx="1"/>',
-    "mcp": '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
-    "changelog": '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/>',
-    "dashboards": '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
-    "datahealth": '<path d="M12 3 5 6v5c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="m9 12 2 2 4-4"/>',
+    "LayoutGrid": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    "TrendingUp": '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    "Package": '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+    "RefreshCw": '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M21 21v-5h-5"/>',
+    "Users": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    "User": '<circle cx="12" cy="7.5" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/>',
+    "Folder": '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>',
+    "Layers": '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+    "Activity": '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    "Sparkles": '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6 6l1.5 1.5M16.5 16.5 18 18M18 6l-1.5 1.5M7.5 16.5 6 18"/>',
+    "Contact": '<rect x="2" y="5" width="20" height="14" rx="2.5"/><circle cx="8.5" cy="12" r="2.3"/><path d="M13 10h6M13 14h4M5 16.4a3.5 3.5 0 0 1 7 0"/>',
+    "Settings": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V3a2 2 0 1 1 4 0a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4a1.7 1.7 0 0 0-1.6 1Z"/>',
+    "Network": '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/>',
+    "SlidersHorizontal": '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h13M21 18h-1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="19" cy="18" r="2"/>',
+    "ChartColumn": '<path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8" rx="1"/><rect x="12" y="6" width="3" height="12" rx="1"/><rect x="17" y="13" width="3" height="5" rx="1"/>',
+    "Plug": '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+    "Bell": '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/>',
+    "LayoutDashboard": '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+    "ShieldCheck": '<path d="M12 3 5 6v5c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="m9 12 2 2 4-4"/>',
 }
 
 
@@ -218,32 +286,39 @@ def _icon(key: str) -> str:
     return f'<svg class="i" viewBox="0 0 24 24" aria-hidden="true">{p}</svg>' if p else ""
 
 
-# Report-view section keys already migrated to their own React route (see
-# docs/superpowers/plans/2026-07-22-react-phaseR-report.md) — grows one entry
-# per phase (R-P2..Pn) as `/trend`, `/delivery`, etc. land. Everything else
-# still lives in the `/report` monolith, routed by hash (unchanged).
-MIGRATED_VIEWS = {"overview": "/overview", "trend": "/trend", "delivery": "/delivery", "flow": "/flow",
-                   "people": "/people", "person": "/person", "repos": "/repositories",
-                   "elements": "/elements", "usage": "/traffic", "fabric": "/ai-tools"}
 
 
 def sidebar_html(active: str) -> str:
-    """Full sidebar markup. `active` = which mode page this is (update/report/identity/
-    a migrated report view like 'overview'). A SECTIONS tab whose key is in
-    MIGRATED_VIEWS links straight to its React route instead of `/report#<mode>`;
-    the monolith's own tab-click handler (report.j2) still intercepts these clicks
-    with preventDefault() regardless of href, so this has no effect there — it
-    only changes navigation FROM other pages (Identity, Update, a migrated view's
-    own sidebar, ...) where nothing else handles the click. `active` matching a
-    migrated key (i.e. we ARE on that view's page) highlights its tab, mirroring
-    how a MODES entry gets `.active` below."""
-    tabs = "".join(
-        '<a class="tab%s" href="%s" data-mode="%s">%s%s</a>' % (
-            " active" if m == active else "", MIGRATED_VIEWS.get(m, f"/report#{m}"), m, _icon(m), label)
-        for m, label in SECTIONS)
-    modes = "".join(
-        '<a href="%s"%s>%s%s</a>' % (href, ' class="active"' if k == active else "", _icon(k), label)
-        for k, href, label in MODES)
+    """Full sidebar markup, rendered from NAV_ZONES. `active` = which page this is,
+    matched against an item's `key`.
+
+    Every item links straight at its own route; nothing goes through `/report#<mode>`
+    any more, because every view has been migrated (the monolith's own tab handler
+    called preventDefault() regardless of href, so this only ever mattered when
+    navigating FROM another page).
+
+    Two markup shapes survive — `<a class="tab">` inside `<nav class="tabs">` for
+    report items, `<a href … class="active">` inside `<nav class="sidenav">` for
+    manage ones. Not because anything reads them back any more (the monolith did,
+    and it is gone) but because SHELL_CSS styles the two selectors differently. The
+    React sidebar replacing this is where that shape gets settled; unifying it here
+    first would mean restyling every page for a renderer about to be replaced."""
+    tabs, modes = [], []
+    for zone in NAV_ZONES:
+        target = modes if zone["key"] == "manage" else tabs
+        # A single-item zone gets no heading: "Person" above one Person link reads
+        # as a mistake rather than as structure.
+        if len(zone["items"]) > 1:
+            target.append('<div class="navgroup">%s</div>' % zone["label"])
+        for it in zone["items"]:
+            on = it["key"] == active
+            if target is modes:
+                target.append('<a href="%s"%s>%s%s</a>' % (
+                    it["href"], ' class="active"' if on else "", _icon(it["icon"]), it["label"]))
+            else:
+                target.append('<a class="tab%s" href="%s">%s%s</a>' % (
+                    " active" if on else "", it["href"], _icon(it["icon"]), it["label"]))
+    tabs, modes = "".join(tabs), "".join(modes)
     logo = ('<span class="logo"><svg class="i" viewBox="0 0 24 24" aria-hidden="true">'
             '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>')
     return (
@@ -256,8 +331,18 @@ def sidebar_html(active: str) -> str:
         '<aside class="sidebar" id="app-sidebar">'
         '<div class="brand">' + logo + '<div>Constructor&nbsp;Insight'
         '<span>Contribution &amp; Usage</span></div></div>'
-        '<nav class="tabs" aria-label="Report views">'
-        '<div class="navgroup">Report</div>' + tabs + '</nav>'
-        '<nav class="sidenav" aria-label="Manage tools">'
-        '<div class="navgroup">Manage</div>' + modes + '</nav>'
+        # The group headings come from the zones now, not from here: one "Report"
+        # heading over everything was the flat structure this replaces.
+        '<nav class="tabs" aria-label="Report views">' + tabs + '</nav>'
+        '<nav class="sidenav" aria-label="Manage tools">' + modes + '</nav>'
         '</aside>' + _SIDEBAR_JS)
+
+
+def nav_model_json() -> str:
+    """NAV_ZONES as JSON for the React sidebar, inlined by render_spa_page.
+
+    Inlined rather than fetched: the sidebar is above the fold on every page, and a
+    round-trip would show an empty rail first. It also keeps the model server-owned,
+    which is the point — the React side renders it, it does not restate it."""
+    import json
+    return json.dumps(NAV_ZONES, separators=(",", ":"))

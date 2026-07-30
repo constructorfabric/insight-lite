@@ -15,7 +15,7 @@ import directory
 from collect import add_forker, build_elements_rollup, classify, make_element, make_is_meaningful_loc, make_is_spec, parse_git
 from ghclient import GH
 from identity import build_identity, discard_invalid_clone, git_cmd, git_error, is_blobless_clone, redact_token
-from render import TEMPLATE, build_model, render_report
+from render import build_model
 import server
 from server import snapshot_state, write_people_yaml
 
@@ -416,11 +416,15 @@ class RenderModelTest(unittest.TestCase):
             "weekly": {},
         }
 
-        html = render_report(build_model(data))
-
-        # person names now open the Person tab (data-person), not GitHub
-        self.assertIn('data-person="alice"', html)
-        self.assertNotIn('href="https://github.com/alice"', html)
+        # The rule outlived the monolith: a person's name opens their Person page
+        # rather than their GitHub profile. It now lives in the React widget every
+        # table renders names through, so it is pinned there — build_model above is
+        # still exercised, it just no longer has HTML to inspect.
+        from pathlib import Path as _P
+        gh = (_P(__file__).resolve().parents[1]
+              / "frontend/src/widgets/GhLink.tsx").read_text()
+        self.assertIn('data-person={login}', gh)
+        self.assertNotIn("github.com", gh)
 
     def test_build_model_exposes_elements_repo_loc_and_surviving_rank(self):
         data = {
@@ -511,16 +515,9 @@ class RenderModelTest(unittest.TestCase):
             "forkers": {}, "weekly": {},
         }
         model = build_model(data)
-        html = render_report(model)
-        self.assertIn('data-mode="elements"', html)        # tab button
-        self.assertIn('id="elements"', html)               # section anchor
-        self.assertIn("Insight", html)                     # element row
-        self.assertIn("Code LOC", html)                    # inventory column header
-        self.assertIn("Unmarked", html)                   # people column header (was "Hand-written")
-        # charts render via Vega-Lite: the bundle loads and the hydrator is present
-        self.assertIn("/assets/vega/vega-embed.min.js", html)
-        self.assertIn("function hydrateVega", html)
-        self.assertNotIn(".linechart .ax-hit", html)       # old hand-rolled chart CSS is gone
+        # What this used to also assert — the Elements section's markup, headers and
+        # the Vega hydrator — is the React /elements view's now, covered by
+        # tests/test_elements_api.py against render.elements_json.
 
     def test_build_model_flags_api_rate_limit_partial(self):
         base = {
@@ -534,24 +531,22 @@ class RenderModelTest(unittest.TestCase):
         self.assertTrue(limited["data_quality"]["api_rate_limited"])
         self.assertEqual(limited["data_quality"]["api_reset"], "2026-06-22T01:00:00Z")
         self.assertGreaterEqual(limited["data_quality"]["risk_count"], 1)
-        html = render_report(limited)
-        self.assertIn("API rate limit", html)
 
 
 class DirectoryEditorTest(unittest.TestCase):
     def test_identity_editor_links_logins_and_duplicate_suggestions_to_github(self):
-        html = directory.EDITOR_HTML
+        """Every login in the identity editor links to its GitHub profile, and a
+        duplicate suggestion links its partner too — this is the one editor where a
+        GitHub link IS wanted (you go there to check whether two accounts are the same
+        human). Read from the React editor: the Jinja one this used to inspect went
+        with the legacy editor layer."""
+        from pathlib import Path as _P
+        src = (_P(__file__).resolve().parents[1]
+               / "frontend/src/pages/IdentityEditor.tsx").read_text()
+        self.assertIn("github.com/", src)
+        self.assertIn("dupPartner", src)                 # suggestion-driven dedup
+        self.assertIn("Possible duplicate", src)         # inline merge card
 
-        self.assertIn("function githubLink(login)", html)
-        self.assertIn('href="https://github.com/${encodeURIComponent(login)}"', html)
-        self.assertIn("${githubLink(l)}", html)              # active person links to GitHub
-        self.assertIn("${githubLink(dp.login)}", html)       # duplicate partner links too
-        self.assertIn("dupPartner", html)                    # suggestion-driven dedup
-        self.assertIn("Possible duplicate", html)            # inline merge card
-        self.assertIn("confpill", html)                      # identity-confidence badge
-
-
-class ServerStateTest(unittest.TestCase):
     def test_snapshot_state_reports_cache_and_clone_visibility(self):
         state = snapshot_state()
 
@@ -785,7 +780,10 @@ class PortalSecurityTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             missing = os.path.join(tmp, "missing.db")
             with patch("store.db_path", return_value=missing):
-                status, _, payload = self.request("GET", "/api/period?days=30")
+                # /api/period went with the Jinja fragment layer; the rule it
+                # guarded — a data endpoint answers a JSON 404 rather than 500 or an
+                # HTML error page when there is no DB — belongs to the JSON views now.
+                status, _, payload = self.request("GET", "/api/report/delivery")
 
         self.assertEqual(status, 404)
         data = json.loads(payload)
@@ -1677,39 +1675,43 @@ class AliasMergeTest(unittest.TestCase):
         self.assertEqual(back["alice"]["aliases"], ["alice-alt"])
 
 
-class EditorXssEscapingTest(unittest.TestCase):
+class BootstrapXssEscapingTest(unittest.TestCase):
+    """A server→client payload is embedded as a `<script type="application/json">`
+    island now (render_spa_page's `bootstrap=`), not interpolated into an inline JS
+    literal in a Jinja editor. The breakout rule is unchanged and still load-bearing:
+    a display name containing `</script>` must not be able to close the tag.
+
+    The U+2028/U+2029 half of the old rule is genuinely gone rather than relocated.
+    Those characters were a hazard only inside a JavaScript string literal (they were
+    illegal there before ES2019). Inside a JSON island read via `textContent` and
+    `JSON.parse` they are ordinary characters, so escaping them would be cargo cult —
+    what matters is that the payload still parses, which is asserted below."""
+
+    def _boot(self, payload):
+        import render
+        return render.render_spa_page("identity", "identity", "Identity",
+                                      bootstrap=payload)
+
     def test_script_breakout_in_display_name_is_escaped(self):
-        payload = {
-            "people": [{"login": "mallory", "name": "</script><script>alert(1)</script>",
-                        "company": "Other", "emails": ["</script>@x.com"], "aliases": [],
-                        "commits": 1, "is_member": False,
-                        "identity_confidence": "unknown", "identity_evidence": []}],
-            "companies": ["Other"], "suggestions": [], "bots": {}, "header": "# h\n",
-        }
-
-        benign = dict(payload, people=[dict(payload["people"][0],
-                       name="Mallory", emails=["m@x.com"])])
-        html = directory.render_editor_html(payload)
-        baseline = directory.render_editor_html(benign)
-
-        # the payload string cannot terminate the inline <script> element...
+        evil = {"people": [{"login": "mallory",
+                            "name": "</script><script>alert(1)</script>"}]}
+        benign = {"people": [{"login": "mallory", "name": "Mallory"}]}
+        html = self._boot(evil)
+        baseline = self._boot(benign)
+        # the payload cannot terminate the JSON island...
         self.assertNotIn("</script><script>", html)
-        # ...because every "</" in the JSON blob is emitted as "<\/"
+        # ...because every "</" in it is emitted as "<\/"
         self.assertIn("<\\/script><script>alert(1)<\\/script>", html)
-        # the malicious name adds no real </script> tags: same count as a benign
-        # render (the page's own scripts — editor logic + shared sidebar toggle).
+        # and it adds no real </script> tags: same count as a benign render
         self.assertEqual(html.count("</script>"), baseline.count("</script>"))
 
-    def test_js_line_separators_are_escaped_in_data_blob(self):
-        html = directory.render_editor_html({"people": [], "companies": [],
-                                             "suggestions": [], "bots": {},
-                                             "header": "a\u2028b\u2029c"})
-
-        self.assertNotIn("\u2028", html)
-        self.assertNotIn("\u2029", html)
-        self.assertIn("\\u2028", html)
-        self.assertIn("\\u2029", html)
-
+    def test_the_island_still_parses_with_exotic_separators_in_it(self):
+        import json, re
+        html = self._boot({"header": "a\u2028b\u2029c"})
+        m = re.search(r'<script id="spa-bootstrap"[^>]*>(.*?)</script>', html, re.S)
+        self.assertTrue(m, "no bootstrap island in the page")
+        got = json.loads(m.group(1).replace("<\\/", "</"))
+        self.assertEqual(got["header"], "a\u2028b\u2029c")
 
 class PartialDataDetectionTest(unittest.TestCase):
     """Every degradation path (GraphQL, permission 403s, failed searches) must
@@ -2010,7 +2012,8 @@ class MetricsRegistryTest(unittest.TestCase):
         so digits group and magnitudes read consistently everywhere. Guard: no inline
         '{:,}'.format(...) left in any report template."""
         import render
-        for name in ("PANELS", "TEMPLATE", "FRAGMENT", "PERSON_FRAGMENT", "DELIVERY_FRAGMENT"):
+        # PANELS is all that is left of the Jinja layer (the dashboard panel macros)
+        for name in ("PANELS",):
             tpl = getattr(render, name)
             self.assertNotIn("{:,}", tpl, f"{name} still formats a number inline — use |num/|loc")
         for f in ("num", "loc", "pct", "dur", "compact"):
@@ -2035,11 +2038,20 @@ class MetricsRegistryTest(unittest.TestCase):
         can't drill to a commit/PR/issue list. A new tile added without a drill — or a
         drill silently removed — fails this until it's classified."""
         import re
-        # KPI tiles are kpi_tile() component calls in the extracted Jinja templates.
-        tdir = Path(__file__).resolve().parent.parent / "templates"
-        src = "\n".join(p.read_text() for p in sorted(tdir.rglob("*.j2")))
-        calls = re.findall(r'\{\{\s*kpi_tile\((.*?)\)\s*\}\}', src, re.S)
-        self.assertGreater(len(calls), 20, "kpi_tile calls not found — did the component change?")
+        # The tiles are built in render.py now (_kpi_tiles_json / delivery_json /
+        # person tiles), not in Jinja — same rule, new home. Each `tile(...)` call is
+        # one KPI tile; a drillable one names a drill dict.
+        src = (Path(__file__).resolve().parent.parent / "backend" / "render.py").read_text()
+        # paren-matched, not regex-sliced: a tile call spans lines and nests parens
+        # (drill={"drill": "commit"}), so a lazy `.*?` stops at the first inner one.
+        calls = []
+        for m in re.finditer(r'(?<!def )\btile\(', src):   # calls, not the helper's own def
+            i, depth = m.end(), 1
+            while i < len(src) and depth:
+                depth += (src[i] == "(") - (src[i] == ")")
+                i += 1
+            calls.append(src[m.end():i - 1])
+        self.assertGreater(len(calls), 20, "tile() calls not found — did the component change?")
         # numbers that are a derived rate / median — no underlying list to open.
         EXEMPT = {"close rate", "median time-to-close", "time to first review",
                   # team developer-score medians (Overview score panel) — derived
@@ -2048,10 +2060,10 @@ class MetricsRegistryTest(unittest.TestCase):
                   "median friction"}
         missing = []
         for call in calls:
-            if "'drill':" in call:                    # carries a real drill target
+            if '"drill"' in call or "drill=" in call:   # carries a real drill target
                 continue
-            if not any("'" + ex + "'" in call for ex in EXEMPT):
-                missing.append(call[:80])
+            if not any('"' + ex + '"' in call for ex in EXEMPT):
+                missing.append(" ".join(call.split())[:90])
         self.assertEqual(missing, [],
                          f"kpi_tile tiles neither drillable nor exempt: {missing}")
 
@@ -2120,9 +2132,13 @@ class SetupWizardTest(unittest.TestCase):
                 conn = store.connect()
                 store.set_secret(conn, "gh_token", "SUPERSECRET_TOKEN_VALUE")
                 conn.close()
-                page = server.setup_html().decode()
-                self.assertNotIn("SUPERSECRET_TOKEN_VALUE", page)      # never rendered
-                self.assertIn('TOKEN_STATUS = "db"', page)             # only presence
+                # The wizard is a React page now, bootstrapped from server.setup_boot();
+                # the rule is unchanged and is asserted on that payload directly rather
+                # than by scraping rendered HTML for a JS assignment.
+                import json as _json
+                boot = server.setup_boot()
+                self.assertNotIn("SUPERSECRET_TOKEN_VALUE", _json.dumps(boot))
+                self.assertEqual(boot["token_status"], "db")            # only presence
 
 
 class ReindexTest(unittest.TestCase):
@@ -2291,29 +2307,10 @@ class PersonProfileTest(unittest.TestCase):
             self.assertEqual({w["type"]: w["count"] for w in p["work_type"]},
                              {"feat": 1, "fix": 1, "docs": 1})
 
-    def test_profile_renders_dashboard_fragment(self):
-        import render
-        with TemporaryDirectory() as tmp:
-            store, conn = self._db(tmp)
-            store.write_commits(conn, [self._c("a1", "alice")])
-            prof = store.person_profile(conn, "alice", "2026-01-01T00:00:00Z", "2026-12-31T00:00:00Z")
-            pw = store.person_weekly(conn, "alice", "2026-01-01T00:00:00Z", "2026-12-31T00:00:00Z")
-            heat = [{"week": r["week"], "commits": sum(c["commits"] for c in r["cells"] if c),
-                     "issues": r["issues"]} for r in pw["rows"]]
-            html = render.render_person_fragment(
-                {"weekly": pw, "profile": prof,
-                 "alltime": {"name": "Alice", "is_member": True, "surv_code_human": 42,
-                             "reviews": 3, "merged_prs": 2, "prs": 4},
-                 "heat": heat, "emails": "alice@x"})
-            self.assertIn("phead", html)
-            self.assertIn("Alice", html)
-            self.assertIn("Lasting impact", html)
-            self.assertIn("class=\"heat\"", html)
-            self.assertIn("Human-written LOC", html)
-            self.assertIn("50.0%", html)                        # merge rate 2/4
+    # test_profile_renders_dashboard_fragment lived here until the Jinja person
+    # fragment was removed with the monolith. The same payload is now asserted
+    # against render.person_json in tests/test_person_api.py.
 
-
-class RenderPeriodFallbackTest(unittest.TestCase):
     @staticmethod
     def _data(periods):
         return {
@@ -2338,9 +2335,8 @@ class RenderPeriodFallbackTest(unittest.TestCase):
         pr = model["periods"][0]
         self.assertEqual(pr["label"], "all")
         self.assertEqual(pr["totals"]["commits"], model["totals"]["commits"])
-        # the headline panels must actually render from the synthesized block
-        html = render_report(model)
-        self.assertIn('class="kpis"', html)
+        # (it used to also render the monolith and look for the KPI row; the
+        # synthesized block itself is the claim, and /api/report/overview reads it)
 
     def test_all_zero_store_periods_are_replaced(self):
         zero = {"label": "all", "totals": {"commits": 0}, "categories": [],

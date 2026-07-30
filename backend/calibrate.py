@@ -38,58 +38,6 @@ def calibrate_json(rater: str = "") -> dict:
             "weights": {"cur": store._score_weights(), "def": dict(store._SCORE_WEIGHTS)}}
 
 
-def render_page(rater: str = "", active: str = "calibrate") -> str:
-    import shell
-    import store
-    conn = store.connect()
-    try:
-        board = store.developer_scores(conn, "2008-01-01T00:00:00Z",
-                                       "2099-01-01T00:00:00Z")["board"]
-        summ = store.label_summary(conn)
-        mine = {r["subject_login"]: r["rating"]
-                for r in store.read_score_labels(conn) if r["rater"] == rater}
-    finally:
-        conn.close()
-
-    # pillar weights — the score's tuning knob, now owned by this page
-    weights_blob = _json.dumps({"cur": store._score_weights(),
-                                "def": dict(store._SCORE_WEIGHTS)})
-
-    rows = []
-    for p in board:
-        lg, name, score = p["login"], p["name"], p["score"]
-        s = summ.get(lg)
-        avg = (f'{s["mean"]} · {s["n"]} rater' + ("s" if s["n"] != 1 else "")) if s else "—"
-        stars = "".join(
-            f'<button type="button" class="star{" on" if mine.get(lg) and n <= mine[lg] else ""}" '
-            f'data-star="{n}" aria-label="{n}">&#9733;</button>' for n in range(1, 6))
-        rows.append(
-            f'<tr data-subject="{_h.escape(lg)}"><td class="who"><b>{_h.escape(name)}</b>'
-            f'<span class="lg">{_h.escape(lg)}</span></td>'
-            f'<td class="num sc">{score if score is not None else "—"}</td>'
-            f'<td class="stars">{stars}</td>'
-            f'<td class="num avg">{avg}</td>'
-            f'<td><input class="note" placeholder="optional note" '
-            f'aria-label="note for {_h.escape(lg)}"></td>'
-            f'<td class="saved" aria-live="polite"></td></tr>')
-
-    sub = ("Rate people 1–5 on overall engineering contribution as you see it — this is the "
-           "ground truth the score is calibrated against, not the score itself. Your ratings are "
-           "private to you until aggregated; re-rating updates. "
-           + (f"Signed in as <b>{_h.escape(rater)}</b>." if rater and rater != "anon"
-              else "<b>Note:</b> your identity could not be read from the proxy, so ratings save "
-                   "under &lsquo;anon&rsquo; — set up user headers to attribute them."))
-
-    return (_HTML
-            .replace("/*SHELL_CSS*/", shell.SHELL_CSS)
-            .replace("</style>", shell.BASE_CSS + "</style>", 1)
-            .replace("<!--SIDEBAR-->", shell.sidebar_html(active))
-            .replace("/*SUB*/", sub)
-            .replace("/*WDATA*/", weights_blob)
-            .replace("<!--ROWS-->", "".join(rows) or
-                     '<tr><td colspan="6" class="empty">No scored people yet.</td></tr>'))
-
-
 _HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Calibrate — Constructor Insight</title>

@@ -50,7 +50,6 @@ class StateIsolationTest(unittest.TestCase):
         targets = {
             "paths.DATA_DIR": paths.DATA_DIR,
             "store.db_path()": store.db_path(),
-            "directory.EDITOR": directory.EDITOR,
             "ghclient.CACHE_DIR": ghclient.CACHE_DIR,
             "collect.CLONE_ROOT": collect.CLONE_ROOT,
             "identity.CLONE_ROOT": identity.CLONE_ROOT,

@@ -401,23 +401,10 @@ class DashboardEditorFlowTest(unittest.TestCase):
         self.assertEqual(status, 200)
         did = json.loads(body)["id"]
 
-        # Post-React migration the editor is a React route; the widget-picker
-        # markup + measure/catalog fetches now live in the Vite bundle, not the
-        # server HTML. The server-Jinja editor stays at ?legacy=1 (pixel-gate
-        # baseline + fallback), so assert its content there.
-        status, body = self._status_body(
-            self._get, f"/dashboard/{did}/edit?legacy=1", self._hdr(self.OWNER))
-        self.assertEqual(status, 200)
-        text = body.decode()
-        self.assertIn("dash-title", text)
-        self.assertIn("open-picker", text)          # "+ Add widget" button
-        self.assertIn('id="picker"', text)           # measure-first modal
-        self.assertIn("/api/dashboard/measures", text)
-        self.assertIn("/api/dashboard/catalog", text)
-        self.assertIn('class="sidebar"', text)        # shelled inside the app frame
-        self.assertIn('href="/dashboards"', text)
-
-        # The React route still server-renders the shared sidebar chrome.
+        # The editor is a React route: the widget picker, the measure-first modal
+        # and the catalog fetches live in the Vite bundle. The server-Jinja editor
+        # this used to also assert against went with the rest of the legacy layer;
+        # what the server still owns is the shared sidebar chrome around it.
         status, body = self._status_body(
             self._get, f"/dashboard/{did}/edit", self._hdr(self.OWNER))
         self.assertEqual(status, 200)
@@ -447,17 +434,10 @@ class DashboardEditorFlowTest(unittest.TestCase):
         finally:
             conn.close()
 
-        # The server-rendered list (Edit-link-per-owner logic) now lives behind
-        # ?legacy=1 — the bare /dashboards serves the React shell (rows fetched from
-        # /api/manage/dashboards.json). Assert the HTML logic on the legacy path.
-        status, body = self._status_body(self._get, "/dashboards?legacy=1", self._hdr(self.OWNER))
-        self.assertEqual(status, 200)
-        text = body.decode()
-        self.assertIn(f"/dashboard/{owned_id}/edit", text)
-        self.assertNotIn(f"/dashboard/{shared_id}/edit", text)
-
-        # And the JSON the React list consumes carries the viewer login + both
-        # boards, so the client can gate the Edit link the same way.
+        # /dashboards is the React shell now; the server-rendered list whose
+        # Edit-link-per-owner logic this used to assert went with the legacy layer.
+        # The rule lives in the JSON instead: it carries the viewer login and both
+        # boards, and the client gates the Edit link on owner == login.
         status, body = self._status_body(
             self._get, "/api/manage/dashboards.json", self._hdr(self.OWNER))
         self.assertEqual(status, 200)
@@ -540,36 +520,38 @@ class MeasuresTest(unittest.TestCase):
         self.assertEqual(pl["tool_fields"], dashboards.tool_fields())
 
 
-class ChartCssTest(unittest.TestCase):
-    # Charts now render via Vega-Lite (.vl-panel), so the chart CSS the page must
-    # carry is the .vl-panel + themed tooltip block, not the old hand-rolled SVG rules.
-    def test_dashboard_view_includes_chart_css(self):
+class DashboardPageChromeTest(unittest.TestCase):
+    """A dashboard page must carry the Vega bundle same-origin (M-T1) and the
+    Vega-Lite chart CSS (.vl-panel + the themed tooltip), because a panel's chart
+    renders into it.
+
+    These used to assert against render_dashboard_page/-_editor, the server-Jinja
+    pages. Those went with the legacy layer — both routes are React now — so the
+    claim moves to the shell that serves them, which is where `vega=True` decides
+    whether the bundle and its CSS are injected at all."""
+
+    def _shell(self, entry):
         import render
-        html = render.render_dashboard_page({"id": "x", "spec": {"title": "T", "panels": []}})
+        return render.render_spa_page(entry, "dashboards", "T", vega=True,
+                                      bootstrap={"id": "x", "title": "T", "spec": {}})
+
+    def test_dashboard_view_carries_vega_and_chart_css(self):
+        html = self._shell("dashboard")
+        self.assertIn("/assets/vega/vega-embed.min.js", html)
         self.assertIn(".vl-panel", html)
         self.assertIn("vg-tooltip", html)
 
-    def test_editor_includes_chart_css(self):
-        import render
-        html = render.render_dashboard_editor(
-            {"id": "x", "spec": {"title": "T", "panels": []}, "visibility": "private"})
+    def test_editor_carries_vega_and_chart_css(self):
+        html = self._shell("dashboard-editor")
+        self.assertIn("/assets/vega/vega-embed.min.js", html)
         self.assertIn(".vl-panel", html)
 
-
-class VegaScriptsRenderTest(unittest.TestCase):
-    """Both dashboard pages load the vendored Vega bundle same-origin (M-T1) —
-    no hydration logic yet, just the <script src> tags."""
-
-    def test_dashboard_view_loads_vega_bundle(self):
+    def test_a_page_without_vega_does_not_ship_the_bundle(self):
+        """The flag has to mean something: the same shell without it must not carry
+        828 KB of charting library on a page that draws no charts."""
         import render
-        html = render.render_dashboard_page({"id": "x", "spec": {"title": "T", "panels": []}})
-        self.assertIn("/assets/vega/vega-embed.min.js", html)
-
-    def test_editor_loads_vega_bundle(self):
-        import render
-        html = render.render_dashboard_editor(
-            {"id": "x", "spec": {"title": "T", "panels": []}, "visibility": "private"})
-        self.assertIn("/assets/vega/vega-embed.min.js", html)
+        html = render.render_spa_page("dashboards", "dashboards", "T")
+        self.assertNotIn("/assets/vega/vega-embed.min.js", html)
 
 
 class VegaAssetEndpointTest(unittest.TestCase):
@@ -685,13 +667,16 @@ class WidgetV2Test(unittest.TestCase):
 
 class EditorVizV2Test(unittest.TestCase):
     def test_editor_has_viz_selector_and_series_shelf(self):
-        import render
-        html = render.render_dashboard_editor(
-            {"id": "x", "spec": {"title": "T", "panels": []}, "visibility": "private"})
-        self.assertIn("wp-viz", html)       # viz-type selector
-        self.assertIn("wp-series", html)    # measures/series shelf
-        self.assertIn("SHAPE_VIZ", html)    # JS compatibility map
-        self.assertIn('"viz"', html.replace("'", '"'))  # currentPanel emits viz
+        """The editor offers a viz-type choice and a series shelf, and the panel it
+        emits carries `viz`. Pinned against the React editor's source: this used to
+        read the server-Jinja editor's HTML, which went with the legacy layer, and the
+        widget picker now lives entirely in the Vite bundle."""
+        from pathlib import Path as _P
+        src = (_P(__file__).resolve().parents[1]
+               / "frontend/src/pages/DashboardEditor.tsx").read_text()
+        self.assertIn("SHAPE_VIZ", src)      # the shape→viz compatibility map
+        self.assertIn("viz", src)            # viz-type selector state
+        self.assertIn("series", src)         # measures/series shelf
 
 
 class WidgetFixesTest(unittest.TestCase):

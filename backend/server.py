@@ -448,158 +448,6 @@ def run_job(kind: str, args: list[str]) -> bool:
     return True
 
 
-def portal_html() -> bytes:
-    state = snapshot_state()
-    token_note = {"db": "Saved in the app", "env": "From environment",
-                  "none": "Not set"}.get(state["token_source"], "Not set")
-    _job = state["job"]
-    job_class = ("run" if _job.get("running")
-                 else {"success": "ok", "failed": "bad"}.get(_job.get("status"), ""))
-    cache_note = (
-        f"{state['cache']['api_files']} files, newest {state['cache']['api_newest']}"
-        if state["cache"]["enabled"]
-        else "disabled by NO_CACHE=1"
-    )
-    body = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Update — Constructor Insight</title>
-<style>
-  :root{{--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--ink:#1f2328;--mut:#656d76;--acc:#0969da;--good:#1a7f37;--bad:#cf222e;--warn:#9a6700}}
-  *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}}
-  {shell.SHELL_CSS}
-  main.wrap{{padding:24px 28px 56px}} h1{{font-size:24px;margin:0 0 4px}} h2{{font-size:16px;margin:28px 0 10px}}
-  @media(max-width:900px){{main.wrap{{padding:16px}}}}
-  .sub{{color:var(--mut);margin:0}} .hero{{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}}
-  .hero-actions{{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}}
-  button,a.btn{{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 12px;border-radius:7px;text-decoration:none;cursor:pointer;font:inherit}}
-  button.primary{{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}} button:disabled{{opacity:.55;cursor:not-allowed}}
-  .status-strip{{display:grid;grid-template-columns:1.2fr repeat(3,1fr);gap:10px;margin:16px 0 18px}}
-  .status-card,.op-card,.link-card{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:13px 14px}}
-  .status-card.good{{border-color:#a0d8b0}} .status-card.warn{{border-color:#e8d8a0}} .status-card.bad{{border-color:#e6a0a0}}
-  .label{{font-size:12px;color:var(--mut)}} .value{{font-weight:700;margin-top:3px}} .fine{{color:var(--mut);font-size:12px;margin-top:4px}}
-  .ok{{color:var(--good)}} .bad{{color:var(--bad)}} .warn{{color:var(--warn)}}
-  .ops{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:10px 0 18px}}
-  .op-card{{display:flex;flex-direction:column;gap:10px}} .op-card h3{{font-size:14px;margin:0}} .op-card p{{color:var(--mut);font-size:12px;margin:0;min-height:36px}}
-  .op-meta{{font-size:12px;color:var(--mut)}} .op-card button{{align-self:flex-start}}
-  .quick-links{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 18px}}
-  .link-card{{display:block;color:var(--ink);text-decoration:none;transition:border-color .12s}}
-  .link-card:hover{{border-color:var(--acc)}} .link-card b{{display:block;margin-bottom:3px}} .link-card span{{color:var(--mut);font-size:12px}}
-  .jobbar{{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
-    border-radius:8px;padding:11px 14px;margin:4px 0 8px;font-size:13px}}
-  .jobbar .dot{{width:9px;height:9px;border-radius:50%;background:var(--mut);flex:none}}
-  .jobbar.run{{border-color:#a9c7ea;background:#f0f6fc}} .jobbar.run .dot{{background:var(--acc);animation:pulse 1.2s infinite}}
-  .jobbar.ok .dot{{background:var(--good)}} .jobbar.bad{{border-color:#e6a0a0}} .jobbar.bad .dot{{background:var(--bad)}}
-  .jobbar b{{font-weight:700}} .jobbar .jmsg{{color:var(--mut)}}
-  @keyframes pulse{{0%,100%{{opacity:1}}50%{{opacity:.35}}}}
-  details.log{{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-top:10px}} details.log summary{{cursor:pointer;padding:12px 14px;font-weight:700}}
-  pre{{margin:0;border-top:1px solid var(--line);background:#1f2328;color:#fff;padding:12px;overflow:auto;max-height:340px;font-size:12px}}
-  code{{background:#eaeef2;padding:1px 4px;border-radius:4px}} @media(max-width:780px){{.hero{{display:block}}.hero-actions{{justify-content:flex-start;margin-top:12px}}.status-strip,.ops,.quick-links{{grid-template-columns:1fr}}}}
-  {shell.BASE_CSS}
-  .status-card,.op-card,.link-card{{border-radius:var(--r-sm);box-shadow:var(--sh)}}
-  .status-card.good{{border-color:var(--good)}} .status-card.warn{{border-color:var(--warn)}} .status-card.bad{{border-color:var(--bad)}}
-</style></head><body>
-<div class="app">
-{shell.sidebar_html("update")}
-<main class="wrap">
-<div class="hero">
-  <div>
-    <h1>Update workspace</h1>
-    <p class="sub">Collect from GitHub, curate identities, and configure what's measured. The
-    database is the source of truth; the YAML files are auto-generated backups.</p>
-  </div>
-  <div class="hero-actions">
-    <a class="btn primary" href="/report">Open report</a>
-  </div>
-</div>
-
-<div class="jobbar {job_class}" id="jobbar">
-  <span class="dot"></span>
-  <b id="job-status">{html.escape(_job['status'])}</b>
-  <span class="jmsg" id="job-message">{html.escape(_job.get('message') or 'No job is running.')}</span>
-</div>
-
-<h2>Status</h2>
-<div class="status-strip">
-  <div class="status-card"><div class="label">Database · source of truth</div><div class="value" id="store-run">{state['store']['latest_run']}</div><div class="fine" id="store-rows">{state['store']['runs']} runs · {state['store']['people']} people · {state['store']['repos']} repos · {state['store']['snapshots']} snapshots</div></div>
-  <div class="status-card"><div class="label">Report</div><div class="value" id="report-stamp">{state['files']['report_html']}</div><div class="fine">rendered live from the DB</div></div>
-  <div class="status-card"><div class="label">GitHub token</div><div class="value {'ok' if state['has_token'] else 'bad'}" id="token-note">{token_note}</div><div class="fine"><a href="/setup">Change / add →</a></div></div>
-  <div class="status-card"><div class="label">Cache &amp; clones</div><div class="value" id="cache-note">{html.escape(cache_note)}</div><div class="fine"><span id="clone-note">{state['cache']['clone_repos']} repos</span> cloned</div></div>
-</div>
-
-<h2>Operations</h2>
-<div class="ops">
-  <div class="op-card">
-    <h3>Collect from GitHub</h3>
-    <p>Fetch new commits, PRs, issues and traffic, refresh clones, then rebuild the report. Reuses cache and local clones.</p>
-    <div class="op-meta">Needs a token · can take minutes on a large org.</div>
-    <button class="primary" onclick="startJob('refresh')">Collect &amp; rebuild</button>
-  </div>
-  <div class="op-card">
-    <h3>Regenerate editors</h3>
-    <p>Rebuild the Identity &amp; Config editor pages from the database. No GitHub.</p>
-    <div class="op-meta">Edits themselves apply instantly on Save — this is for after updates.</div>
-    <button onclick="startJob('directory')">Regenerate</button>
-  </div>
-  <div class="op-card">
-    <h3>Export snapshot</h3>
-    <p>Copy the current report, data, and identity directory into <code>exports/</code> as timestamped files.</p>
-    <div class="op-meta">A shareable point-in-time snapshot.</div>
-    <button onclick="startJob('export')">Export snapshot</button>
-  </div>
-</div>
-
-<h2>Configure &amp; explore</h2>
-<div class="quick-links">
-  <a class="link-card" href="/setup"><b>Setup</b><span>GitHub token, primary org, extra orgs / repos.</span></a>
-  <a class="link-card" href="/config"><b>Config</b><span>Repo classification, elements, company domains.</span></a>
-  <a class="link-card" href="/identity"><b>Identity</b><span>People, companies, bots, aliases, merges.</span></a>
-  <a class="link-card" href="/metrics"><b>Metrics catalog</b><span>Every number — description, formula, code.</span></a>
-  <a class="link-card" href="/views"><b>View catalog</b><span>Reusable visual components — for dashboards &amp; MCP.</span></a>
-  <a class="link-card" href="/mcp-info"><b>MCP access</b><span>Connection URL, bearer token, and the tool catalog.</span></a>
-  <a class="link-card" href="/usage-insights"><b>Usage insights</b><span>Who opens the report and which widgets they view.</span></a>
-</div>
-
-<details class="log">
-  <summary>Last job log</summary>
-  <pre id="log">{html.escape(_job.get('log') or 'No job has run from this portal yet.')}</pre>
-</details>
-<script>
-// Build API URLs against location.origin — a relative fetch inherits any userinfo
-// from a basic-auth URL (http://user:pass@host/…), which fetch() rejects outright.
-function api(p){{ return location.origin + p; }}
-async function refreshStatus(){{
-  const r = await fetch(api('/api/status')); const s = await r.json();
-  const bar = document.getElementById('jobbar');
-  bar.className = 'jobbar ' + (s.job.running ? 'run'
-    : (s.job.status === 'success' ? 'ok' : s.job.status === 'failed' ? 'bad' : ''));
-  document.getElementById('job-status').textContent = s.job.status + (s.job.running ? '…' : '');
-  document.getElementById('job-message').textContent = s.job.message || 'No job is running.';
-  document.getElementById('report-stamp').textContent = s.files.report_html;
-  if(s.store){{
-    document.getElementById('store-run').textContent = s.store.latest_run;
-    document.getElementById('store-rows').textContent =
-      `${{s.store.runs}} runs · ${{s.store.people}} people · ${{s.store.repos}} repos · ${{s.store.snapshots}} snapshots`;
-  }}
-  document.getElementById('cache-note').textContent = s.cache.enabled ? `${{s.cache.api_files}} files, newest ${{s.cache.api_newest}}` : 'disabled by NO_CACHE=1';
-  document.getElementById('clone-note').textContent = `${{s.cache.clone_repos}} repos`;
-  var tn=document.getElementById('token-note');
-  tn.textContent = {{db:'Saved in the app', env:'From environment', none:'Not set'}}[s.token_source] || 'Not set';
-  tn.className = 'value ' + (s.has_token ? 'ok' : 'bad');
-  document.getElementById('log').textContent = s.job.log || 'No job has run from this portal yet.';
-  document.querySelectorAll('.ops button').forEach(b => b.disabled = s.job.running);
-}}
-async function startJob(kind){{
-  await fetch(api('/api/' + kind), {{method:'POST'}});
-  await refreshStatus();
-}}
-setInterval(refreshStatus, 2000);
-refreshStatus();
-</script>
-</main></div></body></html>"""
-    return body.encode()
-
-
 def _dec_name(n) -> str:
     """Dotted name of a decorator node ('mcp.tool' for @mcp.tool())."""
     if isinstance(n, ast.Call):
@@ -653,559 +501,6 @@ def _usage_range(qs):
         return frm, to
     n = max(1, min(int(days) if days.isdigit() else 30, 3660))
     return (date.today() - timedelta(days=n)).isoformat(), date.today().isoformat()
-
-
-def usage_page() -> bytes:
-    """Manage → Usage insights: meta-analytics on the report itself — opens, unique
-    personas, per-widget and per-tab views, and per-persona engagement over a
-    selectable period. All figures are fetched client-side from /api/usage-summary."""
-    body = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Usage insights — Constructor Insight</title>
-<style>
-  :root{{--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--ink:#1f2328;--mut:#656d76;--acc:#0969da;--good:#1a7f37;--bad:#cf222e;--warn:#9a6700}}
-  *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}}
-  {shell.SHELL_CSS}
-  main.wrap{{padding:24px 28px 56px}} h1{{font-size:24px;margin:0 0 4px}} h2{{font-size:16px;margin:28px 0 10px}}
-  @media(max-width:900px){{main.wrap{{padding:16px}}}}
-  .sub{{color:var(--mut);margin:0 0 6px;max-width:74ch}}
-  .kpis{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 4px}}
-  .kpi{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:13px 14px}}
-  .kpi .n{{font-size:26px;font-weight:700}} .kpi .l{{font-size:12px;color:var(--mut)}}
-  .chips{{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0}}
-  .chip{{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px;color:var(--ink)}}
-  .chip.active{{background:var(--acc);border-color:var(--acc);color:#fff}}
-  .chips input{{border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-size:13px}}
-  table.u{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13px}}
-  table.u th,table.u td{{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}}
-  table.u thead th{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}}
-  table.u td.n,table.u th.n{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}}
-  table.u td.code{{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
-    white-space:pre-wrap;word-break:break-word;color:var(--ink);line-height:1.4}}
-  table.u tbody tr:last-child td{{border-bottom:none}}
-  .grid2{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}
-  @media(max-width:900px){{.grid2{{grid-template-columns:1fr}}.kpis{{grid-template-columns:1fr 1fr}}}}
-  .mut{{color:var(--mut)}} .empty{{color:var(--mut);padding:12px;font-size:13px}}
-  tr.clk{{cursor:pointer}} tr.clk:hover td{{background:var(--panel2,#eef1f5)}}
-  .kpi.clk{{cursor:pointer;transition:border-color .12s,box-shadow .12s}}
-  .kpi.clk:hover{{border-color:var(--acc);box-shadow:var(--sh-lift,0 6px 20px rgba(0,0,0,.10))}}
-  .dov{{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding:8vh 16px;z-index:50}}
-  .dov[hidden]{{display:none}}
-  .dbox{{background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:520px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)}}
-  .dhead{{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}}
-  .dhead b{{font-size:15px}} .dhead button{{border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--mut);line-height:1}}
-  #d-body{{padding:6px 16px 16px}} #d-body h3{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:14px 0 6px}}
-  {shell.BASE_CSS}
-  .kpi,table.u{{border-radius:var(--r-sm);box-shadow:var(--sh)}}
-</style></head><body>
-<div class="app">
-{shell.sidebar_html("usage")}
-<main class="wrap">
-<h1>Usage insights</h1>
-<p class="sub">How this report itself is used: who opens it and which widgets they view. Opens are
-counted server-side (reliable); tab &amp; panel views come from the browser and are a floor, not
-exact. Whole-report <b>All</b>-tab scrolls are tracked separately and excluded from the per-widget
-ranking.</p>
-
-<div class="chips" id="chips">
-  <button class="chip" data-days="7">7d</button>
-  <button class="chip active" data-days="30">30d</button>
-  <button class="chip" data-days="90">90d</button>
-  <button class="chip" data-days="365">1y</button>
-  <button class="chip" data-days="3660">All</button>
-  <span class="mut">·</span>
-  <input type="date" id="from"> <span class="mut">→</span> <input type="date" id="to">
-  <button class="chip" id="apply">Apply</button>
-  <span class="mut" id="range"></span>
-</div>
-
-<div class="kpis">
-  <div class="kpi clk" data-kpi="opens"><div class="n" id="k-opens">–</div><div class="l">report opens</div></div>
-  <div class="kpi clk" data-kpi="personas"><div class="n" id="k-personas">–</div><div class="l">unique personas</div></div>
-  <div class="kpi clk" data-kpi="widgets"><div class="n" id="k-widgets">–</div><div class="l">widgets viewed</div></div>
-  <div class="kpi clk" data-kpi="tabs"><div class="n" id="k-tabs">–</div><div class="l">tabs opened</div></div>
-</div>
-
-<p class="mut" style="font-size:12px;margin:2px 0 0">Tip: click any row to see who — or, for a person, what they viewed.</p>
-<div class="grid2">
-  <div><h2>Widgets by views</h2><div id="widgets"></div></div>
-  <div><h2>Tabs by views</h2><div id="tabs"></div></div>
-</div>
-<h2>Drill-downs by opens</h2><div id="drills"></div>
-
-<h2>Metrics assistant</h2>
-<p class="sub" style="margin:0 0 8px">Adoption of the in-report chat. Opens = panel opened;
-questions = messages sent; each question is tagged with the report view it was asked from.</p>
-<div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr))">
-  <div class="kpi"><div class="n" id="k-chat-opens">–</div><div class="l">assistant opens</div></div>
-  <div class="kpi clk" data-detail="chatlog"><div class="n" id="k-chat-msgs">–</div><div class="l">questions asked</div></div>
-  <div class="kpi"><div class="n" id="k-chat-users">–</div><div class="l">unique askers</div></div>
-  <div class="kpi"><div class="n" id="k-chat-tokens">–</div><div class="l">tokens used</div></div>
-  <div class="kpi"><div class="n" id="k-chat-cache">–</div><div class="l">cache hit</div></div>
-  <div class="kpi"><div class="n" id="k-chat-cost">–</div><div class="l">est. cost</div></div>
-</div>
-<div id="chatviews" style="margin-top:12px"></div>
-<h3 style="font-size:13px;margin:18px 0 6px">Tools called</h3>
-<p class="sub" style="margin:0 0 8px">Which read-only tools the assistant invoked. Click a
-row to see recent calls and their arguments — for <code>sql_query</code> the argument is the
-SQL itself, so recurring queries flag which raw SQL deserves its own tool.</p>
-<div id="chattools"></div>
-
-<h2>People</h2><div id="people"></div>
-
-<div id="detail" class="dov" hidden><div class="dbox">
-  <div class="dhead"><b id="d-title"></b><button id="d-close" type="button" aria-label="Close">×</button></div>
-  <div id="d-body"></div>
-</div></div>
-
-<script>
-function api(p){{ return location.origin + p; }}
-function esc(s){{ return String(s==null?'':s).replace(/[&<>"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c])); }}
-function fmtNum(n){{ return (n||0).toLocaleString('en-US'); }}
-function fmtCost(c){{ return (c==null) ? 'n/a' : '$' + Number(c).toFixed(4); }}
-function chatReqTable(rows){{
-  const fr = (rows||[]).map(r=>Object.assign({{}}, r, {{
-    ts_f:(r.ts||'').replace('T',' ').slice(0,16),
-    tokens_f:fmtNum(r.tokens||0), cost_f:fmtCost(r.cost)}}));
-  // Kept to fit the 520px drill without horizontal overflow: per-row Period and
-  // Cached are dropped (period is context; cache hit-rate lives in the KPIs).
-  return table(fr, [{{h:'When', k:'ts_f'}}, {{h:'Who', k:'who'}}, {{h:'View', k:'view'}},
-    {{h:'Tokens', k:'tokens_f', n:1}}, {{h:'Cost', k:'cost_f', n:1}}]);
-}}
-function table(rows, cols, by){{
-  if(!rows || !rows.length) return '<div class="empty">No data in this period yet.</div>';
-  const cls = c => [c.n?'n':'', c.cls||''].filter(Boolean).join(' ');
-  const head = '<thead><tr>' + cols.map(c=>`<th class="${{cls(c)}}">${{esc(c.h)}}</th>`).join('') + '</tr></thead>';
-  const kf = cols[0].k;
-  const body = rows.map(r=>{{
-    const a = by ? ` class="clk" data-by="${{by}}" data-key="${{esc(r[kf])}}"` : '';
-    return `<tr${{a}}>` + cols.map(c=>`<td class="${{cls(c)}}">${{esc(r[c.k])}}</td>`).join('') + '</tr>';
-  }}).join('');
-  return `<table class="u">${{head}}<tbody>${{body}}</tbody></table>`;
-}}
-let curDays = 30, curFrom = '', curTo = '', last = null;
-async function load(){{
-  const q = curFrom && curTo ? `from=${{curFrom}}&to=${{curTo}}` : `days=${{curDays}}`;
-  let s;
-  try {{ s = await (await fetch(api('/api/usage-summary?' + q))).json(); }}
-  catch(e) {{ document.getElementById('range').textContent = 'failed to load'; return; }}
-  if(!s.ok){{ document.getElementById('range').textContent = s.error || 'error'; return; }}
-  last = s;
-  document.getElementById('k-opens').textContent = s.opens;
-  document.getElementById('k-personas').textContent = s.unique_personas;
-  document.getElementById('k-widgets').textContent = s.by_widget.length;
-  document.getElementById('k-tabs').textContent = s.by_tab.length;
-  document.getElementById('range').textContent = `${{s.since}} → ${{s.until}}`;
-  document.getElementById('widgets').innerHTML = table(s.by_widget, [
-    {{h:'Widget', k:'target'}}, {{h:'Views', k:'views', n:1}}, {{h:'People', k:'unique_viewers', n:1}}], 'widget');
-  document.getElementById('tabs').innerHTML = table(s.by_tab, [
-    {{h:'Tab', k:'target'}}, {{h:'Views', k:'views', n:1}}, {{h:'People', k:'unique_viewers', n:1}}], 'tab');
-  document.getElementById('drills').innerHTML = table(s.by_drill || [], [
-    {{h:'Drill-down', k:'target'}}, {{h:'Opens', k:'views', n:1}}, {{h:'People', k:'unique_viewers', n:1}}], 'drill');
-  document.getElementById('k-chat-opens').textContent = s.chat_opens ?? 0;
-  document.getElementById('k-chat-msgs').textContent = s.chat_msgs ?? 0;
-  document.getElementById('k-chat-users').textContent = s.chat_users ?? 0;
-  document.getElementById('k-chat-tokens').textContent = fmtNum(s.chat_tokens ?? 0);
-  document.getElementById('k-chat-cache').textContent = (s.chat_cache_hit_pct ?? 0) + '%';
-  document.getElementById('k-chat-cost').textContent = fmtCost(s.chat_cost_usd);
-  document.getElementById('chatviews').innerHTML = table(
-    (s.by_chat_view || []).map(r => Object.assign({{}}, r, {{tokens_f: fmtNum(r.tokens || 0), cost_f: fmtCost(r.cost)}})), [
-    {{h:'Asked from view', k:'target'}}, {{h:'Questions', k:'views', n:1}},
-    {{h:'People', k:'unique_viewers', n:1}}, {{h:'Tokens', k:'tokens_f', n:1}}, {{h:'Cost', k:'cost_f', n:1}}], 'chat');
-  document.getElementById('chattools').innerHTML = table(s.by_chat_tool || [], [
-    {{h:'Tool', k:'tool_name'}}, {{h:'Calls', k:'calls', n:1}},
-    {{h:'Callers', k:'unique_callers', n:1}}, {{h:'Errors', k:'errors', n:1}}], 'tool');
-  document.getElementById('people').innerHTML = table(s.by_persona, [
-    {{h:'Person', k:'login'}}, {{h:'Opens', k:'opens', n:1}}, {{h:'Widgets seen', k:'widgets_seen', n:1}},
-    {{h:'Asked', k:'chat_msgs', n:1}}], 'persona');
-}}
-function rangeQ(){{ return curFrom && curTo ? `from=${{curFrom}}&to=${{curTo}}` : `days=${{curDays}}`; }}
-async function openDetail(by, key){{
-  let s;
-  try {{ s = await (await fetch(api(`/api/usage-detail?by=${{encodeURIComponent(by)}}&key=${{encodeURIComponent(key)}}&` + rangeQ()))).json(); }}
-  catch(e){{ return; }}
-  if(!s.ok) return;
-  const label = {{widget:'Widget', tab:'Tab', drill:'Drill-down', chat:'Assistant · view', tool:'Tool', persona:'Person'}}[by] || by;
-  document.getElementById('d-title').textContent =
-    (by === 'chatlog') ? 'Assistant requests' : (label + ': ' + key);
-  let html;
-  if(by === 'persona'){{
-    const sec = (t, rows, l) => `<h3>${{t}}</h3>` + table(rows, [{{h:l, k:'target'}}, {{h:'Views', k:'views', n:1}}]);
-    html = sec('Widgets', s.widgets, 'Widget') + sec('Tabs', s.tabs, 'Tab') + sec('Drill-downs', s.drills, 'Drill-down');
-    if(s.chat_log && s.chat_log.length){{ html += '<h3>Assistant requests</h3>' + chatReqTable(s.chat_log); }}
-  }} else if(by === 'chat' || by === 'chatlog'){{
-    html = chatReqTable(s.requests);
-  }} else if(by === 'tool'){{
-    const fr = (s.calls || []).map(r => {{
-      let a = {{}}; try {{ a = JSON.parse(r.args || '{{}}'); }} catch(e) {{}}
-      // clean, not raw JSON: sql_query → the SQL; else compact key=value.
-      const argStr = (a && a.sql != null) ? String(a.sql)
-        : Object.keys(a||{{}}).map(k => k + '=' + a[k]).join(', ');
-      return {{ts_f:(r.ts||'').replace('T',' ').slice(0,16), who:r.who,
-              status: r.ok ? 'ok' : 'error', args_f: argStr}};
-    }});
-    html = table(fr, [{{h:'When', k:'ts_f'}}, {{h:'Who', k:'who'}}, {{h:'Status', k:'status'}},
-      {{h:'Arguments', k:'args_f', cls:'code'}}]);
-  }} else {{
-    html = table(s.viewers, [{{h:'Person', k:'who'}}, {{h:'Views', k:'views', n:1}}]);
-  }}
-  document.getElementById('d-body').innerHTML = html;
-  document.getElementById('detail').hidden = false;
-}}
-function openKpi(kind){{
-  if(!last) return;
-  const openCols = [{{h:'Person', k:'who'}}, {{h:'Opens', k:'views', n:1}}];
-  let title, rows, cols, by = null;
-  if(kind === 'opens' || kind === 'personas'){{
-    rows = (last.by_persona || []).map(p => ({{who:p.login, views:p.opens}}));
-    cols = openCols; by = 'persona';
-    if(kind === 'opens'){{
-      const sum = rows.reduce((a, r) => a + (r.views || 0), 0);
-      const un = (last.opens || 0) - sum;
-      if(un > 0) rows = rows.concat([{{who:'(unresolved)', views:un}}]);  // not a person → not clickable
-      title = 'Report opens';
-    }} else {{ title = 'People who opened'; }}
-  }} else if(kind === 'widgets'){{
-    title = 'Widgets by views'; rows = last.by_widget || []; by = 'widget';
-    cols = [{{h:'Widget', k:'target'}}, {{h:'Views', k:'views', n:1}}, {{h:'People', k:'unique_viewers', n:1}}];
-  }} else if(kind === 'tabs'){{
-    title = 'Tabs by views'; rows = last.by_tab || []; by = 'tab';
-    cols = [{{h:'Tab', k:'target'}}, {{h:'Views', k:'views', n:1}}, {{h:'People', k:'unique_viewers', n:1}}];
-  }} else {{ return; }}
-  document.getElementById('d-title').textContent = title;
-  // rows whose key is a real person/target stay clickable into the per-item detail;
-  // the synthetic '(unresolved)' row has no target so it just won't match [data-key].
-  document.getElementById('d-body').innerHTML = table(rows, cols, by);
-  document.getElementById('detail').hidden = false;
-}}
-document.addEventListener('click', e=>{{
-  const kpi = e.target.closest('.kpi.clk');
-  if(kpi){{
-    const det = kpi.getAttribute('data-detail');
-    if(det){{ openDetail(det, ''); }} else {{ openKpi(kpi.getAttribute('data-kpi')); }}
-    return;
-  }}
-  const tr = e.target.closest('tr.clk');
-  if(tr && tr.getAttribute('data-key')){{ openDetail(tr.getAttribute('data-by'), tr.getAttribute('data-key')); return; }}
-  if(e.target.id === 'd-close' || e.target.id === 'detail'){{ document.getElementById('detail').hidden = true; }}
-}});
-document.addEventListener('keydown', e=>{{ if(e.key === 'Escape') document.getElementById('detail').hidden = true; }});
-document.getElementById('chips').addEventListener('click', e=>{{
-  const b = e.target.closest('.chip'); if(!b) return;
-  if(b.dataset.days){{
-    curFrom = curTo = '';
-    document.getElementById('from').value=''; document.getElementById('to').value='';
-    curDays = +b.dataset.days;
-    document.querySelectorAll('#chips .chip[data-days]').forEach(x=>x.classList.toggle('active', x===b));
-    load();
-  }} else if(b.id==='apply'){{
-    const f=document.getElementById('from').value, t=document.getElementById('to').value;
-    if(f && t){{ curFrom=f; curTo=t;
-      document.querySelectorAll('#chips .chip[data-days]').forEach(x=>x.classList.remove('active'));
-      load(); }}
-  }}
-}});
-load();
-</script>
-</main></div></body></html>"""
-    return body.encode("utf-8")
-
-
-def chat_log_page() -> bytes:
-    """Assistant conversation viewer — the stored transcripts (question + answer) with
-    each turn's tool calls. Deliberately NOT linked from the sidebar; reachable at
-    /chat-log by URL only. Portal auth still applies."""
-    body = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Assistant conversations — Constructor Insight</title>
-<style>
-  :root{{--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--ink:#1f2328;--mut:#656d76;--acc:#0969da;--good:#1a7f37;--bad:#cf222e;--warn:#9a6700}}
-  *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}}
-  {shell.SHELL_CSS}
-  main.wrap{{padding:24px 28px 56px}} h1{{font-size:24px;margin:0 0 4px}}
-  @media(max-width:900px){{main.wrap{{padding:16px}}}}
-  .sub{{color:var(--mut);margin:0 0 6px;max-width:74ch}}
-  .chips{{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0}}
-  .chip{{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px;color:var(--ink)}}
-  .chip.active{{background:var(--acc);border-color:var(--acc);color:#fff}}
-  .chips input{{border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-size:13px}}
-  .cl-grid{{display:grid;grid-template-columns:320px 1fr;gap:16px;margin-top:12px}}
-  @media(max-width:860px){{.cl-grid{{grid-template-columns:1fr}}}}
-  .cl-list{{display:flex;flex-direction:column;gap:6px;max-height:76vh;overflow:auto}}
-  .cl-item{{text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:10px;
-    padding:9px 11px;cursor:pointer;font:inherit;color:var(--ink)}}
-  .cl-item:hover{{border-color:var(--acc)}} .cl-item.active{{border-color:var(--acc);box-shadow:0 0 0 2px rgba(9,105,218,.15)}}
-  .cl-item .who{{font-weight:700;font-size:13px}} .cl-item .meta{{color:var(--mut);font-size:12px;margin-top:2px}}
-  .cl-panel{{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:16px;
-    min-height:200px;max-height:76vh;overflow:auto}}
-  .cl-msg{{max-width:80%;padding:9px 12px;border-radius:12px;margin:8px 0;white-space:pre-wrap;
-    word-break:break-word;font-size:13.5px;line-height:1.5}}
-  .cl-msg.user{{margin-left:auto;background:var(--acc);color:#fff;border-bottom-right-radius:4px}}
-  .cl-msg.bot{{background:#eef1f5;color:var(--ink);border-bottom-left-radius:4px}}
-  .cl-meta{{color:var(--mut);font-size:11px;margin:2px 0}}
-  .cl-tools{{margin:2px 0 12px;display:flex;flex-direction:column;gap:4px}}
-  .cl-tool{{font-size:12px;border-left:3px solid var(--line);padding:3px 8px;background:#f6f8fa;border-radius:0 6px 6px 0}}
-  .cl-tool.err{{border-left-color:var(--bad)}} .cl-tool.ok{{border-left-color:var(--good)}}
-  .cl-tool .tn{{font-weight:700}} .cl-tool code{{font-family:ui-monospace,Menlo,Consolas,monospace;
-    font-size:11.5px;white-space:pre-wrap;word-break:break-word;display:block;margin-top:2px;color:var(--ink)}}
-  .empty{{color:var(--mut);padding:12px;font-size:13px}} .mut{{color:var(--mut)}}
-  {shell.BASE_CSS}
-</style></head><body>
-<div class="app">
-{shell.sidebar_html("")}
-<main class="wrap">
-<h1>Assistant conversations</h1>
-<p class="sub">Stored transcripts of the metrics assistant — each question, the answer, and
-the tools the assistant called. Not linked in the sidebar; this page is reachable by URL.</p>
-<div class="chips" id="chips">
-  <button class="chip" data-days="7">7d</button>
-  <button class="chip active" data-days="30">30d</button>
-  <button class="chip" data-days="90">90d</button>
-  <button class="chip" data-days="365">1y</button>
-  <button class="chip" data-days="3660">All</button>
-  <span class="mut">·</span>
-  <input type="date" id="from"> <span class="mut">→</span> <input type="date" id="to">
-  <button class="chip" id="apply">Apply</button>
-  <span class="mut" id="range"></span>
-</div>
-<div class="cl-grid">
-  <div class="cl-list" id="list"></div>
-  <div class="cl-panel" id="panel"><div class="empty">Pick a conversation on the left.</div></div>
-</div>
-
-<script>
-function api(p){{ return location.origin + p; }}
-function esc(s){{ return String(s==null?'':s).replace(/[&<>"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c])); }}
-function fmtNum(n){{ return (n||0).toLocaleString('en-US'); }}
-function fmtCost(c){{ return (c==null) ? 'n/a' : '$' + Number(c).toFixed(4); }}
-function when(ts){{ return (ts||'').replace('T',' ').slice(0,16); }}
-let curDays = 30, curFrom = '', curTo = '', activeId = null;
-
-function rangeQ(){{ return curFrom && curTo ? `from=${{curFrom}}&to=${{curTo}}` : `days=${{curDays}}`; }}
-
-async function loadList(){{
-  let s;
-  try {{ s = await (await fetch(api('/api/chat-sessions?' + rangeQ()))).json(); }}
-  catch(e) {{ document.getElementById('range').textContent = 'failed to load'; return; }}
-  const list = document.getElementById('list');
-  const rows = (s.sessions || []);
-  if(!rows.length){{ list.innerHTML = '<div class="empty">No conversations in this period yet.</div>'; return; }}
-  list.innerHTML = rows.map(r => `<button class="cl-item" data-id="${{esc(r.session_id)}}">
-    <div class="who">${{esc(r.who)}}</div>
-    <div class="meta">${{when(r.last)}} · ${{r.questions}} Q · ${{fmtNum(r.tokens)}} tok · ${{fmtCost(r.cost)}}</div></button>`).join('');
-}}
-
-function toolLine(t){{
-  let a = {{}}; try {{ a = JSON.parse(t.args || '{{}}'); }} catch(e) {{}}
-  const argStr = (a && a.sql != null) ? String(a.sql)
-    : Object.keys(a||{{}}).map(k => k + '=' + a[k]).join(', ');
-  return `<div class="cl-tool ${{t.ok ? 'ok' : 'err'}}"><span class="tn">${{esc(t.tool_name)}}</span>`
-       + (t.ok ? '' : ' <span class="mut">(error)</span>')
-       + (argStr ? `<code>${{esc(argStr)}}</code>` : '') + '</div>';
-}}
-
-async function openSession(id, btn){{
-  activeId = id;
-  document.querySelectorAll('.cl-item').forEach(x => x.classList.toggle('active', x === btn));
-  const panel = document.getElementById('panel');
-  panel.innerHTML = '<div class="empty">Loading…</div>';
-  let s;
-  try {{ s = await (await fetch(api('/api/chat-session?id=' + encodeURIComponent(id)))).json(); }}
-  catch(e) {{ panel.innerHTML = '<div class="empty">Failed to load.</div>'; return; }}
-  const tools = s.tools || {{}};
-  const html = (s.messages || []).map(m => {{
-    if(m.role === 'user'){{
-      return `<div class="cl-meta" style="text-align:right">${{when(m.ts)}}${{m.view ? ' · ' + esc(m.view) : ''}}${{m.period ? ' · ' + esc(m.period) : ''}}</div>`
-           + `<div class="cl-msg user">${{esc(m.text)}}</div>`;
-    }}
-    const tl = (tools[m.id] || []).map(toolLine).join('');
-    return `<div class="cl-msg bot">${{esc(m.text)}}</div>`
-         + (tl ? `<div class="cl-tools">${{tl}}</div>` : '')
-         + `<div class="cl-meta">${{fmtNum((m.tokens_in||0)+(m.tokens_out||0))}} tok · ${{fmtCost(m.cost_usd)}}</div>`;
-  }}).join('');
-  panel.innerHTML = html || '<div class="empty">Empty conversation.</div>';
-}}
-
-document.getElementById('list').addEventListener('click', e => {{
-  const b = e.target.closest('.cl-item'); if(b) openSession(b.getAttribute('data-id'), b);
-}});
-document.getElementById('chips').addEventListener('click', e => {{
-  const b = e.target.closest('.chip'); if(!b) return;
-  if(b.dataset.days){{
-    curFrom = curTo = ''; document.getElementById('from').value=''; document.getElementById('to').value='';
-    curDays = +b.dataset.days;
-    document.querySelectorAll('#chips .chip[data-days]').forEach(x=>x.classList.toggle('active', x===b));
-    loadList();
-  }} else if(b.id==='apply'){{
-    const f=document.getElementById('from').value, t=document.getElementById('to').value;
-    if(f && t){{ curFrom=f; curTo=t;
-      document.querySelectorAll('#chips .chip[data-days]').forEach(x=>x.classList.remove('active'));
-      loadList(); }}
-  }}
-}});
-loadList();
-</script>
-</main></div></body></html>"""
-    return body.encode("utf-8")
-
-
-def dashboards_list_page(rows: list, login) -> bytes:
-    """Manage → Dashboards: list of custom dashboards (own + shared, newest first —
-    see store.list_dashboards()). The New button creates a blank dashboard via the
-    CRUD API and jumps straight into its editor. Linked from the sidebar."""
-    def esc(v) -> str:
-        return html.escape("" if v is None else str(v))
-
-    if rows:
-        trs = []
-        for r in rows:
-            did = esc(r.get("id"))
-            edit = (f'<a href="/dashboard/{did}/edit">Edit</a>'
-                    if r.get("owner_login") == login else "")
-            trs.append(
-                f'<tr><td><a href="/dashboard/{did}">'
-                f'{esc(r.get("title") or "Untitled dashboard")}</a></td>'
-                f'<td>{esc(r.get("owner_login"))}</td>'
-                f'<td>{esc(r.get("visibility"))}</td>'
-                f'<td>{esc((r.get("updated_ts") or "")[:16])}</td>'
-                f'<td>{edit}</td></tr>')
-        table_html = (
-            '<table class="u"><thead><tr><th>Title</th><th>Owner</th>'
-            '<th>Visibility</th><th>Updated</th><th></th></tr></thead>'
-            f'<tbody>{"".join(trs)}</tbody></table>')
-    else:
-        table_html = ('<div class="empty">No dashboards yet — click '
-                       '&ldquo;New dashboard&rdquo; to create one.</div>')
-    body = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dashboards — Constructor Insight</title>
-<style>
-  :root{{--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--ink:#1f2328;--mut:#656d76;--acc:#0969da;--good:#1a7f37;--bad:#cf222e;--warn:#9a6700}}
-  *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}}
-  {shell.SHELL_CSS}
-  main.wrap{{padding:24px 28px 56px}} h1{{font-size:24px;margin:0 0 4px}}
-  @media(max-width:900px){{main.wrap{{padding:16px}}}}
-  .sub{{color:var(--mut);margin:0 0 14px;max-width:74ch}}
-  table.u{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13px}}
-  table.u th,table.u td{{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}}
-  table.u thead th{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}}
-  table.u tbody tr:last-child td{{border-bottom:none}}
-  .empty{{color:var(--mut);padding:12px;font-size:13px}}
-  {shell.BASE_CSS}
-  table.u{{border-radius:var(--r-sm);box-shadow:var(--sh)}}
-</style></head><body>
-<div class="app">
-{shell.sidebar_html("dashboards")}
-<main class="wrap">
-<h1>Dashboards</h1>
-<p class="sub">Custom dashboards — your own and any shared with you. Build one from
-reusable panels and share it with the team.</p>
-<p><button id="new-dash" class="primary" type="button">New dashboard</button></p>
-{table_html}
-<script>
-document.getElementById('new-dash').addEventListener('click', function(){{
-  fetch('/api/dashboard', {{method:'POST', headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{spec:{{title:'Untitled dashboard', panels:[]}}}})}})
-    .then(function(r){{return r.json();}}).then(function(s){{ if(s.ok) location.href='/dashboard/'+s.id+'/edit'; }});
-}});
-</script>
-</main></div></body></html>"""
-    return body.encode("utf-8")
-
-
-def mcp_page() -> bytes:
-    """The MCP access page (sidebar → Manage → MCP): the connection URL + bearer
-    token to wire an MCP client into this instance, plus the read-only tool catalog."""
-    public_url = _public_url()
-    token = _mcp_token()
-    rows = "".join(
-        '<tr><td><code>{name}</code></td><td>{sig}</td><td>{doc}</td></tr>'.format(
-            name=html.escape(t["name"]),
-            sig=(f'<code>{html.escape(t["sig"])}</code>' if t["sig"]
-                 else '<span class="mut">—</span>'),
-            doc=html.escape(t["doc"]))
-        for t in _mcp_tools())
-    body = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MCP — Constructor Insight</title>
-<style>
-  :root{{--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--ink:#1f2328;--mut:#656d76;--acc:#0969da;--good:#1a7f37;--bad:#cf222e;--warn:#9a6700}}
-  *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}}
-  {shell.SHELL_CSS}
-  main.wrap{{padding:24px 28px 56px}} h1{{font-size:24px;margin:0 0 4px}} h2{{font-size:16px;margin:28px 0 10px}}
-  @media(max-width:900px){{main.wrap{{padding:16px}}}}
-  .sub{{color:var(--mut);margin:0 0 6px;max-width:70ch}}
-  .card{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}}
-  .label{{font-size:12px;color:var(--mut)}} .fine{{color:var(--mut);font-size:12px;margin-top:4px}}
-  .mut{{color:var(--mut)}}
-  table.mcp{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
-    border-radius:8px;overflow:hidden;font-size:13px}}
-  table.mcp th,table.mcp td{{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}}
-  table.mcp thead th{{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);background:var(--panel2,#eef1f5)}}
-  table.mcp tbody tr:last-child td{{border-bottom:none}}
-  table.mcp td:nth-child(1){{white-space:nowrap}} table.mcp td code{{font-size:12px;white-space:normal}}
-  {shell.BASE_CSS}
-  .card{{border-radius:var(--r-sm);box-shadow:var(--sh)}}
-</style></head><body>
-<div class="app">
-{shell.sidebar_html("mcp")}
-<main class="wrap">
-<h1>MCP access</h1>
-<p class="sub">Connect an AI client (Claude, etc.) to this instance over the Model Context
-Protocol for read-only access to the contribution &amp; delivery data. Point the client at
-the URL below with the bearer token, then call the tools listed underneath.</p>
-
-<div class="card" style="margin-top:12px">
-  <div class="label">Public URL — used in the connect instructions (set it to how clients reach this host, e.g. https://insight.example.com)</div>
-  <div style="display:flex;gap:8px;align-items:center;margin:8px 0">
-    <input id="mcp-baseurl" type="text" value="{html.escape(public_url)}"
-      placeholder="https://your-host" style="flex:1;font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)">
-    <button onclick="mcpSaveUrl()">Save</button>
-  </div>
-  <div class="label" style="margin-top:10px">Bearer token — read-only data access for MCP clients</div>
-  <div style="display:flex;gap:8px;align-items:center;margin:8px 0">
-    <code id="mcp-token" data-token="{html.escape(token)}"
-      style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel2);color:var(--ink);overflow-x:auto;white-space:nowrap">{html.escape(token) or '(none — set MCP_TOKEN on the server)'}</code>
-    <button onclick="mcpCopy()">Copy</button>
-  </div>
-  <div class="fine">Connect an MCP client to <code id="mcp-url">/mcp</code> and send
-    <code>Authorization: Bearer &lt;token&gt;</code>. Shown in the clear on purpose so you
-    can copy it. Empty token = unauthenticated (only safe behind this proxy).</div>
-  <div class="fine" style="margin-top:6px">Rotating the token would invalidate every connected MCP
-    client at once, so it's intentionally not a button here — rotate it from the server
-    (<code>MCP_TOKEN</code> env / secret) only when a token is leaked.</div>
-</div>
-
-<h2>Tools</h2>
-<p class="sub">Every tool is read-only. Descriptions are read straight from the MCP server,
-so this list always matches what a connected client sees.</p>
-<table class="mcp">
-  <thead><tr><th>Tool</th><th>Parameters</th><th>What it does</th></tr></thead>
-  <tbody>{rows or '<tr><td colspan="3" class="mut">No tools found.</td></tr>'}</tbody>
-</table>
-<script>
-function api(p){{ return location.origin + p; }}
-function mcpBase(){{ var s=((document.getElementById('mcp-baseurl')||{{}}).value||'').trim()||location.origin;
-  while(s.length && s.charAt(s.length-1)==='/') s=s.slice(0,-1); return s; }}
-function mcpRefreshUrl(){{ var u=document.getElementById('mcp-url'); if(u) u.textContent = mcpBase() + '/mcp'; }}
-(function(){{ var b=document.getElementById('mcp-baseurl'); if(b) b.addEventListener('input', mcpRefreshUrl); mcpRefreshUrl(); }})();
-async function mcpSaveUrl(){{
-  var url=(document.getElementById('mcp-baseurl').value||'').trim();
-  var r=await fetch(api('/api/mcp/public-url'),{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{url}})}});
-  var j=await r.json(); if(j.ok){{ document.getElementById('mcp-baseurl').value=j.url; mcpRefreshUrl(); }} else {{ alert(j.error||'save failed'); }}
-}}
-function mcpCopy(){{ var el=document.getElementById('mcp-token'); if(!el) return;
-  var t=(el.getAttribute('data-token')||'').trim(); if(!t) return;
-  if(navigator.clipboard&&navigator.clipboard.writeText){{ navigator.clipboard.writeText(t).catch(function(){{}}); return; }}
-  var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select();
-  try{{ document.execCommand('copy'); }}catch(e){{}} document.body.removeChild(ta); }}
-</script>
-</main></div></body></html>"""
-    return body.encode()
 
 
 SETUP_HTML = r"""<!doctype html>
@@ -1362,32 +657,13 @@ async function pollStatus(){
 </div></body></html>"""
 
 
-def setup_html() -> bytes:
-    import configstore
-    cfg = {}
-    try:
-        import ghclient
-        cfg = ghclient.load_config()
-    except Exception as exc:         # noqa: BLE001 — the wizard must still open
-        # Worth a log line beyond the usual reason: the fields below fall back to
-        # EMPTY, so a failed load shows a configured org as unconfigured, and saving
-        # the form as presented would write those blanks back over it.
-        log_degraded("setup wizard config load (legacy page)", exc)
-    org = html.escape(str(cfg.get("org", "")))
-    extra_orgs = html.escape(", ".join(cfg.get("extra_orgs", []) or []))
-    extra_repos = html.escape(", ".join(cfg.get("extra_repos", []) or []))
-    return (SETUP_HTML.replace("__TOKEN_STATUS__", token_status())
-            .replace("__ORG__", org).replace("__EXTRA_ORGS__", extra_orgs)
-            .replace("__EXTRA_REPOS__", extra_repos)).encode()
-
-
-# Live-render cache. The report is served fresh from the DB (no baked report.html);
-# build_model + render_report run on the first hit after any collect/edit and are
-# cached until the DB changes. Keyed on store.report_version() — a content token that
-# moves the instant any run blob or override is written, unlike the DB file mtime
-# which under WAL needn't change on an in-process write. One shared model feeds both
-# the /report HTML and period_ctx (kills the old double build_model).
-_RENDER: dict = {"version": None, "model": None, "ctx": None, "html": None}
+# Shared model cache. build_model runs on the first hit after any collect/edit and
+# is cached until the DB changes, feeding every /api/report/* view. Keyed on
+# store.report_version() — a content token that moves the instant any run blob or
+# override is written, unlike the DB file mtime, which under WAL needn't change on
+# an in-process write. It used to also cache rendered HTML and the Jinja macro
+# globals; both went with the monolith.
+_RENDER: dict = {"version": None, "model": None}
 _RENDER_LOCK = threading.Lock()
 
 # Distinct from None, which is a REAL version here (_report_version() degrades to it
@@ -1517,43 +793,27 @@ def health_data_payload() -> tuple[dict, bool]:
     return payload, ok
 
 
-def period_ctx() -> dict:
-    """Globals the filterable-panel macros need (emails_by_login, legacy_names,
-    per-person all-time rows), derived from the shared cached model."""
-    version = _report_version()
-    with _RENDER_LOCK:
-        if _RENDER["version"] == version and _RENDER["ctx"] is not None:
-            return _RENDER["ctx"]
-    model = _report_model(version)
-    ctx = {"emails_by_login": model.get("emails_by_login", {}),
-           "legacy_names": model.get("legacy_names", []),
-           "ai_precision": (model.get("meta") or {}).get("ai_precision", {}),
-           # all-time per-person rows (surviving code, reviews, identity) keyed by
-           # login — for the Person dashboard's cumulative/blame impact block.
-           "person_alltime": {r["login"]: r for r in model.get("table", [])}}
-    with _RENDER_LOCK:
-        # only cache if the slot still holds the exact model we derived from — a
-        # concurrent newer render (or a last-good fallback) must not be clobbered.
-        if _RENDER["model"] is model:
-            _RENDER["ctx"] = ctx
-    return ctx
+def setup_boot() -> dict:
+    """What the setup wizard is bootstrapped with.
 
+    A function, not an inline dict in the route, because of the first field: the
+    wizard must know WHETHER a token is stored without ever receiving it, and that is
+    a rule worth being able to test directly rather than by scraping a rendered page
+    (which is how it was tested while the wizard was server-rendered HTML).
 
-def report_html() -> str:
-    """The full report page, rendered live from the DB and cached until it changes."""
-    import render
-    version = _report_version()
-    with _RENDER_LOCK:
-        if _RENDER["version"] == version and _RENDER["html"] is not None:
-            return _RENDER["html"]
-    model = _report_model(version)
-    html = render.render_report(model)
-    with _RENDER_LOCK:
-        # only cache if the slot still holds the exact model this html came from,
-        # so a slower render can't bind stale html to a newer version's slot.
-        if _RENDER["model"] is model:
-            _RENDER["html"] = html
-    return html
+    A config that cannot be read falls back to EMPTY fields, which would show a
+    configured org as unconfigured — and saving the form as presented would write the
+    blanks back over it. So the failure is logged loudly rather than swallowed."""
+    cfg = {}
+    try:
+        import ghclient
+        cfg = ghclient.load_config()
+    except Exception as exc:               # noqa: BLE001 — degraded, never fatal
+        log_degraded("setup wizard config load", exc)
+    return {"token_status": token_status(),
+            "org": str(cfg.get("org", "")),
+            "extra_orgs": ", ".join(cfg.get("extra_orgs", []) or []),
+            "extra_repos": ", ".join(cfg.get("extra_repos", []) or [])}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1692,87 +952,6 @@ class Handler(BaseHTTPRequestHandler):
             return False
         self.send_json({"ok": False, "error": "cross-origin request rejected"}, 403)
         return True
-
-    def serve_custom_period(self) -> None:
-        """Custom period over the granular tables (any range = a SQL query).
-        Accepts either `from`/`to` (YYYY-MM-DD) or `days=N`; returns the rendered
-        period-panels fragment + the resolved range."""
-        import re as _re
-        from urllib.parse import parse_qs
-        from datetime import timedelta
-        import store
-        import render
-        qs = parse_qs(urlparse(self.path).query)
-        frm = (qs.get("from", [""])[0] or "").strip()
-        to = (qs.get("to", [""])[0] or "").strip()
-        DATE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        if frm or to:
-            if (frm and not DATE.match(frm)) or (to and not DATE.match(to)):
-                self.send_json({"ok": False, "error": "dates must be YYYY-MM-DD"}, 400)
-                return
-            since = (frm or "2008-01-01") + "T00:00:00Z"
-            until = (to + "T23:59:59Z") if to else now.strftime("%Y-%m-%dT%H:%M:%SZ")
-            label_range = f"{(frm or '2008-01-01')} → {to or 'today'}"
-        else:
-            try:
-                days = max(1, min(int(qs.get("days", ["30"])[0]), 36500))
-            except (ValueError, IndexError):
-                self.send_json({"ok": False, "error": "invalid days"}, 400)
-                return
-            since = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-            label_range = f"last {days} days (since {since[:10]})"
-        if since > until:
-            self.send_json({"ok": False, "error": "from is after to"}, 400)
-            return
-        if not Path(store.db_path()).exists():
-            # connect() would create an empty DB and return zero panels
-            self.send_json({"ok": False, "error": "no collected data"}, 404)
-            return
-        # optional global slice: scope every windowed panel to a repo subset
-        import re as _re2
-        scope = (qs.get("scope", [""])[0] or "").strip()
-        level, _, target = scope.partition(":")
-        if scope and (level not in ("org", "element", "repo") or
-                      not _re2.match(r"^[A-Za-z0-9_./-]{1,120}$", target)):
-            self.send_json({"ok": False, "error": "invalid scope"}, 400)
-            return
-        conn = None
-        try:
-            conn = store.connect()
-            repos = None
-            if scope:
-                import discovery
-                repos, _proj = discovery.repos_for_scope(conn, level, target)
-            pr = store.aggregate(conn, since, until, label="custom", repos=repos)
-            pr["delivery"] = {}          # delivery panels are served by /api/delivery
-            try:                         # developer-score rollup for the Overview panel
-                pr["score"] = store.score_summary(conn, since, until, repos=repos)
-            except Exception as exc:     # noqa: BLE001 — never break the period fetch
-                log_degraded("Overview score rollup (/api/period)", exc)
-                pr["score"] = None
-            # Period-over-period deltas vs the immediately preceding equal-length
-            # window. Skipped for very long / all-time spans (>2y), where the prior
-            # window predates collection and a delta would be meaningless.
-            try:
-                ds = datetime.fromisoformat(since.replace("Z", "+00:00"))
-                du = datetime.fromisoformat(until.replace("Z", "+00:00"))
-                span = du - ds
-                if 0 < span.days <= 731:
-                    p_since = (ds - span).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    prev = store.aggregate(conn, p_since, since, label="prev", repos=repos)
-                    pr["deltas"] = render.delta_map(pr["totals"], prev["totals"])
-            except Exception as exc:        # noqa: BLE001 — deltas are best-effort
-                log_degraded("Overview period-over-period deltas (/api/period)", exc)
-            self.send_json({"ok": True, "range": label_range,
-                            "since": since[:10], "until": until[:10],
-                            "html": render.render_period_fragment(pr, period_ctx())})
-        except Exception as exc:           # noqa: BLE001
-            self.send_json({"ok": False, "error": str(exc)}, 500)
-        finally:
-            if conn is not None:
-                conn.close()
 
     _OVERVIEW_PRESET_DAYS = {"7d": 7, "30d": 30, "90d": 90, "365d": 365}
 
@@ -3093,316 +2272,33 @@ class Handler(BaseHTTPRequestHandler):
         res["ok"] = True
         self.send_json(res)
 
-    def serve_delivery(self) -> None:
-        """Delivery panels for a period + repo SLICE: /api/delivery?(days=N|from&to)
-        &scope=<level:target>. scope empty = whole org. Only the delivery panels are
-        recomputed for the slice; the rest of the report stays global (variant A)."""
-        import re as _re
-        from urllib.parse import parse_qs
-        from datetime import timedelta
-        import store
-        import render
-        import discovery
-        import semantic_metrics
-        qs = parse_qs(urlparse(self.path).query)
-        frm = (qs.get("from", [""])[0] or "").strip()
-        to = (qs.get("to", [""])[0] or "").strip()
-        DATE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        if frm or to:
-            if (frm and not DATE.match(frm)) or (to and not DATE.match(to)):
-                self.send_json({"ok": False, "error": "dates must be YYYY-MM-DD"}, 400)
-                return
-            since = (frm or "2008-01-01") + "T00:00:00Z"
-            until = (to + "T23:59:59Z") if to else now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        else:
-            try:
-                days = max(1, min(int(qs.get("days", ["30"])[0]), 36500))
-            except (ValueError, IndexError):
-                self.send_json({"ok": False, "error": "invalid days"}, 400)
-                return
-            since = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        scope = (qs.get("scope", [""])[0] or "").strip()
-        level, _, target = scope.partition(":")
-        if scope and (level not in ("org", "element", "repo") or
-                      not _re.match(r"^[A-Za-z0-9_./-]{1,120}$", target)):
-            self.send_json({"ok": False, "error": "invalid scope"}, 400)
-            return
-        if not Path(store.db_path()).exists():
-            self.send_json({"ok": False, "error": "no collected data"}, 404)
-            return
-        conn = store.connect()
-        try:
-            repos = None
-            if scope:
-                repos, _proj = discovery.repos_for_scope(conn, level, target)
-            block = semantic_metrics.window_block(conn, since, until, repos)
-            # period-over-period deltas vs the preceding equal window (skipped for
-            # all-time / >2y spans, same rule as the main KPIs)
-            try:
-                ds = datetime.fromisoformat(since.replace("Z", "+00:00"))
-                du = datetime.fromisoformat(until.replace("Z", "+00:00"))
-                span = du - ds
-                if 0 < span.days <= 731:
-                    p_since = (ds - span).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    prev = semantic_metrics.delivery_metrics(conn, p_since, since, repos)
-                    block["deltas"] = render.delta_map(
-                        block, prev, keys=semantic_metrics.DELIVERY_KPI_KEYS)
-            except Exception as exc:        # noqa: BLE001 — deltas are best-effort
-                log_degraded("Delivery deltas (/api/delivery)", exc)
-            pr = {"delivery": block}
-            html = render.render_delivery_fragment(pr)
-        finally:
-            conn.close()
-        self.send_json({"ok": True, "html": html, "since": since[:10], "until": until[:10]})
-
-    def serve_flow(self) -> None:
-        """Flow tab for a period + repo SLICE: /api/flow?(days=N|from&to)&scope=…
-        The friction explainer + timeline-derived flow metrics for the window."""
-        import re as _re
-        from urllib.parse import parse_qs
-        from datetime import timedelta
-        import store
-        import render
-        import discovery
-        import semantic_metrics
-        qs = parse_qs(urlparse(self.path).query)
-        frm = (qs.get("from", [""])[0] or "").strip()
-        to = (qs.get("to", [""])[0] or "").strip()
-        DATE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        if frm or to:
-            if (frm and not DATE.match(frm)) or (to and not DATE.match(to)):
-                self.send_json({"ok": False, "error": "dates must be YYYY-MM-DD"}, 400)
-                return
-            since = (frm or "2008-01-01") + "T00:00:00Z"
-            until = (to + "T23:59:59Z") if to else now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        else:
-            try:
-                days = max(1, min(int(qs.get("days", ["30"])[0]), 36500))
-            except (ValueError, IndexError):
-                self.send_json({"ok": False, "error": "invalid days"}, 400)
-                return
-            since = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        scope = (qs.get("scope", [""])[0] or "").strip()
-        level, _, target = scope.partition(":")
-        if scope and (level not in ("org", "element", "repo") or
-                      not _re.match(r"^[A-Za-z0-9_./-]{1,120}$", target)):
-            self.send_json({"ok": False, "error": "invalid scope"}, 400)
-            return
-        if not Path(store.db_path()).exists():
-            self.send_json({"ok": False, "error": "no collected data"}, 404)
-            return
-        conn = store.connect()
-        try:
-            repos = None
-            if scope:
-                repos, _proj = discovery.repos_for_scope(conn, level, target)
-            pr = {"flow": semantic_metrics.flow_report(conn, repos, since, until)}
-            html = render.render_flow_fragment(pr)
-        finally:
-            conn.close()
-        self.send_json({"ok": True, "html": html, "since": since[:10], "until": until[:10]})
-
-    def serve_trend(self) -> None:
-        """Trend panel alone at a chosen granularity: /api/trend?(days=N|from&to)
-        &scope=<level:target>&gran=auto|day|week|month|quarter. Recomputes only the
-        stacked-area chart so the granularity control needn't reload the whole page."""
-        import re as _re
-        from urllib.parse import parse_qs
-        from datetime import timedelta
-        import store
-        import render
-        import discovery
-        qs = parse_qs(urlparse(self.path).query)
-        frm = (qs.get("from", [""])[0] or "").strip()
-        to = (qs.get("to", [""])[0] or "").strip()
-        gran = (qs.get("gran", ["auto"])[0] or "auto").strip()
-        if gran not in ("auto", "day", "week", "month", "quarter"):
-            self.send_json({"ok": False, "error": "invalid gran"}, 400)
-            return
-        dim = (qs.get("dim", ["company"])[0] or "company").strip()
-        if dim not in ("company", "work_type", "repo_type", "element"):
-            self.send_json({"ok": False, "error": "invalid dim"}, 400)
-            return
-        DATE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        if frm or to:
-            if (frm and not DATE.match(frm)) or (to and not DATE.match(to)):
-                self.send_json({"ok": False, "error": "dates must be YYYY-MM-DD"}, 400)
-                return
-            since = (frm or "2008-01-01") + "T00:00:00Z"
-            until = (to + "T23:59:59Z") if to else now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        else:
-            try:
-                days = max(1, min(int(qs.get("days", ["30"])[0]), 36500))
-            except (ValueError, IndexError):
-                self.send_json({"ok": False, "error": "invalid days"}, 400)
-                return
-            since = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        scope = (qs.get("scope", [""])[0] or "").strip()
-        level, _, target = scope.partition(":")
-        if scope and (level not in ("org", "element", "repo") or
-                      not _re.match(r"^[A-Za-z0-9_./-]{1,120}$", target)):
-            self.send_json({"ok": False, "error": "invalid scope"}, 400)
-            return
-        if not Path(store.db_path()).exists():
-            self.send_json({"ok": False, "error": "no collected data"}, 404)
-            return
-        conn = store.connect()
-        try:
-            repos = None
-            if scope:
-                repos, _proj = discovery.repos_for_scope(conn, level, target)
-            pr = store.aggregate(conn, since, until, label="trend", repos=repos,
-                                 trend_gran=gran, trend_dim=dim)
-            html = render.render_trend_fragment(pr)
-        finally:
-            conn.close()
-        self.send_json({"ok": True, "html": html, "since": since[:10], "until": until[:10]})
-
-    def serve_person(self) -> None:
-        """Weekly per-person activity: /api/person?login=X&(days=N | from&to).
-        Commits + git line diff per repo + issues opened, bucketed by week."""
-        import re as _re
-        from urllib.parse import parse_qs
-        from datetime import timedelta
-        import store
-        import render
-        qs = parse_qs(urlparse(self.path).query)
-        login = (qs.get("login", [""])[0] or "").strip()
-        if not _re.match(r"^[A-Za-z0-9-]{1,39}$", login):
-            self.send_json({"ok": False, "error": "invalid login"}, 400)
-            return
-        frm = (qs.get("from", [""])[0] or "").strip()
-        to = (qs.get("to", [""])[0] or "").strip()
-        DATE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        if frm or to:
-            if (frm and not DATE.match(frm)) or (to and not DATE.match(to)):
-                self.send_json({"ok": False, "error": "dates must be YYYY-MM-DD"}, 400)
-                return
-            since = (frm or "2008-01-01") + "T00:00:00Z"
-            until = (to + "T23:59:59Z") if to else now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        else:
-            try:
-                days = max(1, min(int(qs.get("days", ["90"])[0]), 36500))
-            except (ValueError, IndexError):
-                self.send_json({"ok": False, "error": "invalid days"}, 400)
-                return
-            since = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            until = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        if since > until:
-            self.send_json({"ok": False, "error": "from is after to"}, 400)
-            return
-        if not Path(store.db_path()).exists():
-            self.send_json({"ok": False, "error": "no collected data"}, 404)
-            return
-        conn = None
-        try:
-            conn = store.connect()
-            pw = store.person_weekly(conn, login, since, until)
-            prof = store.person_profile(conn, login, since, until)
-            # period-over-period deltas for the KPI tiles vs the preceding equal
-            # window (skipped for all-time / >2y spans, same rule as /api/period)
-            try:
-                ds = datetime.fromisoformat(since.replace("Z", "+00:00"))
-                du = datetime.fromisoformat(until.replace("Z", "+00:00"))
-                span = du - ds
-                if 0 < span.days <= 731:
-                    p_since = (ds - span).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    prev = store.person_totals(conn, login, p_since, since)
-                    prof["deltas"] = render.delta_map(
-                        prof["totals"], prev,
-                        keys=("commits", "meaningful_additions", "prs", "specs", "bugs", "epics", "features"))
-            except Exception as exc:        # noqa: BLE001 — deltas are best-effort
-                log_degraded(f"person KPI deltas for {login} (/api/person)", exc)
-            ctx = period_ctx()
-            alltime = (ctx.get("person_alltime") or {}).get(login, {})
-            # weekly commit intensity (for the activity heatmap strip)
-            heat = [{"week": r["week"], "commits": sum(c["commits"] for c in r["cells"] if c),
-                     "issues": r["issues"]} for r in pw["rows"]]
-            # EXPERIMENTAL v0 developer score (org-relative, this window). Tucked
-            # behind a collapsed <details> in the dashboard — best-effort, and now
-            # logged when it degrades (_developer_score_block). The Jinja fragment
-            # has no place to SHOW the reason the way the React page does, so here
-            # the second return value only reaches the payload (harmless to the
-            # macro) — the log line is what this path gains.
-            score, score_unavailable = self._developer_score_block(conn, login, since, until)
-            payload = {"weekly": pw, "profile": prof, "alltime": alltime, "heat": heat,
-                       "emails": (ctx.get("emails_by_login") or {}).get(login, ""),
-                       "login": login, "gh_profile": store.gh_profile(conn, login),
-                       "score": score, "score_unavailable": score_unavailable}
-            self.send_json({"ok": True, "html": render.render_person_fragment(payload)})
-        except Exception as exc:           # noqa: BLE001
-            self.send_json({"ok": False, "error": str(exc)}, 500)
-        finally:
-            if conn is not None:
-                conn.close()
-
     def do_GET(self) -> None:
         if self.require_auth():
             return
         path = unquote(urlparse(self.path).path)
         if path == "/setup":
-            # React route (Manage migration); ?legacy=1 keeps the server-Jinja
-            # wizard as the pixel-gate baseline + fallback. The wizard is a
-            # standalone centred page (no sidebar) — render_spa_page(sidebar=False).
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(setup_html(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                cfg = {}
-                try:
-                    import ghclient
-                    cfg = ghclient.load_config()
-                except Exception as exc:       # noqa: BLE001 — same as setup_html()
-                    log_degraded("setup wizard config load (React boot)", exc)
-                boot = {"token_status": token_status(),
-                        "org": str(cfg.get("org", "")),
-                        "extra_orgs": ", ".join(cfg.get("extra_orgs", []) or []),
-                        "extra_repos": ", ".join(cfg.get("extra_repos", []) or [])}
-                self.send_bytes(
-                    _render.render_spa_page("setup", "setup", "Set up",
-                                            bootstrap=boot, sidebar=False).encode(),
-                    "text/html; charset=utf-8")
+            # A standalone centred page, so no sidebar.
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("setup", "setup", "Set up",
+                                        bootstrap=setup_boot(), sidebar=False).encode(),
+                "text/html; charset=utf-8")
         elif path == "/metrics":
-            import metrics_catalog
             from urllib.parse import parse_qs as _pq
-            # React cutover (Manage migration): the server Jinja render stays
-            # reachable at ?legacy=1 (pixel-gate baseline + fallback).
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(metrics_catalog.render_page().encode(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("metrics", "metrics", "Metrics catalog").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("metrics", "metrics", "Metrics catalog").encode(),
+                "text/html; charset=utf-8")
         elif path == "/views":
-            import views_catalog
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(views_catalog.render_page().encode(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("views", "views", "View catalog").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("views", "views", "View catalog").encode(),
+                "text/html; charset=utf-8")
         elif path == "/calibrate":
-            import calibrate
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(calibrate.render_page(self._oauth_user()).encode(),
-                                "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("calibrate", "calibrate", "Calibrate").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("calibrate", "calibrate", "Calibrate").encode(),
+                "text/html; charset=utf-8")
         elif path == "/api/manage/calibrate.json":
             import calibrate
             self.send_json({"ok": True, **calibrate.calibrate_json(self._oauth_user())})
@@ -3423,15 +2319,10 @@ class Handler(BaseHTTPRequestHandler):
             except SystemExit:                  # nothing collected yet
                 self.send_response(HTTPStatus.FOUND)
                 self.send_header("Location", "/setup"); self.end_headers(); return
-            import datahealth
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(datahealth.render_page(model).encode(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("datahealth", "datahealth", "Data health").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("datahealth", "datahealth", "Data health").encode(),
+                "text/html; charset=utf-8")
         elif path == "/api/manage/data-health.json":
             import datahealth
             if needs_setup():
@@ -3442,27 +2333,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": "no data collected yet"}, 409); return
             self.send_json({"ok": True, **datahealth.health_json(model)})
         elif path in ("/semantic", "/semantic/advanced"):
-            # React routes (Manage migration); ?legacy=1 keeps the server-Jinja
-            # editors as the pixel-gate baselines + fallbacks. The wizard lives at
-            # /semantic, the dense grid at /semantic/advanced. Both fetch their data
-            # from the existing GET /api/semantic/{wizard,scope,effective} endpoints.
+            # The wizard lives at /semantic, the dense grid at /semantic/advanced;
+            # both fetch from GET /api/semantic/{wizard,scope,effective}.
             from urllib.parse import parse_qs as _pq
             advanced = path.endswith("advanced")
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                try:
-                    import semantic_editor
-                    html = (semantic_editor.render_page() if advanced
-                            else semantic_editor.render_wizard_page())
-                    self.send_bytes(html.encode(), "text/html; charset=utf-8")
-                except Exception as exc:           # noqa: BLE001
-                    self.send_json({"ok": False, "error": f"taxonomy: {exc}"}, 500)
-            else:
-                import render as _render
-                entry, title = (("semantic-advanced", "Taxonomy") if advanced
-                                else ("semantic-wizard", "Taxonomy setup"))
-                self.send_bytes(
-                    _render.render_spa_page(entry, "semantic", title).encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            entry, title = (("semantic-advanced", "Taxonomy") if advanced
+                            else ("semantic-wizard", "Taxonomy setup"))
+            self.send_bytes(
+                _render.render_spa_page(entry, "semantic", title).encode(),
+                "text/html; charset=utf-8")
         elif path in ("/", "/latest"):
             # first run (nothing collected yet) → guide through the setup wizard;
             # otherwise the report Overview is the landing page (Update lives at /update).
@@ -3477,26 +2357,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Location", "/setup")
                 self.end_headers()
                 return
-            # React route (Manage migration); ?legacy=1 keeps the server-Jinja
-            # portal as the pixel-gate baseline + fallback. Both the React page and
-            # the legacy JS poll GET /api/status (= snapshot_state) for live data.
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(portal_html(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("update", "update", "Update").encode(),
-                    "text/html; charset=utf-8")
+            # The page polls GET /api/status (= snapshot_state) for live data.
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("update", "update", "Update").encode(),
+                "text/html; charset=utf-8")
         elif path == "/mcp-info":
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(mcp_page(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("mcp", "mcp", "MCP access").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("mcp", "mcp", "MCP access").encode(),
+                "text/html; charset=utf-8")
         elif path in ("/report", "/report.html", "/report/legacy", "/report/legacy.html"):
             # rendered live from the DB (no baked file). Fresh install → setup wizard;
             # a render failure with no prior good render also routes to setup rather
@@ -3506,31 +2376,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Location", "/setup")
                 self.end_headers()
                 return
-            # React cutover: bare /report is now a client hash-redirect shim that
-            # maps the old `#<mode>` deep-links to their per-view React routes. The
-            # monolith stays reachable as a fallback at /report/legacy (clean path,
-            # used by the pixel-parity baseline capture) or /report?legacy=1.
-            from urllib.parse import parse_qs as _parse_qs
-            _legacy = (path.startswith("/report/legacy")
-                       or "1" in _parse_qs(urlparse(self.path).query).get("legacy", []))
-            if not _legacy:
-                import render as _render
-                self._log_page_open()
-                self.send_bytes(_render.report_redirect_shim().encode("utf-8"),
-                                "text/html; charset=utf-8")
-                return
-            try:
-                html = report_html()
-            except SystemExit:                  # load_data(): nothing collected yet
-                self.send_response(HTTPStatus.FOUND)
-                self.send_header("Location", "/setup")
-                self.end_headers()
-                return
-            # a genuine render error propagates → 500 (surfaced, not masked); a
-            # render failure with a prior good render is already served stale-but-
-            # working by _report_model's last-good fallback.
+            # The Jinja monolith is gone. What is left here is the migration shim: a
+            # client-side hash redirect that maps the old `#<mode>` deep-links onto
+            # their per-view React routes, so bookmarks from before the cutover still
+            # land somewhere real. /report/legacy and ?legacy=1 no longer mean
+            # anything and fall through to the same shim.
+            import render as _render
             self._log_page_open()
-            self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")
+            self.send_bytes(_render.report_redirect_shim().encode("utf-8"),
+                            "text/html; charset=utf-8")
         elif path == "/overview":
             # React pilot for the report views (see
             # docs/superpowers/plans/2026-07-22-react-phaseR-report.md, Task R-P1):
@@ -3690,7 +2544,7 @@ class Handler(BaseHTTPRequestHandler):
             import render
             self._log_page_open()
             self.send_bytes(
-                render.render_spa_page("traffic", "usage", "Traffic", report_chrome=True).encode(),
+                render.render_spa_page("traffic", "traffic", "Traffic", report_chrome=True).encode(),
                 "text/html; charset=utf-8")
         elif path == "/ai-tools":
             # React route for the "AI tools" view (see
@@ -3716,22 +2570,10 @@ class Handler(BaseHTTPRequestHandler):
                 render.render_spa_page("ai-tools", "fabric", "AI tools", report_chrome=True).encode(),
                 "text/html; charset=utf-8")
         elif path == "/identity":
-            # React route (Manage migration); ?legacy=1 keeps the server-Jinja
-            # editor as the pixel-gate baseline + fallback. The legacy render is
-            # live from the DB roster — no baked file, so its concurrency token and
-            # sidebar are always current (see directory.render_page docstring).
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                try:
-                    import directory
-                    self.send_bytes(directory.render_page().encode(), "text/html; charset=utf-8")
-                except Exception as exc:           # noqa: BLE001
-                    self.send_json({"ok": False, "error": f"identity editor: {exc}"}, 500)
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("identity", "identity", "Identity & company").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("identity", "identity", "Identity & company").encode(),
+                "text/html; charset=utf-8")
         elif path == "/api/manage/identity.json":
             try:
                 import directory
@@ -3741,18 +2583,10 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/config":
             # React route (Manage migration); ?legacy=1 keeps the server-Jinja
             # editor as the pixel-gate baseline + fallback.
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                try:
-                    import configstore
-                    self.send_bytes(configstore.render_page().encode(), "text/html; charset=utf-8")
-                except Exception as exc:           # noqa: BLE001
-                    self.send_json({"ok": False, "error": f"config editor: {exc}"}, 500)
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("config", "config", "Config").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("config", "config", "Config").encode(),
+                "text/html; charset=utf-8")
         elif path == "/api/manage/config.json":
             try:
                 import configstore
@@ -3858,8 +2692,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(blob)
         elif path == "/api/status":
             self.send_json(snapshot_state())
-        elif path == "/api/period":
-            self.serve_custom_period()
         elif path == "/api/report/overview":
             self.serve_report_overview()
         elif path == "/api/report/trend":
@@ -3880,16 +2712,8 @@ class Handler(BaseHTTPRequestHandler):
             self.serve_report_traffic()
         elif path == "/api/report/ai-tools":
             self.serve_report_ai_tools()
-        elif path == "/api/delivery":
-            self.serve_delivery()
-        elif path == "/api/flow":
-            self.serve_flow()
-        elif path == "/api/trend":
-            self.serve_trend()
         elif path == "/api/drill":
             self.serve_drill()
-        elif path == "/api/person":
-            self.serve_person()
         elif path == "/api/whoami":
             # per-request (never cached): the signed-in viewer resolved to a person
             # login, so the Person tab can default to "me". null when not resolvable.
@@ -3930,45 +2754,26 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
         elif path == "/usage-insights":
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(usage_page(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("usage", "usage", "Usage insights").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("usage", "usage-insights", "Usage insights").encode(),
+                "text/html; charset=utf-8")
         elif path == "/chat-log":
             # Assistant conversation viewer — intentionally NOT linked in the sidebar;
             # reachable by URL only. Portal auth still applies. React route (Manage
             # migration); ?legacy=1 keeps the server-Jinja page as the pixel-gate
             # baseline + fallback. Data comes from the existing GET
             # /api/chat-sessions + /api/chat-session endpoints.
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                self.send_bytes(chat_log_page(), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("chatlog", "", "Assistant conversations").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("chatlog", "", "Assistant conversations").encode(),
+                "text/html; charset=utf-8")
         elif path == "/dashboards":
             # Custom-dashboard list — linked from the sidebar.
-            from urllib.parse import parse_qs as _pq
-            if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                import store
-                conn = store.connect()
-                try:
-                    login, _ = self._resolve_viewer(conn)
-                    rows = store.list_dashboards(conn, login)
-                finally:
-                    conn.close()
-                self.send_bytes(dashboards_list_page(rows, login), "text/html; charset=utf-8")
-            else:
-                import render as _render
-                self.send_bytes(
-                    _render.render_spa_page("dashboards", "dashboards", "Dashboards").encode(),
-                    "text/html; charset=utf-8")
+            import render as _render
+            self.send_bytes(
+                _render.render_spa_page("dashboards", "dashboards", "Dashboards").encode(),
+                "text/html; charset=utf-8")
         elif path == "/api/chat-sessions":
             from urllib.parse import parse_qs
             import store
@@ -4083,17 +2888,13 @@ class Handler(BaseHTTPRequestHandler):
                 # editor as the pixel-gate baseline + fallback. The owner-only gate
                 # above guards both paths. React reads the spec via bootstrap and
                 # fetches measures/catalog/preview from the existing endpoints.
-                from urllib.parse import parse_qs as _pq
-                if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                    page = render.render_dashboard_editor(d)
-                else:
-                    spec = d["spec"]
-                    boot = {"id": d["id"], "title": spec.get("title", "Untitled dashboard"),
-                            "visibility": d.get("visibility", "private"), "spec": spec}
-                    page = render.render_spa_page(
-                        "dashboard-editor", "dashboards",
-                        "Edit: " + spec.get("title", "Untitled dashboard"),
-                        vega=True, bootstrap=boot)
+                spec = d["spec"]
+                boot = {"id": d["id"], "title": spec.get("title", "Untitled dashboard"),
+                        "visibility": d.get("visibility", "private"), "spec": spec}
+                page = render.render_spa_page(
+                    "dashboard-editor", "dashboards",
+                    "Edit: " + spec.get("title", "Untitled dashboard"),
+                    vega=True, bootstrap=boot)
             finally:
                 conn.close()
             self.send_bytes(page.encode(), "text/html; charset=utf-8")
@@ -4110,18 +2911,14 @@ class Handler(BaseHTTPRequestHandler):
                 # <PanelRenderer> catalog. The server Jinja + .vl-panel render
                 # stays reachable at ?legacy=1 (the pixel-gate baseline + fallback,
                 # mirroring the report's /report/legacy).
-                from urllib.parse import parse_qs as _pq
-                if "1" in _pq(urlparse(self.path).query).get("legacy", []):
-                    page = render.render_dashboard_page(d)
-                else:
-                    import discovery
-                    spec = d["spec"]
-                    boot = {"id": d["id"], "title": spec.get("title", "Dashboard"),
-                            "panels": spec.get("panels", []),
-                            "scopeTargets": discovery.scope_targets(conn)}
-                    page = render.render_spa_page(
-                        "dashboard", "dashboards", spec.get("title", "Dashboard"),
-                        vega=True, bootstrap=boot)
+                import discovery
+                spec = d["spec"]
+                boot = {"id": d["id"], "title": spec.get("title", "Dashboard"),
+                        "panels": spec.get("panels", []),
+                        "scopeTargets": discovery.scope_targets(conn)}
+                page = render.render_spa_page(
+                    "dashboard", "dashboards", spec.get("title", "Dashboard"),
+                    vega=True, bootstrap=boot)
             finally:
                 conn.close()
             self.send_bytes(page.encode(), "text/html; charset=utf-8")

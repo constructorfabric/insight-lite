@@ -127,12 +127,13 @@ class ScoreBlockBuilderTest(unittest.TestCase):
         self.assertEqual(score["n_eligible"], 0)
         self.assertNotIn("degraded", log.getvalue())      # empty is not a fault
 
-    def test_both_person_endpoints_share_one_builder(self):
-        """/api/report/person (React) and /api/person (legacy fragment) must not
-        drift on this — they call the same method."""
+    def test_the_person_endpoint_uses_the_shared_builder(self):
+        """There is one person endpoint since the legacy /api/person fragment went with
+        the monolith, and it must still go through the shared builder rather than
+        growing its own copy of the score logic."""
         import inspect
         src = inspect.getsource(server.Handler)
-        self.assertEqual(src.count("self._developer_score_block("), 2)
+        self.assertEqual(src.count("self._developer_score_block("), 1)
         self.assertEqual(src.count("store.developer_scores("), 1)
 
 

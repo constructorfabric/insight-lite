@@ -81,13 +81,17 @@ class RenderSmokeTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             _, conn = _store(tmp)
             self._seed(conn)
-            period = render.render_period_fragment(
-                store.aggregate(conn, *W, label="custom"), {"emails_by_login": {}})
-            self.assertIn('data-period-panel="kpis"', period)
-            deliv = render.render_delivery_fragment({"delivery": sm.window_block(conn, *W)})
-            self.assertIn('data-period-panel="delivery-kpis"', deliv)
-            flow = render.render_flow_fragment({"flow": sm.flow_report(conn, None, *W)})
-            self.assertIn('data-period-panel="flow"', flow)
+            # The Jinja fragments these used to render went with the monolith. The
+            # claim is unchanged — every windowed panel builds from a real store over
+            # a seeded DB — so it is made against the JSON the views actually consume.
+            meta = {"org": "o", "generated": "2026-01-01T00:00:00Z"}
+            over = render.overview_json({"totals": store.aggregate(conn, *W, label="custom")
+                                         .get("totals", {})}, meta)
+            self.assertTrue(over["ok"])
+            deliv = render.delivery_json({"delivery": sm.window_block(conn, *W)}, meta)
+            self.assertTrue(deliv["kpis"])
+            flow = render.flow_json({"flow": sm.flow_report(conn, None, *W)}, meta)
+            self.assertTrue(flow["flow"]["hasData"])
 
     def test_all_drill_entities_run(self):
         import store, semantic_metrics as sm

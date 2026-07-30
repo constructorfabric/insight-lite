@@ -219,7 +219,7 @@ class QuietHelperTest(unittest.TestCase):
         so a failed load shows a configured org as unconfigured — and saving the form
         as presented would write those blanks back over it."""
         with patch("ghclient.load_config", side_effect=OSError("config unreadable")):
-            self._assert_logs(server.setup_html, "setup wizard config load")
+            self._assert_logs(server.setup_boot, "setup wizard config load")
 
 
 if __name__ == "__main__":
