@@ -101,14 +101,19 @@ function Icon({ name }: { name: string }): ReactNode {
 // the `view` you are leaving.
 function carried(href: string, allow: string[] | undefined, q: Record<string, string>): string {
   if (!allow?.length) return href;
-  const [path, qs] = href.split("?");
-  const params = new URLSearchParams(qs || "");
+  // Parsed with URL rather than split("?"), so a fragment stays a fragment. Hand-rolled
+  // splitting puts the query AFTER the hash on an href that has one and no "?" —
+  // /report#flow?p=30d, which is not the same address. No nav href carries a fragment
+  // today (see shell.sidebar_html on why /report#<mode> is gone), and this is what
+  // keeps that from mattering if one comes back.
+  // Fixed base, not window.location: these hrefs are all site-relative, and the module
+  // stays free of window access so it can be rendered outside a browser.
+  const u = new URL(href, "http://nav.local");
   for (const k of allow) {
     const v = q[k];
-    if (v && !params.has(k)) params.set(k, v);
+    if (v && !u.searchParams.has(k)) u.searchParams.set(k, v);
   }
-  const out = params.toString();
-  return out ? `${path}?${out}` : path;
+  return u.pathname + u.search + u.hash;
 }
 
 // Rail + pane, byte-for-byte the shape backend/shell.py's sidebar_html emits — that

@@ -656,8 +656,15 @@ export default function Person() {
         <PersonPicker options={data.personOptions} companies={data.personCompanies} selected={person} />
         <span className="subj-scope">
           this page only
-          <button type="button" className="legend-help" data-tip={SUBJECT_HELP}
-                  aria-label={SUBJECT_HELP}>?</button>
+          {/* Same split as the global controls' "?" (components/FilterBar): the button
+              announces as a name, the prose is the description. */}
+          <button
+            type="button" className="legend-help" data-tip={SUBJECT_HELP}
+            aria-label="What this page only means" aria-describedby="subject-help"
+          >
+            ?
+          </button>
+          <span id="subject-help" className="vh">{SUBJECT_HELP}</span>
         </span>
       </div>
       <div className="card">

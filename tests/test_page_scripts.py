@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 NODE = shutil.which("node")
 _SCRIPT_RE = re.compile(r"<script\b[^>]*>(.*?)</script>", re.S | re.I)
@@ -70,3 +71,42 @@ class PageScriptSyntaxTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HelpButtonLabellingTest(unittest.TestCase):
+    """A "?" button carries a NAME in aria-label and its prose in aria-describedby.
+
+    The prose is three sentences. Announcing it as the label means a screen reader reads
+    the whole explanation where it should be reading "help", and there is no way to skip
+    it — so the text goes into the DOM once, visually hidden, and the button points at
+    it. Static because there is no frontend test runner here; the pattern is easy to
+    regress by copying the nearest existing button, which is what this catches."""
+
+    _FILES = ("frontend/src/components/FilterBar.tsx", "frontend/src/pages/Person.tsx")
+
+    def _sources(self):
+        root = Path(__file__).resolve().parents[1]
+        for rel in self._FILES:
+            yield rel, (root / rel).read_text()
+
+    def test_no_help_button_announces_its_prose_as_a_label(self):
+        # `aria-label={SOMETHING_HELP}` is the shape this forbids: a constant holding
+        # sentences, used where a short name belongs.
+        for rel, src in self._sources():
+            for match in re.finditer(r"aria-label=\{([A-Za-z_]*HELP)\}", src):
+                self.fail(f"{rel}: aria-label={{{match.group(1)}}} — that constant is a "
+                          f"description; give the button a name and point "
+                          f"aria-describedby at the text")
+
+    def test_every_help_button_has_a_description_to_point_at(self):
+        for rel, src in self._sources():
+            buttons = src.count('className="legend-help"')
+            described = src.count("aria-describedby=")
+            self.assertEqual(buttons, described,
+                             f"{rel}: {buttons} help buttons but {described} "
+                             f"aria-describedby — every one needs its own")
+            for match in re.finditer(r'aria-describedby="([\w-]+)"', src):
+                self.assertIn(f'id="{match.group(1)}"', src,
+                              f"{rel}: aria-describedby points at a missing id")
+                self.assertIn("className=\"vh\"", src,
+                              f"{rel}: the description must be visually hidden")
