@@ -623,6 +623,18 @@ class PortalHttpTest(unittest.TestCase):
         self.assertIn("cache", data)
         self.assertIn("job", data)
 
+    def test_every_nav_icon_has_a_server_side_path(self):
+        """The React sidebar draws icons from lucide; this module draws them from its
+        own copy of the same paths. A name in the model with no path here renders an
+        empty rail slot on the server and a real glyph after React mounts — i.e. the
+        sidebar visibly changes on load, which is the one thing the two-renderer design
+        exists to prevent. Three zone icons were missing exactly this way."""
+        import shell
+        need = ({z["icon"] for z in shell.NAV_ZONES}
+                | {i["icon"] for z in shell.NAV_ZONES for i in z["items"]})
+        missing = sorted(need - set(shell._ICONS))
+        self.assertEqual(missing, [], f"no server-side path for {missing}")
+
     def test_report_and_identity_pages_include_sidebar_nav(self):
         # Post-React-cutover the report landing page is /overview (bare /report is
         # now the hash-redirect shim; the monolith lives at /report/legacy). The
@@ -638,16 +650,25 @@ class PortalHttpTest(unittest.TestCase):
         # so each section tab links straight to that route via
         # shell.MIGRATED_VIEWS, NOT to /report#<mode>. `fabric` (AI tools) was the
         # last to migrate (Task R-P10) — its tab now points at /ai-tools.
+        # The rail links a zone by its FIRST item, and the pane shows the current
+        # zone's — so /ai-tools appears on the rail of every page (it is the AI-usage
+        # zone's only entry), while /report#… appears nowhere: nothing routes through
+        # the monolith's hashes any more.
         self.assertIn(b'href="/ai-tools"', report)
-        self.assertNotIn(b'href="/report#fabric"', report)
+        self.assertNotIn(b'href="/report#', report)
         # "Report" is intentionally NOT a mode link (section tabs cover it); the
         # mode switch offers only Update + Identity.
-        self.assertNotIn(b'href="/report" class="active"', report)
-        self.assertIn(b'href="/identity"', report)
+        self.assertNotIn(b'href="/report"', report)
         self.assertEqual(identity_status, 200)
         self.assertIn(b'class="sidebar"', identity)
         self.assertIn(b'href="/ai-tools"', identity)   # cross-page jump target (migrated section)
-        self.assertIn(b'href="/identity" class="active"', identity)
+        # Manage items live in the pane, so an active one is `class="tab active"`
+        # rather than a bare `class="active"` on a .sidenav link. And the pane holds
+        # only the CURRENT zone, so /identity is in the sidebar of the Identity page
+        # but not of the Overview one — the rail is what is on every page.
+        self.assertIn(b'class="tab active" href="/identity"', identity)
+        self.assertIn(b'aria-label="Manage"', report)
+        self.assertNotIn(b'href="/identity"', report)
 
     def test_people_yaml_endpoint_saves_valid_payload_and_rejects_invalid(self):
         """REPORT_DB is isolated here, unlike before: this test posts a one-person roster,

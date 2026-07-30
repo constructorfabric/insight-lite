@@ -13,7 +13,7 @@ import { useMemo, useState } from "react";
 import FilterBar from "../components/FilterBar";
 import DataTable, { type Column, type ColumnGroup } from "../components/DataTable";
 import { GhLink, BarList, MiniStats, type BarRowProps } from "../widgets";
-import { useReportData } from "../hooks/useReportData";
+import { useReportData, useReportQuery } from "../hooks/useReportData";
 import { fmtLoc, fmtNum, fmtPct } from "../lib/format";
 import Loading from "../components/Loading";
 
@@ -372,6 +372,12 @@ function PeopleTable({ people }: { people: PeopleBlock }) {
 }
 
 export default function People() {
+  const query = useReportQuery();
+  // Which part of the roster to show. The default MUST match server._nav_view's, or the
+  // pane would highlight a view the page is not rendering.
+  const view = ["roster", "categories", "reviews"].includes(query.view || "")
+    ? (query.view as string)
+    : "roster";
   const { data, error } = useReportData<PeopleData>("people");
 
   if (error && !data) return <p className="hint" style={{ padding: 24 }}>Could not load the report ({error}).</p>;
@@ -381,17 +387,6 @@ export default function People() {
 
   return (
     <>
-      <p className="sub">
-        Org <b>{data.meta.org}</b> ·{" "}
-        {data.meta.allTime ? (
-          <>
-            <b>all-time history</b> (since {data.meta.windowStart})
-          </>
-        ) : (
-          <>window {data.meta.windowStart} → today ({data.meta.lookbackDays} days)</>
-        )}{" "}
-        · generated {data.meta.generatedText} UTC
-      </p>
 
       <FilterBar
         periodPresets={data.periodPresets} period={data.period} scope={data.scope}
@@ -408,25 +403,32 @@ export default function People() {
         </div>
       )}
 
-      <h2 id="categories">
-        % contribution by category <span className="period-tag">{periodLabel}</span>
+      {/* One heading, from the view — the page used to stack three <h2>s and show all
+          three blocks at once. The labels match the sidebar pane's entries so the
+          heading and the highlighted entry always read the same. */}
+      <h2 id={view}>
+        {{
+          roster: "Per-person breakdown",
+          categories: "% contribution by category",
+          reviews: "Code review",
+        }[view] || "People"}{" "}
+        <span className="period-tag">{periodLabel}</span>
       </h2>
+
+      {view === "categories" && (
       <div data-period-panel="categories">
         <CategoriesGrid categories={data.categories} />
       </div>
-
-      {data.reviews && (
-        <>
-          <h2 id="reviews">
-            Code review <span className="period-tag">{periodLabel}</span>
-          </h2>
-          <ReviewsSection reviews={data.reviews} />
-        </>
       )}
 
-      <h2 id="people">
-        Per-person breakdown <span className="period-tag">{periodLabel}</span>
-      </h2>
+      {view === "reviews" && (
+        data.reviews
+          ? <ReviewsSection reviews={data.reviews} />
+          : <p className="hint">No review data in this period.</p>
+      )}
+
+      {view === "roster" && (
+      <>
       <p className="conc">
         Activity columns (commits, LOC+, PRs, specs, bugs, features, AI✦, Fabric core / Apps)
         reflect the selected period; <b>Surviving code</b>, <b>Review</b> and <b>cpt</b> columns are{" "}
@@ -437,6 +439,8 @@ export default function People() {
       <div data-period-panel="people">
         <PeopleTable people={data.people} />
       </div>
+      </>
+      )}
 
       <p className="foot">
         Definitions — <b>Contributing to Fabric</b>: any commit, PR, spec edit, bug or user story in{" "}

@@ -17,7 +17,12 @@ import { fmtNum, jr } from "../lib/format";
 import Loading from "../components/Loading";
 
 // ---- types (mirror render.person_json's payload) ---------------------------
-type PersonOption = { login: string; name: string; company: string; emails: string };
+type PersonOption = {
+  login: string; name: string; company: string; emails: string;
+  // All-time commit count, from the roster table (backend/render.py). Only used to
+  // rank the empty state's shortcuts, and labelled all-time where it is shown.
+  commits?: number;
+};
 
 type WeeklyCell = { commits: number; add: number; del: number } | null;
 type WeeklyRow = { week: string; week_end: string; cells: WeeklyCell[]; issues: number };
@@ -78,6 +83,13 @@ type PersonData = {
   dashboard: Dashboard | null;
 };
 
+const SUBJECT_HELP = [
+  "The person is this page's subject, not a filter: it decides whose numbers you are "
+    + "looking at, and it is forgotten as soon as you leave Person.",
+  "Period and Scope, in the bar above, are the global filters — they follow you from "
+    + "page to page and keep narrowing this page too.",
+].join("\n");
+
 // ---- person picker (searchable combo, mirrors report.j2's inline JS) -------
 function PersonPicker({ options, companies, selected }: {
   options: PersonOption[]; companies: string[]; selected: string | null;
@@ -130,21 +142,11 @@ function PersonPicker({ options, companies, selected }: {
   };
 
   return (
-    <div className="tblbar">
-      <label className="person-pick">
-        {/* The monolith template is `Company&nbsp;\n  <select>` — HTML collapses
-            that newline into a rendered space between the nbsp and the select
-            (~2px). JSX strips newlines adjacent to tags, so restore it with an
-            explicit {" "} or the whole picker row shifts 2px left vs baseline. */}
-        Company&nbsp;{" "}
-        <select
-          id="person-company" className="person-select" value={company}
-          onChange={(e) => setCompany(e.target.value)}
-        >
-          <option value="">All companies</option>
-          {companies.map((co) => <option key={co} value={co}>{co}</option>)}
-        </select>
-      </label>
+    <>
+      {/* Search leads, company narrows it: the combo IS the control, the select only
+          shrinks its candidate list — which is also the order the list itself reads
+          in (`login · company`). Both are plain siblings of the PERSON label now,
+          so the row is one flat flex line instead of a bar nested in a bar. */}
       <span className="person-combo">
         <input type="hidden" id="person-select" value={selected || ""} readOnly />
         <input
@@ -187,8 +189,15 @@ function PersonPicker({ options, companies, selected }: {
           )}
         </div>
       </span>
-      <span className="cnt">weeks bucketed by author date · Lines = git diff +/- · Issues = opened by author</span>
-    </div>
+      <select
+        id="person-company" className="person-select" value={company}
+        aria-label="Narrow the search to one company"
+        onChange={(e) => setCompany(e.target.value)}
+      >
+        <option value="">All companies</option>
+        {companies.map((co) => <option key={co} value={co}>{co}</option>)}
+      </select>
+    </>
   );
 }
 
@@ -212,6 +221,56 @@ function Split2Card({ s }: { s: Split2 }) {
 function drillCell(login: string, repo: string, from: string, to: string): Record<string, string> {
   return { "data-drill": "commit", "data-author": login, "data-scope": `repo:${repo}`, "data-from": from, "data-to": to };
 }
+
+// Shown until somebody is picked. The page cannot render anything without a
+// subject, so the job here is to say what picking one gets you and then hand over
+// the shortest possible route to picking — not to leave an empty card with an
+// apology in it.
+function PersonEmpty({ options }: { options: PersonOption[] }) {
+  // Ranked by the all-time commit count carried in the picker payload, and captioned
+  // as all-time: the options list itself is name-sorted, so its first few entries
+  // would be an alphabetical accident dressed up as a leaderboard.
+  const top = useMemo(
+    () => options.filter((p) => (p.commits || 0) > 0)
+      .sort((a, b) => (b.commits || 0) - (a.commits || 0))
+      .slice(0, 8),
+    [options],
+  );
+  return (
+    <div className="pempty">
+      <p className="pempty-lead">Pick a person to open their page.</p>
+      <ul className="pempty-what">
+        <li><b>Overview</b> — headline numbers for the selected period</li>
+        <li><b>Activity</b> — weekly commits, lines and issues, per repository</li>
+        <li><b>Composition</b> — where the effort went: code vs specs, platform vs app</li>
+        <li><b>Impact</b> — surviving lines, review load, who they work with</li>
+        <li><b>Score</b> — the composite, with every input it is built from</li>
+      </ul>
+      {top.length > 0 && (
+        <>
+          <p className="pempty-cap">Most commits all-time</p>
+          <div className="pempty-chips">
+            {top.map((p) => (
+              <button
+                key={p.login} type="button" className="pempty-chip"
+                onClick={() => setReportQuery({ person: p.login })}
+              >
+                {p.name || p.login}
+                <span className="mut">{p.commits}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="cnt">
+        Everything on the page is computed on the fly for the person and period you choose.
+      </p>
+    </div>
+  );
+}
+
+const WEEKLY_NOTE =
+  "weeks bucketed by author date · Lines = git diff +/- · Issues = opened by author";
 
 function WeeklyTable({ pw }: { pw: Weekly }) {
   if (!(pw.grand.commits || pw.grand.issues)) {
@@ -321,7 +380,7 @@ function Avatar({ login }: { login: string }) {
 }
 
 // ---- the dashboard (person_dashboard macro) --------------------------------
-function PersonDashboard({ d }: { d: Dashboard }) {
+function PersonDashboard({ d, view }: { d: Dashboard; view: string }) {
   if (d.empty) {
     return (
       <p className="hint">
@@ -369,6 +428,8 @@ function PersonDashboard({ d }: { d: Dashboard }) {
         </div>
       </div>
 
+      {view === "overview" && (
+      <>
       {ghp && (
         <div className="pcard ghprof" data-tip="Straight from the person's GitHub profile — free text they wrote about themselves, not our resolved identity.">
           <div className="ghprof-h">GitHub profile <span className="mut">— as they state it, not our resolved identity</span></div>
@@ -384,12 +445,25 @@ function PersonDashboard({ d }: { d: Dashboard }) {
       <div className="kpis pkpis">
         {(d.kpis || []).map((tile, i) => <KpiTile key={i} {...tile} />)}
       </div>
+      </>
+      )}
 
-      <h3 className="psec">Activity by week</h3>
-      <HeatStrip heat={heat} />
-      {d.weekly && <WeeklyTable pw={d.weekly} />}
+      {view === "activity" && (
+        <>
+          <HeatStrip heat={heat} />
+          {d.weekly && (
+            <>
+              {/* Above the table, not under it: it defines what the columns mean
+                  ("Lines = git diff +/-"), which you need before reading them, and
+                  the table is long enough to scroll its own footer out of sight. */}
+              <p className="cnt cnt-top">{WEEKLY_NOTE}</p>
+              <WeeklyTable pw={d.weekly} />
+            </>
+          )}
+        </>
+      )}
 
-      <h3 className="psec">Where the work goes</h3>
+      {view === "work" && (
       <div className="pgrid">
         <div className="pcard">
           <h4>Top repositories</h4>
@@ -449,8 +523,10 @@ function PersonDashboard({ d }: { d: Dashboard }) {
           </div>
         )}
       </div>
+      )}
 
-      <h3 className="psec">Lasting impact &amp; collaboration <span className="alltime-tag">all-time</span></h3>
+      {view === "impact" && (
+      <>
       <div className="pgrid">
         <div className="pcard">
           <h4>Code alive in the tree today</h4>
@@ -483,10 +559,17 @@ function PersonDashboard({ d }: { d: Dashboard }) {
         </div>
       </div>
       <p className="conc">
-        Activity blocks honour the selected period; <b>lasting impact</b> is all-time by nature — surviving LOC is
-        a git-blame of today's tree, reviews and merge stats are cumulative.
+        This view is all-time by nature and does not move with the period: surviving LOC
+        is a git-blame of today's tree, reviews and merge stats are cumulative.
       </p>
+      </>
+      )}
 
+      {view === "score" && (
+      <>
+      {/* Explicitly EXPERIMENTAL and not a performance rating — see the README's note
+          on measuring people. Its own view rather than a block on a long page, so it
+          is opened deliberately instead of met on the way past. */}
       {d.score && d.score.board && d.score.board.length > 0 ? (
         <PersonScore score={d.score} login={d.login} />
       ) : d.scoreUnavailable ? (
@@ -496,7 +579,11 @@ function PersonDashboard({ d }: { d: Dashboard }) {
         // of an absence. Nothing is added when the score renders, so the pixel-gate
         // baseline for the working case is untouched.
         <p className="hint">Developer score unavailable — {d.scoreUnavailable.detail}.</p>
-      ) : null}
+      ) : (
+        <p className="hint">No score for this person in the selected period.</p>
+      )}
+      </>
+      )}
     </>
   );
 }
@@ -504,6 +591,13 @@ function PersonDashboard({ d }: { d: Dashboard }) {
 export default function Person() {
   const query = useReportQuery();
   const person = query.person || null;
+  // Which part of this person to show. The sidebar's pane holds one link per view and
+  // the route echoes it back as the active key, so this only has to pick a default —
+  // and it must agree with server._nav_view's default, or the pane would highlight a
+  // view the page is not rendering.
+  const view = ["overview", "activity", "work", "impact", "score"].includes(query.view || "")
+    ? (query.view as string)
+    : "overview";
   const { data, error } = useReportData<PersonData>("person");
 
   // With no explicit ?person=, default the view to the signed-in viewer — parity
@@ -536,41 +630,51 @@ export default function Person() {
 
   return (
     <>
-      <p className="sub">
-        Org <b>{data.meta.org}</b> ·{" "}
-        {data.meta.allTime ? (
-          <><b>all-time history</b> (since {data.meta.windowStart})</>
-        ) : (
-          <>window {data.meta.windowStart} → today ({data.meta.lookbackDays} days)</>
-        )}{" "}
-        · generated {data.meta.generatedText} UTC
-      </p>
 
       <FilterBar
         periodPresets={data.periodPresets} period={data.period} scope={data.scope}
         scopeTargets={data.scopeTargets}
       />
 
+      {/* Titled by the VIEW: "Per-person weekly activity" sat above Lasting impact and
+          the score too, describing neither. The labels match the sidebar pane's, so the
+          heading and the highlighted pane entry always read the same. */}
       <h2 id="person">
-        Per-person weekly activity <span className="period-tag">{periodLabel}</span>
+        {{
+          overview: "Person overview",
+          activity: "Activity by week",
+          work: "Where the work goes",
+          impact: "Lasting impact & collaboration",
+          score: "Developer score",
+        }[view] || "Person"}{" "}
+        <span className="period-tag">{periodLabel}</span>
       </h2>
-      <div className="card">
+      {/* Not inside the card and not in the FilterBar: see .subjectbar in report.css —
+          the person is this page's subject, not one of the two global filters. */}
+      <div className="subjectbar">
+        <span className="subj-lbl">Person</span>
         <PersonPicker options={data.personOptions} companies={data.personCompanies} selected={person} />
+        <span className="subj-scope">
+          this page only
+          <button type="button" className="legend-help" data-tip={SUBJECT_HELP}
+                  aria-label={SUBJECT_HELP}>?</button>
+        </span>
+      </div>
+      <div className="card">
         <div id="person-view">
           {data.dashboard ? (
-            <PersonDashboard d={data.dashboard} />
+            <PersonDashboard d={data.dashboard} view={view} />
           ) : (
-            <p className="hint">
-              Pick a person to see their weekly commits / lines / issues for the selected period. Needs the portal
-              (computed on the fly).
-            </p>
+            <PersonEmpty options={data.personOptions} />
           )}
         </div>
       </div>
 
-      {/* Always-on page footer (templates/report.j2 line ~1077, OUTSIDE every
-          mode-section) — visible in ALL modes incl. person, so the React person
-          page must render it verbatim too (same as the other report views). */}
+      {/* Page footer, verbatim from the monolith (templates/report.j2 line ~1077).
+          Held back on the empty state only: every term it defines belongs to a panel
+          that is not rendered until a person is selected, so there it was three lines
+          of definitions for nothing. */}
+      {data.dashboard && (
       <p className="foot">
         Definitions — <b>Contributing to Fabric</b>: any commit, PR, spec edit, bug or user story in{" "}
         <b>any</b> repo of the org (apps included). <b>Using, not contributing back</b>: forked an org
@@ -580,6 +684,7 @@ export default function Person() {
         breakdown, not the contribute/use line. GitHub-only data; passive consumption beyond
         forks/stars is not observable.
       </p>
+      )}
     </>
   );
 }

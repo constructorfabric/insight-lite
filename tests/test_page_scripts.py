@@ -19,9 +19,16 @@ NODE = shutil.which("node")
 _SCRIPT_RE = re.compile(r"<script\b[^>]*>(.*?)</script>", re.S | re.I)
 
 
+# `<script type="application/json">` islands (the nav model, a route's bootstrap) are
+# DATA, not code — node --check would reject perfectly valid JSON. Matched separately
+# so they are skipped rather than silently swept in by the tag regex.
+_JSON_RE = re.compile(r'<script\b[^>]*type=["\']application/json["\'][^>]*>.*?</script>',
+                      re.S | re.I)
+
+
 def _scripts(html: str):
-    # skip <script src=...> (no inline body) and empty blocks
-    return [s for s in _SCRIPT_RE.findall(html) if s.strip()]
+    # skip JSON islands, <script src=...> (no inline body) and empty blocks
+    return [s for s in _SCRIPT_RE.findall(_JSON_RE.sub("", html)) if s.strip()]
 
 
 @unittest.skipUnless(NODE, "node not installed — cannot syntax-check inline JS")

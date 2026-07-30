@@ -593,9 +593,13 @@ def build_model(d: dict) -> dict:
     # Options for the Person-tab selector: EVERY contributor (including the
     # 'Other' bucket), sorted by name. Carries emails so the combobox can search
     # by name, login, email, or company.
+    # `commits` rides along only so the Person page's empty state can offer real
+    # shortcuts instead of an alphabetical slice pretending to be a ranking. It is
+    # the ALL-TIME count (this table is the all-time roster), and the UI labels it
+    # as such — do not reuse it as a windowed number.
     person_options = sorted(
         ({"login": r["login"], "name": r.get("name", ""), "company": r.get("company", ""),
-          "emails": emails_by_login.get(r["login"], "")}
+          "emails": emails_by_login.get(r["login"], ""), "commits": r.get("commits", 0)}
          for r in table),
         key=lambda p: (p["name"] or p["login"]).lower())
     person_companies = sorted({p["company"] for p in person_options if p["company"]})
@@ -1058,6 +1062,29 @@ def _score_json(score: dict | None) -> dict | None:
     }
 
 
+# The filter bar's four inputs, identical in every /api/report/* envelope below.
+#
+# Two of them — `periodPresets` and `scopeTargets` — do not depend on the period or
+# scope you picked, only on the report version, i.e. they change once a day at most.
+# So server.py also inlines those two into the page shell as a `#filter-model` JSON
+# island (see render_spa_page), and the bar renders from it immediately instead of
+# waiting out the payload fetch behind a skeleton. The other two are the resolved
+# selection echoed back; the client can read those off the URL, which is where they
+# came from, so the island leaves them out.
+def filter_model(meta: dict) -> dict:
+    return {
+        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
+                                         "from": None, "to": None},
+        "periodPresets": [
+            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
+                                   "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
+            for lbl in (meta.get("window_labels") or ["all"])
+        ],
+        "scope": meta.get("scope", ""),
+        "scopeTargets": meta.get("scope_targets") or {},
+    }
+
+
 def overview_json(pr: dict, meta: dict) -> dict:
     """The full /api/report/overview payload: the Overview page's data, JSON
     instead of the server-rendered HTML fragment serve_custom_period() returns
@@ -1076,15 +1103,7 @@ def overview_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "dataQuality": {"apiRateLimited": bool((meta.get("data_quality") or {}).get("api_rate_limited")),
                         "apiReset": (meta.get("data_quality") or {}).get("api_reset")},
         "kpis": _kpi_tiles_json(pr),
@@ -1225,15 +1244,7 @@ def people_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "dataQuality": {"apiRateLimited": bool((meta.get("data_quality") or {}).get("api_rate_limited")),
                         "apiReset": (meta.get("data_quality") or {}).get("api_reset")},
         "categories": categories,
@@ -1451,15 +1462,7 @@ def person_json(dash: dict | None, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "dataQuality": {"apiRateLimited": bool((meta.get("data_quality") or {}).get("api_rate_limited")),
                         "apiReset": (meta.get("data_quality") or {}).get("api_reset")},
         "personOptions": meta.get("person_options") or [],
@@ -1551,15 +1554,7 @@ def repositories_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "dataQuality": {"apiRateLimited": bool((meta.get("data_quality") or {}).get("api_rate_limited")),
                         "apiReset": (meta.get("data_quality") or {}).get("api_reset")},
         "repoSummary": {
@@ -1633,15 +1628,7 @@ def elements_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "dataQuality": {"apiRateLimited": bool((meta.get("data_quality") or {}).get("api_rate_limited")),
                         "apiReset": (meta.get("data_quality") or {}).get("api_reset")},
         "elementRows": element_rows,
@@ -1732,15 +1719,7 @@ def traffic_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "dataQuality": {"apiRateLimited": bool((meta.get("data_quality") or {}).get("api_rate_limited")),
                         "apiReset": (meta.get("data_quality") or {}).get("api_reset")},
         "traffic": traffic_panel,
@@ -1952,15 +1931,7 @@ def ai_tools_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "dataQuality": {"apiRateLimited": bool((meta.get("data_quality") or {}).get("api_rate_limited")),
                         "apiReset": (meta.get("data_quality") or {}).get("api_reset")},
         "aiUsage": ai_usage,
@@ -1996,15 +1967,7 @@ def trend_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
     }
     ct = pr.get("ctrend") or {}
     if not ct.get("points"):
@@ -2177,15 +2140,7 @@ def delivery_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
         "kpis": kpis, "ci": ci, "pr": pr_tiles,
         "mix": {"rows": mix_rows},
         "flow": flow,
@@ -2222,15 +2177,7 @@ def flow_json(pr: dict, meta: dict) -> dict:
             "windowStart": meta.get("window_start"), "lookbackDays": meta.get("lookback_days"),
             "generatedText": (meta.get("generated") or "")[:16].replace("T", " "),
         },
-        "period": meta.get("period") or {"preset": "all", "label": meta.get("all_label", "All-time"),
-                                          "from": None, "to": None},
-        "periodPresets": [
-            {"key": lbl, "label": {"7d": "7 days", "30d": "30 days", "90d": "90 days",
-                                    "365d": "1 year", "all": meta.get("all_label", "All-time")}.get(lbl, lbl)}
-            for lbl in (meta.get("window_labels") or ["all"])
-        ],
-        "scope": meta.get("scope", ""),
-        "scopeTargets": meta.get("scope_targets") or {},
+        **filter_model(meta),
     }
 
     # Work in flight is attached BEFORE the has_data gate on purpose. It is
@@ -2534,7 +2481,8 @@ def report_redirect_shim() -> str:
 
 def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool = False,
                     bootstrap: dict | None = None, vega: bool = False,
-                    sidebar: bool = True) -> str:
+                    sidebar: bool = True, nav_carry: dict | None = None,
+                    filter_inputs: dict | None = None) -> str:
     """Full page for a React-mounted route (see spa.py + frontend/). Chrome is
     byte-identical to the other shelled manage pages (shell.BASE_CSS/SHELL_CSS/
     CHART_CSS in <head> + shell.sidebar_html(active)); the content area is a
@@ -2592,6 +2540,18 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
     # Optional server→client handoff: a route (e.g. /dashboard/<id>) embeds the
     # data its React entry needs to render — the entry reads document.getElementById
     # ("spa-bootstrap").textContent. Escaped `</` so the JSON can't close the tag.
+    # The filter bar's query-independent inputs (see filter_model), inlined so the
+    # bar renders on first paint rather than after /api/report/* answers — it is the
+    # same control on every report page and its options do not depend on what you
+    # picked, so skeletoning it was a second of blank chrome for nothing. Absent
+    # island → the skeleton strip, exactly as before.
+    filt = ""
+    if filter_inputs:
+        import json as _json
+        filt = ('<script id="filter-model" type="application/json">'
+                + _json.dumps(filter_inputs, ensure_ascii=False).replace("</", "<\\/")
+                + '</script>')
+
     boot = ""
     if bootstrap is not None:
         import json as _json
@@ -2604,12 +2564,19 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
     # (`<body><div class="wrap">`), so its React port renders its own .wrap inside
     # #root and must not gain the app/sidebar shell every other manage page has.
     if sidebar:
+        # The nav model travels as its own JSON island, next to the server-rendered
+        # sidebar built from that same model. The React sidebar reads the island and
+        # re-renders the identical structure with real lucide components — so the
+        # markup is already correct before any JS runs (no empty rail, no layout
+        # shift on mount) and it still works with the bundle absent.
+        nav = ('<script id="nav-model" type="application/json">'
+               + shell.nav_model_json(active, nav_carry).replace("</", "<\\/") + '</script>')
         body = (
-            '<div class="app">' + shell.sidebar_html(active) +
-            '<main class="wrap">' + boot + '<div id="root">' + root_inner + '</div></main>'
+            '<div class="app">' + shell.sidebar_html(active, nav_carry) + nav +
+            '<main class="wrap">' + filt + boot + '<div id="root">' + root_inner + '</div></main>'
             '</div>')
     else:
-        body = boot + '<div id="root">' + root_inner + '</div>'
+        body = filt + boot + '<div id="root">' + root_inner + '</div>'
 
     # `vega` brings the Vega runtime WITHOUT the report chat/drill/sort chrome —
     # the dashboard view needs charts but (like its legacy Jinja render) has no
@@ -2628,6 +2595,13 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
         if chrome:
             body_scripts = ("".join(f'<link rel="stylesheet" href="{_e(c)}">' for c in chrome["css"])
                             + f'<script type="module" src="{_e(chrome["js"])}"></script>')
+    # The sidebar bundle, on every shelled page — same mechanism as report-chrome
+    # above, but unconditional, because navigation is not a per-view feature.
+    if sidebar:
+        side = spa.entry_assets("sidebar")
+        if side:
+            body_scripts += ("".join(f'<link rel="stylesheet" href="{_e(c)}">' for c in side["css"])
+                             + f'<script type="module" src="{_e(side["js"])}"></script>')
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
