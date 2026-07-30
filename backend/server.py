@@ -236,8 +236,9 @@ def snapshot_state() -> dict:
         "files": {
             "report_html": "live",          # rendered on demand from the DB, not baked
             # (no "people_yaml": the roster lives in the override table only — the file
-            # it used to stamp was a mirror, and reading it back corrupted the table)
-            "identity_editor": file_stamp(paths.data_path("identity-editor.html")),
+            # it used to stamp was a mirror, and reading it back corrupted the table.
+            # No "identity_editor" either: the editor is the React /identity route, so
+            # identity-editor.html is not written and the stamp read "missing" for ever.)
         },
         "store": store_state(),
         "cache": {
@@ -745,7 +746,7 @@ def _report_model(version):
     with _RENDER_LOCK:
         # a newer version may have won the race; only reset caches if we're advancing
         if _RENDER["version"] != version:
-            _RENDER.update(version=version, model=model, ctx=None, html=None)
+            _RENDER.update(version=version, model=model)
         recovered_from = _STALE_MODEL["since"]
         if recovered_from:
             _STALE_MODEL.update(since=None, version=None, error=None,
@@ -2367,9 +2368,8 @@ class Handler(BaseHTTPRequestHandler):
             import calibrate
             self.send_json({"ok": True, **calibrate.calibrate_json(self._oauth_user())})
         elif path in ("/whats-new", "/changelog"):
-            # React pilot route (see docs/superpowers/plans/2026-07-22-react-phase0.md
-            # P0-T4): data comes from /api/whats-new; changelog.render_page() stays
-            # available as a fallback but is no longer wired to this route.
+            # React route (see docs/superpowers/plans/2026-07-22-react-phase0.md
+            # P0-T4): data comes from /api/whats-new.
             import render
             self.send_bytes(render.render_spa_page("whatsnew", "changelog", "What's new").encode(),
                             "text/html; charset=utf-8")
@@ -2670,8 +2670,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:               # noqa: BLE001
                 self.send_json({"ok": False, "error": f"identity editor: {exc}"}, 500)
         elif path == "/config":
-            # React route (Manage migration); ?legacy=1 keeps the server-Jinja
-            # editor as the pixel-gate baseline + fallback.
             import render as _render
             self.send_bytes(
                 _render.render_spa_page("config", "config", "Config").encode(),
@@ -2850,9 +2848,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/chat-log":
             # Assistant conversation viewer — intentionally NOT linked in the sidebar;
             # reachable by URL only. Portal auth still applies. React route (Manage
-            # migration); ?legacy=1 keeps the server-Jinja page as the pixel-gate
-            # baseline + fallback. Data comes from the existing GET
-            # /api/chat-sessions + /api/chat-session endpoints.
+            # migration). Data comes from the existing GET /api/chat-sessions +
+            # /api/chat-session endpoints.
             import render as _render
             self.send_bytes(
                 _render.render_spa_page("chatlog", "", "Assistant conversations").encode(),
@@ -2973,9 +2970,7 @@ class Handler(BaseHTTPRequestHandler):
                 d = store.get_dashboard(conn, did)
                 if not d or d["owner_login"] != login:      # edit is owner-only
                     self.send_error(HTTPStatus.NOT_FOUND); return
-                # React route (Manage migration); ?legacy=1 keeps the server-Jinja
-                # editor as the pixel-gate baseline + fallback. The owner-only gate
-                # above guards both paths. React reads the spec via bootstrap and
+                # React route (Manage migration). React reads the spec via bootstrap and
                 # fetches measures/catalog/preview from the existing endpoints.
                 spec = d["spec"]
                 boot = {"id": d["id"], "title": spec.get("title", "Untitled dashboard"),
@@ -2997,9 +2992,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not d or (d["visibility"] != "shared" and d["owner_login"] != login):
                     self.send_error(HTTPStatus.NOT_FOUND); return
                 # React cutover (widget system Phase 2): render via the shared
-                # <PanelRenderer> catalog. The server Jinja + .vl-panel render
-                # stays reachable at ?legacy=1 (the pixel-gate baseline + fallback,
-                # mirroring the report's /report/legacy).
+                # <PanelRenderer> catalog.
                 import discovery
                 spec = d["spec"]
                 boot = {"id": d["id"], "title": spec.get("title", "Dashboard"),

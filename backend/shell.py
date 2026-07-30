@@ -11,6 +11,8 @@ sidebar markup and CSS cannot drift between pages.
 """
 from __future__ import annotations
 
+from html import escape as _e
+
 # ── Navigation model ─────────────────────────────────────────────────────────
 #
 # ONE model, rendered twice: this module renders it to HTML, and render_spa_page
@@ -139,11 +141,6 @@ NAV_ZONES = (
 # /calibrate is intentionally NOT in the sidebar — it's a private calibration tool
 # reachable by direct URL only, so it doesn't surface to everyone.
 
-
-def nav_zones() -> tuple:
-    """The navigation model. A function so the React payload and the HTML renderer
-    below read the same object rather than one of them holding a stale copy."""
-    return NAV_ZONES
 
 # CSS uses var() with hard fallbacks so it works on pages that don't define the
 # full palette (the identity editor / portal lack --panel2).
@@ -441,7 +438,14 @@ def _carry_href(href: str, carry: dict | None) -> str:
     if not carry:
         return href
     path, _, qs = href.partition("?")
-    keep = {k: v for k, v in carry.items() if v}
+    # `k not in have` mirrors Sidebar.tsx's `!params.has(k)`: the href wins where it
+    # says something itself. No nav href declares a carry key today (only `view=`), so
+    # the two agree either way — but the moment one does, without this the server would
+    # emit the param twice and the client once, which is precisely the divergence
+    # between the two renderers this module exists to prevent.
+    from urllib.parse import parse_qs
+    have = set(parse_qs(qs))
+    keep = {k: v for k, v in carry.items() if v and k not in have}
     if not keep:
         return href
     from urllib.parse import quote
@@ -470,7 +474,11 @@ def sidebar_html(active: str, carry: dict | None = None) -> str:
     alternative (no pane) would change the sidebar's width depending on which page you
     are on, and a layout that resizes as you navigate is worse than a pane with one
     row in it. The group HEADING is what a single item does not earn."""
-    caption = report_caption()
+    # Escaped here, not in report_caption: the caption is `runs.org` from the DB, and
+    # an org that arrived through a config file or CONSTRUCTOR_ORG never passed the
+    # regex /api/setup/save applies. The React twin gets it as JSON and escapes on
+    # output, so this is the only path where raw markup could land on every page.
+    caption = _e(report_caption())
     zones = list(NAV_ZONES)
     # Which zone the current page belongs to. Falls back to the first: `active` is ""
     # or unknown on a page outside the nav (e.g. /calibrate), and a rail with nothing

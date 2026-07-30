@@ -81,14 +81,6 @@ def apply(do_render: bool = True) -> dict:
         store.upsert_run(conn, blob)          # DB run table is the source of truth
     conn.close()
 
-    for refresh in (getattr(__import__("directory"), "refresh_editor", None),
-                    getattr(__import__("configstore"), "refresh_editor", None)):
-        if refresh:
-            try:
-                refresh()
-            except Exception:            # noqa: BLE001 — editor refresh is best-effort
-                pass
-
     if do_render:
         render.main()
     return {"repos": changed, "issues_recategorised": recat}

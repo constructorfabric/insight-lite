@@ -13,7 +13,7 @@
 // declares — so the two products name the same glyph the same way. This is the
 // convergence: the model and the words, not shared components. See the discussion
 // in backend/shell.py's header.
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useReportQuery } from "../hooks/useReportData";
 import {
   Activity,
@@ -142,16 +142,21 @@ export default function Sidebar(
   // cleared when the pointer leaves so the next hover expands normally.
   const [dismissed, setDismissed] = useState(() => {
     try {
-      if (sessionStorage.getItem(RAIL_DISMISSED)) {
-        sessionStorage.removeItem(RAIL_DISMISSED);
-        return true;
-      }
+      return !!sessionStorage.getItem(RAIL_DISMISSED);
     } catch {
       // storage can be denied (private mode, embedded); losing the flag only means
       // the rail behaves as it did before this existed
+      return false;
     }
-    return false;
   });
+  // Cleared in an effect, not in the initializer above: StrictMode dev builds invoke
+  // an initializer twice, and a side effect in there means the second call sees state
+  // the first one already consumed.
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(RAIL_DISMISSED);
+    } catch { /* see the read side above */ }
+  }, []);
   return (
     <>
       <div className="brand">

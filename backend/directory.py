@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Generate / refresh the people directory (identity + company).
+"""The people directory (identity + company).
 
 The curated roster lives ONLY in the SQLite `override` table (scope `person`); this
-module reads it, merges it with the collected run, and bakes one file:
-  * identity-editor.html — self-contained editor. Open through the local portal
-                           for direct server-side save, or as a file for the
-                           browser save/download fallback.
+module reads it and merges it with the collected run. It bakes no files: the editor
+is the React /identity route, served from directory_json(), and identity-editor.html
+went with the Jinja monolith.
 
 It used to also emit people.yaml as a "read-only backup". That file is gone: it held
 nothing the table did not, and the code that read it back imported a test fixture into
@@ -13,7 +12,7 @@ the prod override table (see store.py, where the seed used to live).
 
 Workflow:
     python collect.py        # collects into the store (auto identity + company)
-    python directory.py      # identity-editor.html
+    python directory.py      # print the roster summary
     python reportctl.py serve --host 127.0.0.1 --port 8080
     # edit at /identity, Save -> the override table
     python collect.py        # honours the overrides
@@ -232,8 +231,7 @@ def editor_payload(roster: dict, data: dict) -> dict:
 def directory_json() -> dict:
     """RAW data payload for the React /identity route — the SAME dict the Jinja
     editor embeds via /*DATA*/ (people/companies/company_colors/suggestions/bots/
-    header/version). React escapes on output, so values stay raw. Kept PARALLEL
-    to render_page() (the pixel-gate baseline), which must stay byte-unchanged."""
+    header/version). React escapes on output, so values stay raw."""
     data = _load_run()
     roster = build_roster(data["people"], load_existing())
     return editor_payload(roster, data)
@@ -249,14 +247,6 @@ def _overrides_version() -> str:
         return v
     except Exception:                # noqa: BLE001
         return ""
-
-
-def refresh_editor() -> None:
-    """Regenerate identity-editor.html from the current data + the curated overrides.
-    Used by the fast reindex so the editor stays in sync with the collected data and
-    the current edits after every Save."""
-    data = _load_run()
-    roster = build_roster(data["people"], load_existing())
 
 
 def main() -> None:

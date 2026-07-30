@@ -110,3 +110,28 @@ class HelpButtonLabellingTest(unittest.TestCase):
                               f"{rel}: aria-describedby points at a missing id")
                 self.assertIn("className=\"vh\"", src,
                               f"{rel}: the description must be visually hidden")
+
+
+class QuerySerialisationTest(unittest.TestCase):
+    """Every key useReportData reads from the URL must be written back to it.
+
+    `view` was in QUERY_KEYS but not in toSearchString, so every setReportQuery call —
+    a period chip, a scope change, picking a person — rewrote the URL without it: click
+    a period on Person > Activity and you landed on Overview while the sidebar still
+    highlighted Activity. Static, because a read-key list and a write function in the
+    same file drifting apart is not something the type checker can see."""
+
+    def _hook(self):
+        return (Path(__file__).resolve().parents[1]
+                / "frontend/src/hooks/useReportData.ts").read_text()
+
+    def test_every_read_key_is_also_written(self):
+        src = self._hook()
+        keys = re.search(r"const QUERY_KEYS = \[(.*?)\] as const", src, re.S).group(1)
+        keys = re.findall(r'"(\w+)"', keys)
+        self.assertIn("view", keys, "the list itself moved — update this test")
+        body = src[src.index("function toSearchString("):src.index("const listeners")]
+        for key in keys:
+            self.assertIn(f"q.{key}", body,
+                          f"toSearchString never serialises `{key}`, so any "
+                          f"setReportQuery call silently drops it from the URL")

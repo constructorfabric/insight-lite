@@ -779,9 +779,10 @@ _ENV: Environment | None = None
 
 
 def _env() -> Environment:
-    """Jinja env for what is left of the server-rendered layer: the dashboard page,
-    its editor, and the shared panel macros the user-built dashboard panels resolve
-    against (see view_registry's `tmpl:panels/01_helpers.j2::…` refs). Memoised at
+    """Jinja env for what is left of the server-rendered layer: the shared panel
+    macros a user-built dashboard panel's server-side preview resolves against (see
+    view_registry's `tmpl:panels/01_helpers.j2::…` refs). The dashboard page and its
+    editor are React routes now. Memoised at
     module scope — the templates are read once at import, so the env and its compiled
     templates are stable for the process."""
     global _ENV
@@ -1005,9 +1006,7 @@ def _weekly_json(weekly: dict | None) -> dict | None:
 
 def _worktype_json(pr: dict) -> dict:
     """JSON form of panel_worktype() — the type bar/list (always shown) plus the
-    collapsed "breakdown by company & repo" detail (closed <details>, so its
-    exact contents don't affect the pixel-parity gate — included anyway for
-    completeness/future interactivity)."""
+    collapsed "breakdown by company & repo" detail."""
     types = pr.get("commit_types") or []
     total = sum(t.get("count", 0) for t in types)
     rows = [{"type": t["type"], "count": t["count"], "pct": t["pct"],
@@ -1190,9 +1189,8 @@ def people_json(pr: dict, meta: dict) -> dict:
         # ---- collapsed "Review load — by company & by repo" detail --------
         # All-time, build-time-computed (meta['reviews_by_company']/['reviews_by_repo']
         # — see build_model(), NOT part of `pr`/the period-scoped aggregate — same
-        # convention as _worktype_json's 'breakdown': a closed <details>, so its
-        # exact contents don't affect the pixel-parity gate, included for
-        # completeness. `f"{round(x,1)}"` pre-formats the two h-medians (raw
+        # convention as _worktype_json's 'breakdown': a closed <details>.
+        # `f"{round(x,1)}"` pre-formats the two h-medians (raw
         # kind='raw' floats — same trailing-'.0' rationale as ttm/latencyH above).
         def _h(v):
             return f"{round(v, 1)}" if v is not None else None
@@ -1338,9 +1336,8 @@ def _score_availability(p: dict) -> tuple[dict | None, dict | None]:
     gate that decides whether the panel is drawn at all. Exactly one side is set.
 
     The gate itself is UNCHANGED: the panel needs a `board`, because with nobody
-    ranked there is no gauge, no chain and no leaderboard to paint (so a working
-    score still yields the DOM the pixel gate baselined). What is new is the second
-    value. Dropping the panel was previously the WHOLE response to every kind of
+    ranked there is no gauge, no chain and no leaderboard to paint. What is new is
+    the second value. Dropping the panel was previously the WHOLE response to every kind of
     trouble: server.py's score builder raising and a window with nobody in it
     produced an identical page, which a reader took as "this person has no score"
     and an operator as a normal 200 — the same silence that let a dead collector run
@@ -2458,10 +2455,11 @@ def report_redirect_shim() -> str:
     query string (?p=/?slice=/?person=/…), and `location.replace()` so old
     bookmarks/deep-links land on the right view without a history entry.
 
-    The monolith itself is NOT removed — it stays reachable as a fallback at
-    `/report/legacy` (clean path, used by the pixel-parity baseline capture) or
-    `/report?legacy=1` (see server.py), so this shim only fires on bare /report."""
-    # Keep the map in sync with shell.MIGRATED_VIEWS (+ all→overview, ''→overview).
+    The monolith is gone, so there is nothing behind this any more: /report and
+    /report/legacy alike land here (see server.py), and a hash that maps to nothing
+    falls through to the <meta refresh> to /overview."""
+    # Keep the map in sync with the routes in server.py's do_GET (+ all→overview,
+    # ''→overview).
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -2487,19 +2485,15 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
     byte-identical to the other shelled manage pages (shell.BASE_CSS/SHELL_CSS/
     CHART_CSS in <head> + shell.sidebar_html(active)); the content area is a
     bare `<div id="root">` that the entry's Vite bundle mounts into — so the
-    same CSS applies and the pixel-parity gate (P0-T3) has nothing to diff in
-    the chrome, only in whatever the React entry renders.
+    same CSS applies to both.
 
     `report_chrome=True` (report views: Overview, ...) additionally carries
     shell.VEGA_SCRIPTS (same-origin vega/vega-lite/vega-embed, so the page's
     <VegaChart> can call window.vegaEmbed) and the `report-chrome` React bundle
     (frontend/src/components/{ChatWidget,ReportChrome,reportChromeEffects} — the
     floating metrics-assistant chat + the drill-down modal + click-to-sort) — a
-    migrated report view must have both to stay pixel-identical to its monolith
-    baseline (missing #mx-fab would show up as a diff in the bottom-right
-    corner). Non-report SPA pages (e.g. /whats-new) don't opt in: their monolith
-    equivalent (changelog.render_page()) never had either, so adding them
-    unconditionally would introduce a NEW diff, not remove one.
+    report view needs both. Non-report SPA pages (e.g. /whats-new) don't opt in:
+    a changelog has nothing to drill into and nothing to ask the assistant about.
 
     If the frontend hasn't been built yet (or this entry isn't in the Vite
     manifest — see spa.entry_assets), degrades to the shell + a small notice
@@ -2509,9 +2503,8 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
 
     assets = spa.entry_assets(entry)
     if assets is None:
-        # The UI is React; there is no server-rendered equivalent to fall back to
-        # (the Jinja pages still reachable at ?legacy=1 are the pixel-gate baseline on
-        # its way out, not a supported path). So this page's whole job is to tell you
+        # The UI is React; there is no server-rendered equivalent to fall back to.
+        # So this page's whole job is to tell you
         # how to get a bundle — with BOTH routes, because someone who cloned the repo
         # and ran `python server.py` has hit this without necessarily having Node.
         root_inner = (

@@ -455,15 +455,6 @@ def overlay_from_post(payload: dict) -> dict:
     return ov
 
 
-def refresh_editor() -> str:
-    """(Re)write config-editor.html from the current data + config — the only file
-    this module writes. Returns the path written."""
-    path = str(paths.data_path("config-editor.html"))
-    with open(path, "w") as fh:
-        fh.write(render_page())
-    return path
-
-
 def save_overlay(ov: dict) -> None:
     """Persist a config overlay into the DB override table — the only place it lives
     (atomic per scope). Only the config-editor scopes are touched (repo class/element,

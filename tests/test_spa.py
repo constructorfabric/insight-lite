@@ -232,7 +232,11 @@ class NavCarryTest(unittest.TestCase):
 
     def test_person_view_links_keep_whose_page_it_is(self):
         # The bug this rule exists for: switching Person views dropped the person.
-        html = shell.sidebar_html("person-overview", {"person": "ainetx", "p": "30d"})
+        # report_caption() opens the store, and store.connect() creates the DB lazily,
+        # so an unpinned caption would let these touch (or make) a real database for a
+        # string no assertion here looks at.
+        with patch.object(shell, "report_caption", return_value=""):
+            html = shell.sidebar_html("person-overview", {"person": "ainetx", "p": "30d"})
         for view in ("activity", "work", "impact", "score"):
             self.assertIn(f'href="/person?view={view}&p=30d&person=ainetx"', html)
 
@@ -247,7 +251,8 @@ class NavCarryTest(unittest.TestCase):
         # The client merges the live query using the zone's `carry` list; if that list
         # disagreed with what the server merged, the two renderers would produce
         # different links for the same page.
-        model = json.loads(shell.nav_model_json("flow", self._QUERY))
+        with patch.object(shell, "report_caption", return_value=""):
+            model = json.loads(shell.nav_model_json("flow", self._QUERY))
         for zone in model["zones"]:
             allowed = set(zone["carry"])
             applied = set(shell.zone_carry(zone["key"], self._QUERY) or {})
@@ -282,3 +287,46 @@ class FilterInputsCostTest(unittest.TestCase):
         self.assertEqual(sorted(got), ["periodPresets", "scopeTargets"])
         self.assertEqual(got["scopeTargets"], {"element": ["studio"]})
         build.assert_not_called()
+
+
+class CaptionEscapingTest(unittest.TestCase):
+    """`report_caption()` is `runs.org` straight from the DB, and it lands in the navbar
+    title and the brand block on EVERY page. An org set through /api/setup/save is
+    regex-validated, but one arriving from a config file or the environment is not, so
+    the sidebar escapes it rather than trusting where it came from. The React twin gets
+    it as JSON and escapes on output, so this is the only unguarded path."""
+
+    def test_markup_in_the_org_name_cannot_reach_the_page(self):
+        evil = '</span><script>alert(1)</script>'
+        with patch.object(shell, "report_caption", return_value=evil):
+            html = shell.sidebar_html("overview")
+        self.assertNotIn("<script>alert(1)", html)
+        self.assertIn("&lt;script&gt;alert(1)", html)
+
+    def test_a_plain_caption_still_renders(self):
+        with patch.object(shell, "report_caption", return_value="constructorfabric · 29 Jul"):
+            html = shell.sidebar_html("overview")
+        self.assertIn("constructorfabric · 29 Jul", html)
+
+    def test_the_fallback_tagline_survives_an_empty_caption(self):
+        with patch.object(shell, "report_caption", return_value=""):
+            html = shell.sidebar_html("overview")
+        self.assertIn("Contribution &amp; Usage", html)
+
+
+class CarryHrefTest(unittest.TestCase):
+    """_carry_href merges the request's params into a nav href, and the href wins where
+    it already says something — mirroring Sidebar.tsx's `!params.has(k)`. The two
+    renderers emitting different links for the same page is the failure this module is
+    built around."""
+
+    def test_the_href_wins_over_the_carry(self):
+        out = shell._carry_href("/person?view=work&person=bob", {"person": "alice"})
+        self.assertEqual(out.count("person="), 1)
+        self.assertIn("person=bob", out)
+
+    def test_a_carry_key_the_href_omits_is_appended(self):
+        out = shell._carry_href("/person?view=work", {"person": "alice", "p": "30d"})
+        self.assertIn("view=work", out)
+        self.assertIn("person=alice", out)
+        self.assertIn("p=30d", out)

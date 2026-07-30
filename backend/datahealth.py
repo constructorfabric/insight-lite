@@ -51,10 +51,8 @@ def _numraw(v) -> str:
 
 def health_json(model: dict) -> dict:
     """Data for the React /data-health route: the trust-surface tiles + headline
-    stats + risk line, as RAW (unescaped) values. Kept deliberately PARALLEL to
-    render_page()'s assembly rather than shared, so render_page — the pixel-gate
-    baseline — stays byte-for-byte unchanged. The React page renders these verbatim
-    (and escapes on output, hence the raw values)."""
+    stats + risk line, as RAW (unescaped) values — the React page renders them
+    verbatim and escapes on output."""
     dq = model.get("data_quality", {}) or {}
     rs = model.get("repo_summary", {}) or {}
     meta = model.get("meta", {}) or {}
