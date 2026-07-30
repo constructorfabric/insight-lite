@@ -626,7 +626,6 @@ def build_model(d: dict) -> dict:
         "generated": d["generated_at"],
         "inter_woff2": _font_b64("inter-latin.woff2"),
         "jakarta_woff2": _font_b64("jakarta-latin.woff2"),
-        "sidebar": shell.sidebar_html("report"),
         "shell_css": shell.SHELL_CSS,
         "emails_by_login": emails_by_login,
         "all_block": all_block,
@@ -683,44 +682,8 @@ def build_model(d: dict) -> dict:
 PANELS = _load_tmpl("panels")
 
 
-TEMPLATE = _load_tmpl("report")
 
 
-# The fragment reuses the SAME panel macros defined in TEMPLATE (imported by name
-# with the render context), so build-time and windowed panels never drift.
-FRAGMENT = _load_tmpl("fragment")
-
-
-# Delivery fragment (served by /api/delivery): the 3 delivery panels for a given
-# period AND repo slice. Decoupled from FRAGMENT so the slice filter and the main
-# period swap never fight over the same regions.
-DELIVERY_FRAGMENT = _load_tmpl("delivery")
-
-
-# Trend panel alone (served by /api/trend): re-renders the stacked-area chart at a
-# chosen granularity without rebuilding the rest of the period fragment.
-TREND_FRAGMENT = _load_tmpl("trend")
-
-
-# Flow tab (served by /api/flow): the friction explainer + timeline-derived flow
-# metrics for a period + repo slice. Follows the period and the global slice.
-FLOW_FRAGMENT = _load_tmpl("flow")
-
-
-# Per-person dashboard fragment (served by /api/person): header, KPIs, activity
-# heatmap + weekly table, composition and all-time impact. Reuses shared macros.
-PERSON_FRAGMENT = _load_tmpl("person")
-
-
-# Custom dashboard page (served by /dashboard/<id>): page shell + scope/period
-# controls + a grid of panel cells filled client-side via /api/dashboard/panel.
-DASHBOARD = _load_tmpl("dashboard")
-
-
-# Custom dashboard editor (served by /dashboard/<id>/edit, owner-only): catalog-driven
-# add-panel form + drag-reorderable panel list with live preview via
-# /api/dashboard/preview-panel, saved via POST /api/dashboard/<id>.
-DASHBOARD_EDITOR = _load_tmpl("dashboard_editor")
 
 
 _FONT_B64: dict = {}
@@ -812,20 +775,16 @@ _ENV: Environment | None = None
 
 
 def _env() -> Environment:
-    """Jinja env with all templates registered so the report and fragment can
-    import the shared panel macros from the 'panels' template. Memoised at module
-    scope: templates are baked into the constants at import, so the env (and its
-    compiled templates) is stable for the process — rebuilding it per render() was
-    pure waste, and matters now that the report renders live per request."""
+    """Jinja env for what is left of the server-rendered layer: the dashboard page,
+    its editor, and the shared panel macros the user-built dashboard panels resolve
+    against (see view_registry's `tmpl:panels/01_helpers.j2::…` refs). Memoised at
+    module scope — the templates are read once at import, so the env and its compiled
+    templates are stable for the process."""
     global _ENV
     if _ENV is not None:
         return _ENV
     env = Environment(autoescape=True,
-                      loader=DictLoader({"panels": PANELS, "report": TEMPLATE,
-                                         "fragment": FRAGMENT, "person": PERSON_FRAGMENT,
-                                         "delivery": DELIVERY_FRAGMENT, "trend": TREND_FRAGMENT,
-                                         "flow": FLOW_FRAGMENT, "dashboard": DASHBOARD,
-                                         "dashboard_editor": DASHBOARD_EDITOR}))
+                      loader=DictLoader({"panels": PANELS}))
     env.filters["compact"] = _compact
     env.filters["num"] = _num
     env.filters["loc"] = _loc
@@ -2499,46 +2458,6 @@ def _repo_bar(row: dict, rows: list) -> dict:
             "r2mPct": round(width * (1.0 - share), 1)}
 
 
-def render_report(model: dict) -> str:
-    """Render the full report HTML from a build_model() dict (uses the loader env
-    so the report's macro imports resolve). Injects the Vega bundle/CSS globals
-    (vega_scripts, chart_css) without clobbering model keys of the same name."""
-    context = dict(model)
-    context.setdefault("vega_scripts", shell.VEGA_SCRIPTS)
-    context.setdefault("chart_css", shell.CHART_CSS)
-    return _env().get_template("report").render(**context)
-
-
-def render_period_fragment(pr: dict, ctx: dict | None = None) -> str:
-    """Render ALL filterable panels for ONE period block (a store.aggregate window
-    or build_model's all_block), each wrapped in [data-period-panel] so the portal
-    page swaps them in. `ctx` supplies the globals the macros need (emails_by_login)."""
-    context = dict(ctx or {})
-    context["pr"] = pr
-    return _env().get_template("fragment").render(**context)
-
-
-def render_delivery_fragment(pr: dict) -> str:
-    """Render just the Delivery panels for a period + repo slice (/api/delivery)."""
-    return _env().get_template("delivery").render(pr=pr)
-
-
-def render_trend_fragment(pr: dict) -> str:
-    """Render just the Trend panel for a period + slice + granularity (/api/trend)."""
-    return _env().get_template("trend").render(pr=pr)
-
-
-def render_flow_fragment(pr: dict) -> str:
-    """Render just the Flow tab (friction explainer + flow metrics) for /api/flow."""
-    return _env().get_template("flow").render(pr=pr)
-
-
-def render_person_fragment(payload: dict) -> str:
-    """Render the full per-person dashboard for the /api/person endpoint.
-    payload = {profile, alltime, weekly, heat, emails}."""
-    return _env().get_template("person").render(p=payload)
-
-
 def render_panel_macro(macro: str, kwargs: dict) -> str:
     """Render ONE macro from the 'panels' template with the given kwargs (bound by
     name). Used by the dashboard panel resolver so panels reuse the report components."""
@@ -2579,37 +2498,6 @@ def _scope_options() -> str:
             parts.append(f'<option value="{key}:{ev}">{ev}</option>')
         parts.append("</optgroup>")
     return "".join(parts)
-
-
-def render_dashboard_page(dashboard: dict) -> str:
-    """Fill templates/dashboard.j2 for one dashboard row (from store.get_dashboard).
-    Shelled like every other manage page (shell.SHELL_CSS + shell.BASE_CSS +
-    shell.sidebar_html), so it sits inside the same app frame as the editor/report."""
-    spec = dashboard["spec"]
-    return _env().get_template("dashboard").render(
-        id=dashboard["id"], title=spec.get("title", "Dashboard"),
-        panels=spec.get("panels", []), scope_options=_scope_options(),
-        shell_css=shell.SHELL_CSS, base_css=shell.BASE_CSS, chart_css=shell.CHART_CSS,
-        vega_scripts=shell.VEGA_SCRIPTS, sidebar=shell.sidebar_html("dashboards"))
-
-
-def render_dashboard_editor(dashboard: dict) -> str:
-    """Fill templates/dashboard_editor.j2 for one dashboard row — the owner-only
-    editor at /dashboard/<id>/edit (measure-first modal widget picker + drag list +
-    live preview, saved via POST /api/dashboard/<id>). Shelled like every other
-    manage page (shell.SHELL_CSS + shell.BASE_CSS + shell.sidebar_html), so it sits
-    inside the same app frame as the report/portal instead of a bare page."""
-    import json as _json
-    spec = dashboard["spec"]
-    # Escape '</' so a panel title containing '</script>' can't break out of the
-    # inline <script> block below — same convention as configstore/directory/semantic_editor.
-    spec_json = _json.dumps(spec).replace("</", "<\\/")
-    return _env().get_template("dashboard_editor").render(
-        id=dashboard["id"], title=spec.get("title", "Untitled dashboard"),
-        visibility=dashboard.get("visibility", "private"),
-        spec_json=spec_json,
-        shell_css=shell.SHELL_CSS, base_css=shell.BASE_CSS, chart_css=shell.CHART_CSS,
-        vega_scripts=shell.VEGA_SCRIPTS, sidebar=shell.sidebar_html("dashboards"))
 
 
 def report_redirect_shim() -> str:
@@ -2837,19 +2725,6 @@ def load_data() -> dict:
     except Exception:                # noqa: BLE001
         d["scope_targets"] = {}
     return d
-
-
-def main() -> None:
-    d = load_data()
-    model = build_model(d)
-    html = render_report(model)
-    with open(paths.data_path("report.html"), "w") as fh:
-        fh.write(html)
-    print(f"Wrote report.html ({len(html)} bytes)")
-
-
-if __name__ == "__main__":
-    main()
 
 
 # --- metric registry: metrics computed in this module, tied to their functions ---

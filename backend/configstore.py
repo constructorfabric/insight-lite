@@ -47,13 +47,6 @@ import paths
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _asset(name: str) -> str:
-    """Raw editor-HTML page from templates/editors/ (extracted from the inline
-    r-strings; consumed via .replace('/*DATA*/', ...))."""
-    with open(os.path.join(ROOT, "templates", "editors", name), encoding="utf-8") as fh:
-        return fh.read()
-
-
 CLASSES = ("platform", "app", "ignore")
 # override scopes the config editor owns — used for its concurrency token.
 # "semantic" holds the scoped taxonomy/flow patches (see semantic.py); it is part
@@ -462,13 +455,6 @@ def overlay_from_post(payload: dict) -> dict:
     return ov
 
 
-def render_page(active: str = "config") -> str:
-    """Render the config editor live from the current DB config. This is what the
-    portal serves at /config — no baked file, so it always reflects the latest
-    overrides, concurrency token, and shared sidebar."""
-    return render_editor_html(editor_data())
-
-
 def refresh_editor() -> str:
     """(Re)write config-editor.html from the current data + config — the only file
     this module writes. Returns the path written."""
@@ -476,17 +462,6 @@ def refresh_editor() -> str:
     with open(path, "w") as fh:
         fh.write(render_page())
     return path
-
-
-def render_editor_html(data: dict) -> str:
-    import json
-    import shell
-    blob = (json.dumps(data).replace("</", "<\\/")
-            .replace(" ", "\\u2028").replace(" ", "\\u2029"))
-    return (CONFIG_EDITOR_HTML.replace("/*DATA*/", blob)
-            .replace("/*SHELL_CSS*/", shell.SHELL_CSS)
-            .replace("</style>", shell.BASE_CSS + "</style>", 1)
-            .replace("<!--SIDEBAR-->", shell.sidebar_html("config")))
 
 
 def save_overlay(ov: dict) -> None:
@@ -691,4 +666,3 @@ def verify_capture() -> dict:
     return {"ok": not differ, "differ": differ, "file_only": file_only}
 
 
-CONFIG_EDITOR_HTML = _asset("config.html")

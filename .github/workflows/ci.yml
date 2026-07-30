@@ -121,16 +121,23 @@ jobs:
           print('assets and templates resolve')
           "
 
-          # And that the demo seeder still produces a renderable report inside the image,
-          # which is the only end-to-end check of collect-shaped data we can run without
-          # a GitHub token.
+          # And that the demo seeder still produces data the views can serialise inside
+          # the image, which is the only end-to-end check of collect-shaped data we can
+          # run without a GitHub token. It used to render the Jinja monolith and weigh
+          # the HTML; that monolith is gone, so it asserts the same reach where the data
+          # now goes — the JSON payloads the React pages read.
           docker exec smoke sh -c 'cd /work && python3 backend/demo.py --db /tmp/smoke.db >/dev/null'
           docker exec -e REPORT_DB=/tmp/smoke.db smoke python3 -c "
           import sys; sys.path.insert(0, '/work/backend')
           import render
-          html = render.render_report(render.build_model(render.load_data()))
-          assert len(html) > 50_000, f'report suspiciously small: {len(html)} bytes'
-          print(f'report renders: {len(html)} bytes')
+          model = render.build_model(render.load_data())
+          meta = {'org': (model.get('meta') or {}).get('org'), 'generated': model.get('generated')}
+          over = render.overview_json(model, meta)
+          assert over['ok'], 'overview payload not ok'
+          assert len(over['kpis']) == 8, f\"KPI row has {len(over['kpis'])} tiles\"
+          assert over['companies']['rows'], 'no contribution-by-company rows'
+          assert over['weekly']['rows'], 'no weekly activity'
+          print(f\"views serialise: {len(over['kpis'])} tiles, {len(over['companies']['rows'])} companies\")
           "
           # The MCP service runs from the SAME image with a different command, and it
           # was NOT covered here — which is how an image shipped with mcp 2.0 installed

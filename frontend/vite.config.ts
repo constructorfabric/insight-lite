@@ -18,6 +18,8 @@ export default defineConfig({
     manifest: true,
     rollupOptions: {
       input: {
+        // Loaded on every shelled page (render_spa_page), like report-chrome.
+        sidebar: resolve(__dirname, "src/entries/sidebar.tsx"),
         whatsnew: resolve(__dirname, "src/entries/whatsnew.tsx"),
         overview: resolve(__dirname, "src/entries/overview.tsx"),
         trend: resolve(__dirname, "src/entries/trend.tsx"),

@@ -386,9 +386,10 @@ class SaveEndpointTest(unittest.TestCase):
 
 
 class NoHandRolledYamlLeftTest(unittest.TestCase):
-    EDITORS = ("frontend/src/pages/IdentityEditor.tsx", "templates/editors/identity.html")
+    # One editor now: templates/editors/identity.html went with the legacy layer.
+    EDITORS = ("frontend/src/pages/IdentityEditor.tsx",)
 
-    def test_neither_editor_serialises_yaml_or_posts_it(self):
+    def test_the_editor_serialises_no_yaml_and_posts_json(self):
         for path in self.EDITORS:
             src = Path(path).read_text()
             self.assertNotIn("toYaml", src, f"{path} still builds YAML by hand")

@@ -84,28 +84,3 @@ def catalog_json() -> dict:
     return {"groups": groups}
 
 
-def render_page(active: str = "views") -> str:
-    import shell
-    by_group: dict = {}
-    for v in vr.all_views():
-        by_group.setdefault(v["group"], []).append(v)
-    sections = []
-    for gid, gtitle in vr.GROUPS:
-        items = by_group.get(gid, [])
-        if not items:
-            continue
-        cards = "".join(_card(v) for v in items)
-        sections.append(f'<h2 class="vg">{_h.escape(gtitle)} <span class="gc">{len(items)}</span></h2>'
-                        f'<div class="vgrid">{cards}</div>')
-    return (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<title>View catalog — Constructor Insight</title><style>'
-        + shell.SHELL_CSS + shell.BASE_CSS + _PAGE_CSS
-        + '</style></head><body><div class="app">'
-        + shell.sidebar_html(active)
-        + '<main class="wrap"><h1>View catalog</h1>'
-        '<p class="sub">Reusable visual components for building dashboards and artifacts — '
-        'the same data the MCP <code>views_catalog</code> tool returns. Pick a display method, '
-        'copy the example, or reproduce it from the HTML contract.</p>'
-        + "".join(sections) + '</main></div></body></html>')

@@ -139,25 +139,11 @@ class EditorCarriesHandlesTest(unittest.TestCase):
         self.assertEqual(row["discord"], "alice_d")
         self.assertEqual(row["telegram"], "alice_t")
 
-    def test_the_legacy_editor_round_trips_them(self):
-        """templates/editors/identity.html builds its OWN save payload. If it does not
-        include the handles, saving from the break-glass editor silently wipes what the
-        React editor set — the exact silent-data-loss shape this codebase keeps hitting.
+    # test_the_legacy_editor_round_trips_them lived here until
+    # templates/editors/identity.html was removed with the legacy editor layer. The
+    # React editor's own savePayload() is pinned by the test above; there is no second
+    # editor left to drift from it.
 
-        Used to pin the handles in that editor's toYaml(); the transport is JSON now
-        (a concatenated `company: `+value corrupted "Acme #1" → "Acme"), so the same
-        property is pinned on savePayload() instead.
-        """
-        html = Path("templates/editors/identity.html").read_text()
-        self.assertNotIn("toYaml", html)          # no hand-rolled YAML, ever again
-        payload = re.search(r"function savePayload\(\)\{(.*?)\n\}", html, re.S)
-        self.assertIsNotNone(payload, "the legacy editor must build a save payload")
-        for field in directory.CONTACT_FIELDS:
-            self.assertRegex(payload.group(1), rf"{field}:\s*p\.{field}")
-        self.assertRegex(html, r'"Content-Type":"application/json')
-
-
-class NotIdentityEvidenceTest(unittest.TestCase):
     def test_no_resolution_path_reads_the_handles(self):
         """The point of the design: contact attributes, not authorship evidence."""
         for module in ("identity.py", "semantic.py"):
@@ -215,9 +201,7 @@ class PayloadCarriesHandlesTest(unittest.TestCase):
         payload_entry = directory.editor_payload(
             {"z": {**roster["z"], "company": "Other"}}, {"bots": {}})["people"][0]
         editor_js = Path("frontend/src/pages/IdentityEditor.tsx").read_text()
-        legacy_html = Path("templates/editors/identity.html").read_text()
         for f in directory.CONTACT_FIELDS:
             self.assertIn(f, roster["z"], f"build_roster drops {f}")
             self.assertIn(f, payload_entry, f"editor_payload drops {f}")
             self.assertIn(f, editor_js, f"the React editor never mentions {f}")
-            self.assertIn(f, legacy_html, f"the legacy editor never mentions {f}")

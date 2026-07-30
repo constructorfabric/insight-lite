@@ -340,14 +340,28 @@ class RendersEndToEndTest(unittest.TestCase):
         self.assertTrue(model.get("table"), "the per-person table is empty")
         self.assertTrue(model.get("all_block"), "no all-time block")
 
-    def test_the_full_report_renders(self):
-        """Exercises build_model plus every template. Nothing else in the suite does."""
-        import render
-        html = render.render_report(render.build_model(render.load_data()))
-        self.assertGreater(len(html), 50_000, "suspiciously small report")
-        for marker in ("Alice Anderson", "platform-core", "Northwind Systems"):
-            self.assertIn(marker, html, f"{marker} did not reach the report")
+    def test_the_whole_model_reaches_the_views(self):
+        """Exercises build_model plus the view serialisation end to end — nothing else
+        in the suite does.
 
+        It used to render the Jinja monolith and weigh the HTML. With the monolith gone
+        the same contract splits in two: the seeded people, repos and companies must
+        reach build_model's output, and the view serialiser must turn that output into
+        the panels a reader sees. Structure is asserted rather than a byte count,
+        because now there is structure to assert."""
+        import json as _json, render
+        model = render.build_model(render.load_data())
+        blob = _json.dumps(model, default=str)
+        for marker in ("Alice Anderson", "platform-core", "Northwind Systems"):
+            self.assertIn(marker, blob, f"{marker} did not reach the model")
+
+        meta = {"org": model.get("meta", {}).get("org"), "generated": model.get("generated")}
+        over = render.overview_json(model, meta)
+        self.assertEqual(len(over["kpis"]), 8, "the KPI row lost a tile")
+        self.assertTrue(over["companies"]["rows"], "no contribution-by-company rows")
+        self.assertTrue(over["weekly"]["rows"], "no weekly activity")
+        self.assertTrue(over["workType"]["rows"], "no work-type breakdown")
+        self.assertIn("Northwind Systems", _json.dumps(over["companies"]))
     def test_the_panels_that_need_the_blob_are_populated(self):
         """A blob with the right keys but empty values would render a report that looks
         fine and says nothing — so assert the panels actually have rows."""

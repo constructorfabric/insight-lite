@@ -29,7 +29,6 @@ import paths
 # The repo root, one level up from backend/: templates/, assets/ and config.yaml
 # live there, not next to the modules.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EDITOR = str(paths.data_path("identity-editor.html"))
 
 
 # Contact handles curated in the identity editor. Deliberately NOT part of identity
@@ -89,13 +88,6 @@ def normalize_contacts(info: dict) -> dict:
     return out
 
 
-def _asset(name: str) -> str:
-    """Raw editor-HTML page from templates/editors/ (extracted from the inline
-    r-strings; consumed via .replace('/*DATA*/', ...))."""
-    with open(os.path.join(ROOT, "templates", "editors", name), encoding="utf-8") as fh:
-        return fh.read()
-
-
 def load_existing() -> dict:
     """Curated identity, from the DB override table (the source of truth). Shape is the
     people-map the roster has always used: {login: {company,name,emails,aliases,is_bot?}}.
@@ -113,28 +105,6 @@ def load_existing() -> dict:
         return store.read_overrides(conn, "person")
     finally:
         conn.close()
-
-
-def render_editor_html(payload: dict) -> str:
-    """Embed the JSON payload into the editor template, script-context safe.
-
-    A "</script>" inside any payload string (display name, commit email,
-    identity evidence — all attacker-influenced) would otherwise terminate
-    the inline <script> element and inject markup.  Escaping "</" as "<\\/"
-    is a no-op for the JS parser but neutralises the HTML one.  json.dumps
-    uses ensure_ascii=True, so U+2028/U+2029 (JS line separators) are
-    already emitted as \\u2028/\\u2029 escapes; the extra replaces below are
-    belt-and-braces in case ensure_ascii is ever turned off.
-    """
-    blob = (json.dumps(payload)
-            .replace("</", "<\\/")
-            .replace("\u2028", "\\u2028")
-            .replace("\u2029", "\\u2029"))
-    import shell
-    return (EDITOR_HTML.replace("/*DATA*/", blob)
-            .replace("/*SHELL_CSS*/", shell.SHELL_CSS)
-            .replace("</style>", shell.BASE_CSS + "</style>", 1)
-            .replace("<!--SIDEBAR-->", shell.sidebar_html("identity")))
 
 
 def build_roster(people: dict, existing: dict) -> dict:
@@ -269,21 +239,6 @@ def directory_json() -> dict:
     return editor_payload(roster, data)
 
 
-def render_page(active: str = "identity") -> str:
-    """Render the identity editor live from the current DB roster. This is what
-    the portal serves at /identity — no baked file involved, so it always
-    reflects the latest overrides, concurrency token, and shared sidebar."""
-    data = _load_run()
-    roster = build_roster(data["people"], load_existing())
-    return render_editor_html(editor_payload(roster, data))
-
-
-def _write_editor(roster: dict, data: dict) -> None:
-    """Render identity-editor.html from a roster. The only file this module writes."""
-    with open(EDITOR, "w") as fh:
-        fh.write(render_editor_html(editor_payload(roster, data)))
-
-
 def _overrides_version() -> str:
     """Concurrency token for person overrides (empty if the store is unavailable)."""
     try:
@@ -302,7 +257,6 @@ def refresh_editor() -> None:
     the current edits after every Save."""
     data = _load_run()
     roster = build_roster(data["people"], load_existing())
-    _write_editor(roster, data)
 
 
 def main() -> None:
@@ -316,12 +270,8 @@ def main() -> None:
     for co, n in sorted(by_co.items(), key=lambda x: -x[1]):
         print(f"  {co:12} {n}")
 
-    _write_editor(roster, data)
     other = by_co.get("Other", 0)
-    print(f"Wrote identity-editor.html  ({other} still 'Other' — open it to assign)")
-
-
-EDITOR_HTML = _asset("identity.html")
+    print(f"  {other} still 'Other' — open /identity to assign")
 
 
 if __name__ == "__main__":

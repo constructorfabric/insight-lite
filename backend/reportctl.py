@@ -56,13 +56,9 @@ def export_snapshot() -> Path:
     base = EXPORTS / f"insight-report-{stamp}"
     # (no people.yaml copy: there is no such file any more. The curated roster reaches
     # the bundle inside the run blob below, which is what the report is built from.)
-    # report.html is no longer baked — render it on demand into the bundle
-    try:
-        import render
-        with open(base.with_suffix(".html"), "w") as fh:
-            fh.write(render.render_report(render.build_model(render.load_data())))
-    except (Exception, SystemExit):          # load_data() raises SystemExit on empty DB
-        pass
+    # No HTML in the bundle: the standalone one-pager went with the Jinja monolith,
+    # so an export is the DB plus the run blob — the two things a report is rebuilt
+    # from — and the portal is the only thing that renders.
     # the run blob lives in the DB (source of truth) — serialise it into the bundle
     try:
         import json
@@ -101,11 +97,11 @@ def main(argv: list[str] | None = None) -> int:
         import reindex
         r = reindex.apply()
         print(f"Reindexed {r['people']} people, {r['aliases']} aliases folded "
-              f"({r['folded_rows']} rows); report.html re-rendered.")
+              f"({r['folded_rows']} rows).")
     elif args.command == "reconfig":
         import reconfig
         r = reconfig.apply()
-        print(f"Reconfigured {r['repos']} repos; report.html re-rendered.")
+        print(f"Reconfigured {r['repos']} repos.")
     elif args.command == "refresh":
         refresh(no_cache=args.no_cache)
     elif args.command == "all":

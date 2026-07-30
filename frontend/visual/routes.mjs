@@ -29,18 +29,18 @@ const DEFAULT_VIEWPORT = { width: 1440, height: 900 };
 // strict for full-page canvas charts; these states use 1.5% + a visual spot-check.
 const CHART_THRESHOLD = 1.5;
 
-// Overview pilot (see docs/superpowers/plans/2026-07-22-react-phaseR-report.md,
-// Task R-P1): baseline captures the CURRENT monolith (`/report`, default `overview`
-// mode, no hash) at three states — default all-time, a 30-day period, and a repo
-// slice. The candidate run (after the /overview React route exists) points the
-// SAME three states at `/overview` instead — see capture.mjs's `--base`/`--out`
-// and server.py's routing (`/report` = monolith, `/overview` = React). `id` stays
-// the same across baseline/candidate so diff.mjs pairs them up.
+// Three states of the Overview view — default all-time, a 30-day period, and a repo
+// slice — captured as a baseline and re-captured as a candidate, paired up by `id`
+// (see capture.mjs's `--base`/`--out` and diff.mjs).
 //
-// `overviewPath` toggles between the two front-ends: set OVERVIEW_ROUTE=/overview
-// (env var) when capturing the candidate; defaults to the monolith's `/report`
-// (mode defaults to 'overview' with no #hash) for the baseline.
-const OVERVIEW_ROUTE = process.env.OVERVIEW_ROUTE || "/report/legacy";
+// This harness was built for the React migration (see
+// docs/superpowers/plans/2026-07-22-react-phaseR-report.md, Task R-P1), where the
+// baseline was the Jinja monolith at `/report/legacy` and the candidate the new
+// `/overview`. That migration is finished and the monolith has been removed, so the
+// comparison is no longer React-against-Jinja: the baseline is now the last known
+// good `/overview`, and the harness guards against React regressing against itself.
+// OVERVIEW_ROUTE stays overridable for a one-off comparison against another route.
+const OVERVIEW_ROUTE = process.env.OVERVIEW_ROUTE || "/overview";
 // A real element slice from the local report.db (see repo inventory) — any
 // `level:target` scope works, this one just has non-trivial data locally.
 const OVERVIEW_SLICE = "element:Insight";

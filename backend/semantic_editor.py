@@ -21,13 +21,6 @@ import semantic
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _asset(name: str) -> str:
-    """Raw editor-HTML page from templates/editors/ (extracted from the inline
-    r-strings; consumed via .replace('/*DATA*/', ...))."""
-    with open(os.path.join(ROOT, "templates", "editors", name), encoding="utf-8") as fh:
-        return fh.read()
-
-
 BUCKETS = {
     "categories": ["bug", "feature", "task", "epic", "spec", "docs", "test"],
     "stages": ["backlog", "ready", "in_progress", "review", "qa", "done", "released"],
@@ -378,42 +371,3 @@ def seed_split_categories(conn) -> bool:
     return True
 
 
-def render_page(active: str = "semantic") -> str:
-    import store
-    import shell
-    conn = store.connect()
-    try:
-        data = scope_data(conn, "global", "")
-    finally:
-        conn.close()
-    blob = json.dumps(data).replace("</", "<\\/").replace(" ", "\\u2028").replace(" ", "\\u2029")
-    return (_HTML.replace("/*DATA*/", blob)
-            .replace("/*SHELL_CSS*/", shell.SHELL_CSS)
-            .replace("</style>", shell.BASE_CSS + "</style>", 1)
-            .replace("<!--SIDEBAR-->", shell.sidebar_html(active)))
-
-
-_HTML = _asset("semantic.html")
-
-
-def render_wizard_page(active: str = "semantic") -> str:
-    """Guided, scope-first taxonomy setup wizard. Reads wizard_data() for the global
-    scope at build time; the client re-fetches /api/semantic/wizard on scope change and
-    saves through the existing POST /api/semantic path. The dense grid lives on at
-    /semantic/advanced."""
-    import store
-    import shell
-    conn = store.connect()
-    try:
-        data = wizard_data(conn, "global", "")
-    finally:
-        conn.close()
-    blob = (json.dumps(data).replace("</", "<\\/")
-            .replace(" ", "\\u2028").replace(" ", "\\u2029"))
-    return (_WIZARD_HTML.replace("/*DATA*/", blob)
-            .replace("/*SHELL_CSS*/", shell.SHELL_CSS)
-            .replace("</style>", shell.BASE_CSS + "</style>", 1)
-            .replace("<!--SIDEBAR-->", shell.sidebar_html(active)))
-
-
-_WIZARD_HTML = _asset("semantic_wizard.html")
