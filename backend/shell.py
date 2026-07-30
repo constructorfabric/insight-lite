@@ -399,9 +399,6 @@ def _icon(key: str) -> str:
 
 
 
-# Every key the report query can hold — what the client is allowed to merge into a
-# link, so a new param cannot leak into navigation just by existing in some URL.
-_CARRY_KEYS = ("p", "from", "to", "slice", "person")
 # The two GLOBAL filters. Every report page reads them, so every report link should
 # arrive with them still applied.
 CARRY_GLOBAL = ("p", "from", "to", "slice")
@@ -409,6 +406,11 @@ CARRY_GLOBAL = ("p", "from", "to", "slice")
 # would be a param nothing reads, kept alive in everyone's URL bar; inside the Person
 # zone it is the whole point — switching to Activity must not forget whose activity.
 CARRY_SUBJECT = {"person": "person"}
+# Every key navigation can carry, DERIVED from the two above rather than restated:
+# server.py reads exactly these off the request, and the nav model advertises them so
+# the client knows what it may merge. Three hand-kept copies of one list is three
+# chances for a param to be read but never carried, or carried but never read.
+CARRY_KEYS = CARRY_GLOBAL + tuple(CARRY_SUBJECT)
 
 
 def zone_carry(zone_key: str, carry: dict | None) -> dict | None:
@@ -557,7 +559,7 @@ def nav_model_json(active: str = "", carry: dict | None = None) -> str:
     empty first. `active` travels in the payload instead of being sniffed back out of
     the server markup's `.active` class — the server already knows it."""
     import json
-    zones = [{**z, "carry": sorted(zone_carry(z["key"], {k: 1 for k in _CARRY_KEYS}) or {}),
+    zones = [{**z, "carry": sorted(zone_carry(z["key"], {k: 1 for k in CARRY_KEYS}) or {}),
               "items": [{**i, "href": _carry_href(i["href"], zone_carry(z["key"], carry))}
                         for i in z["items"]]}
              for z in NAV_ZONES]
