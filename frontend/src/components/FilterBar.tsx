@@ -168,13 +168,9 @@ export default function FilterBar({
         <Help id="scope-help" text={SCOPE_HELP} of="Scope" />
         <select
           id="global-scope"
+          className="scope-select"
           value={scope}
           onChange={(e) => setReportQuery({ slice: e.target.value || null, tgran: null, tdim: null })}
-          style={{
-            padding: "8px 14px", border: "1px solid var(--line2)", borderRadius: 999,
-            background: "var(--panel)", color: "var(--ink2)", font: "inherit", fontSize: 13,
-            fontWeight: 600, maxWidth: 280, boxShadow: "var(--sh)", cursor: "pointer",
-          }}
         >
           <option value="">Whole org — all repositories</option>
           {scopeTargets.org && scopeTargets.org.length > 0 && (

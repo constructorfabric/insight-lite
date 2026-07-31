@@ -48,9 +48,15 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
     color:var(--acc);margin-bottom:5px}
   h3{font-weight:700;letter-spacing:-.01em}
   .sub{color:var(--ink2);font-size:13px;margin:0 0 14px}
-  .topbar{position:sticky;top:0;z-index:50;margin:0 0 18px;padding:11px 0 9px;
-    background:rgba(245,246,249,.82);border-bottom:1px solid var(--line);
-    backdrop-filter:saturate(160%) blur(10px)}
+  /* Sticky, and otherwise invisible. It used to be frosted glass — a translucent fill
+     plus `backdrop-filter:saturate(160%) blur(10px)` and a hairline under it. The
+     saturate was the problem: it pushed whatever scrolled beneath toward lavender, so
+     the strip read as a faintly different colour from the page even when nothing was
+     under it, and the hairline drew a box around that difference. A sticky bar only has
+     to occlude what scrolls under it; the page colour, opaque, does that and shows no
+     edge of its own. */
+  .topbar{position:sticky;top:0;z-index:50;margin:0 0 14px;padding:8px 0;
+    background:var(--bg)}
   @media(max-width:900px){ .wrap{padding:16px} }
   .mode-section[hidden]{display:none}
   h2{scroll-margin-top:92px}
@@ -175,20 +181,36 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .subjectbar .person-combo{flex:1 1 240px;max-width:360px}
   .subjectbar .person-search{width:100%;height:34px;box-sizing:border-box}
   .subjectbar .person-select{height:34px;flex:0 1 auto;max-width:200px}
-  .period-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 0}
-  .period-bar .period-lbl{font-size:11px;font-weight:700;color:var(--mut);margin-right:2px;
+  /* The whole bar is CHROME, not content: it should read as controls sitting on the
+     page, not as a row of cards. Every control here used to carry a --panel fill, a
+     --line2 stroke AND a shadow — three layers of decoration each, on a strip whose job
+     is to be glanceable and get out of the way. The stroke and the shadow are gone; the
+     white FILL stays, because it is what makes a control look like a control on this
+     grey page — flat white on --bg reads as a surface without needing an outline drawn
+     round it. Paddings came down too: the row was ~40% wider than its own text needed. */
+  .period-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+  .period-bar .period-lbl{font-size:11px;font-weight:700;color:var(--mut);
     text-transform:uppercase;letter-spacing:.05em}
-  /* segmented control for the presets — one connected group, one active */
-  .pseg{display:inline-flex;border:1px solid var(--line2);border-radius:999px;background:var(--panel);
-    padding:4px;gap:2px;box-shadow:var(--sh)}
-  .pchip{border:none;background:transparent;color:var(--ink2);
-    border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  /* Presets: one connected group, one active. The group needs no container of its own —
+     the chips are adjacent and the filled one says which is chosen. */
+  .pseg{display:inline-flex;border-radius:999px;background:var(--panel);padding:3px;gap:1px;
+    box-shadow:var(--sh)}
+  .pchip{border:none;background:transparent;box-shadow:none;color:var(--ink2);
+    border-radius:999px;padding:5px 11px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
   .pchip:hover{background:var(--panel2);color:var(--ink)}
-  .pchip.active{background:var(--acc);color:#fff;box-shadow:0 2px 8px rgba(91,91,240,.35)}
+  .pchip.active{background:var(--acc);color:#fff}
   /* custom range tucked behind a toggle — revealed on click, not always shown */
-  .pcustbtn{border:1px solid var(--line);background:var(--panel);color:var(--mut);border-radius:8px;
-    padding:6px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
-  .pcustbtn:hover,.pcustbtn.on{border-color:var(--acc);color:var(--acc)}
+  .pcustbtn{border:none;background:var(--panel);color:var(--mut);border-radius:999px;
+    padding:8px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .pcustbtn:hover{background:var(--panel2);color:var(--ink)}
+  .pcustbtn.on{color:var(--acc)}
+  /* Scope picker. Styled here rather than inline on the element (which is where it lived,
+     and which made it the one control in the bar that could not be restyled with the
+     rest of them). Quiet by default; the native caret is the affordance. */
+  .scope-select{border:none;background:var(--panel);color:var(--ink2);
+    border-radius:999px;padding:8px 10px;font:inherit;font-size:13px;font-weight:600;
+    max-width:230px;cursor:pointer;box-shadow:var(--sh)}
+  .scope-select:hover{background:var(--panel2);color:var(--ink)}
   .period-custom{align-items:center;gap:6px}
   .period-custom:not([hidden]){display:inline-flex}
   .period-custom input{border:1px solid var(--line);border-radius:6px;
@@ -198,10 +220,10 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .period-note{font-size:12px;color:var(--mut);margin-left:2px}
   /* One "?" per global control, next to its label (see FilterBar's PERIOD_HELP /
      SCOPE_HELP). Sized to sit on the control row without stretching it. */
-  .legend-help{flex:none;width:22px;height:22px;padding:0;border-radius:999px;
-    border:1px solid var(--line2);background:var(--panel);color:var(--mut);
+  .legend-help{flex:none;width:18px;height:18px;padding:0;border-radius:999px;
+    border:none;background:transparent;color:var(--mut);
     font:700 12px/1 inherit;cursor:help;box-shadow:none}
-  .legend-help:hover{color:var(--ink);border-color:var(--acc)}
+  .legend-help:hover{color:var(--ink);background:var(--panel2)}
   /* These controls signal themselves with border and shadow, both of which a default
      focus ring loses against the panel background — so a keyboard user had no way to
      tell where they were on the filter row. One rule for every button on the chrome
@@ -211,7 +233,9 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .pempty-chip:focus-visible,#global-scope:focus-visible{
     outline:2px solid var(--acc);outline-offset:2px}
   @media(min-width:901px){
-    /* desktop: one row — slice pinned left, period pushed right; legend wraps below */
+    /* Desktop: one row, scope anchored left and period anchored right. The space between
+       them is deliberate — each group sits at the edge it belongs to, so you always know
+       where to reach for either without reading the row. */
     .topbar{display:flex;flex-wrap:wrap;align-items:center;column-gap:20px}
     .topbar>.period-bar{margin:0}
     .topbar>[aria-label="Repository scope"]{order:1}

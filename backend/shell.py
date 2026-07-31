@@ -180,11 +180,29 @@ SHELL_CSS = """
      and you land on the pane. */
   .sb-rail{position:relative;flex:0 0 44px;align-self:stretch}
   .sb-rail:hover,.sb-rail:focus-within{z-index:95}
-  .sb-rail::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;
-    border-radius:12px;pointer-events:none;
-    transition:width .14s ease,background .14s ease,box-shadow .14s ease}
-  .sb-rail:hover::before,.sb-rail:focus-within::before{width:186px;
-    background:var(--bg,#f5f6f9);box-shadow:0 12px 36px rgba(16,24,40,.20)}
+  /* The open rail is NOT a card over the page. It has no shadow, no border and no
+     surface of its own: it is filled with the sidebar's own background and it is 186px
+     inside a 208px content box, so it never leaves the sidebar. What you see is the
+     sidebar showing its zone labels — the pane's rows are simply covered while it does.
+     An earlier version gave it a border, a radius and `0 8px 24px` of shadow, and that
+     is what made it read as a rectangle levitating over the interface.
+     It is also why this fill does not FADE: a fade would cross-dissolve the rail's
+     labels with the pane's, and two sets of text ghosting through each other is exactly
+     the cheap look. It steps in, opaque, at the moment the labels start arriving, and
+     steps back out once they have gone.
+       open:  .18s before anything happens — long enough that crossing the rail on the
+              way to the pane does not trigger it — then .13s for the labels.
+       close: immediate, .1s for the labels.
+     Nothing animates width. The first version stretched this surface and all seven row
+     highlights from 44px to 186px at once, with the labels fading in over the top while
+     it was still moving; growing to size is the tell that something is not real.
+     The width is the sidebar's CONTENT width (236 minus 14px of padding either side),
+     because the pane runs to that edge: any narrower and its rows show past the fill as
+     a sliver of half-covered menu down the side of the open rail. */
+  .sb-rail::before{content:"";position:absolute;inset:0 auto 0 0;width:208px;
+    pointer-events:none;background:var(--bg,#f5f6f9);
+    opacity:0;transition:opacity 0s .1s}
+  .sb-rail:hover::before,.sb-rail:focus-within::before{opacity:1;transition:opacity 0s .18s}
   .sb-rail-inner{display:flex;flex-direction:column;gap:3px;width:44px;height:100%}
   .sb-pane{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0;
     padding-left:8px;border-left:1px solid var(--line)}
@@ -200,9 +218,14 @@ SHELL_CSS = """
      the label too. Drawn 44px wide, widened to the panel's width on rail hover.
      Painted first (::before precedes the children) and pointer-events:none, so it
      neither covers the glyph nor becomes a hit target. */
+  /* The width is a STEP, not an animation, and it is timed to land inside the fade:
+     on open it snaps at .18s, the moment the surface starts appearing; on close it snaps
+     back at .1s, once the surface has gone. Either way the change happens while this
+     element is invisible or the panel behind it is, so nothing is seen to stretch. */
   .rz::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;border-radius:11px;
-    pointer-events:none;transition:width .14s ease,background .14s ease,box-shadow .14s ease}
-  .sb-rail:hover .rz::before,.sb-rail:focus-within .rz::before{width:186px}
+    pointer-events:none;transition:background .13s ease,box-shadow .13s ease,width 0s .1s}
+  .sb-rail:hover .rz::before,.sb-rail:focus-within .rz::before{width:196px;
+    transition:background .13s ease,box-shadow .13s ease,width 0s .18s}
   .rz svg{position:relative;flex:none;width:19px;height:19px;stroke:currentColor;
     stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
   .rz:hover{color:var(--ink)}
@@ -213,10 +236,20 @@ SHELL_CSS = """
   .rz.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
   /* Always in the DOM so a screen reader gets it; clipped out of sight when the rail
      is closed, and never a pointer target. */
-  .rz .rz-l{position:absolute;left:44px;top:50%;transform:translateY(-50%);
+  /* The labels are the only thing that actually moves: a short slide in from under the
+     icon column, so they read as coming OUT of the rail rather than switching on. */
+  .rz .rz-l{position:absolute;left:44px;top:50%;
     font:600 13px/1.4 inherit;white-space:nowrap;pointer-events:none;
-    opacity:0;transition:opacity .12s ease}
-  .sb-rail:hover .rz-l,.sb-rail:focus-within .rz-l{opacity:1}
+    opacity:0;transform:translate(-6px,-50%);
+    transition:opacity .1s ease,transform .1s ease}
+  .sb-rail:hover .rz-l,.sb-rail:focus-within .rz-l{opacity:1;transform:translateY(-50%);
+    transition:opacity .13s ease .18s,transform .13s cubic-bezier(.2,.7,.3,1) .18s}
+  /* The labels are an appearance, not information. Without motion they are simply there
+     or not — the same affordance, none of the movement. */
+  @media(prefers-reduced-motion:reduce){
+    .rz .rz-l,.sb-rail:hover .rz-l,.sb-rail:focus-within .rz-l{
+      transform:translateY(-50%);transition-duration:0s}
+  }
   /* Suppressed after you pick a zone, until the pointer leaves the rail.
      A rail click navigates, so the destination loads with the cursor still parked on
      the rail; left to plain :hover it would open again over the pane you came to see.
@@ -224,9 +257,10 @@ SHELL_CSS = """
      flicker: collapsed on load, then popped open at the first twitch of the mouse.
      Leaving and returning re-enables it. Two classes beat the one-class rules above,
      which is what makes this an override rather than a fight. */
-  .sb-rail.rail-dismissed:hover::before{width:44px;background:transparent;box-shadow:none}
-  .sb-rail.rail-dismissed:hover .rz::before{width:44px}
-  .sb-rail.rail-dismissed:hover .rz-l{opacity:0}
+  .sb-rail.rail-dismissed:hover::before{opacity:0;transition-delay:0s}
+  .sb-rail.rail-dismissed:hover .rz::before{width:44px;transition:width 0s}
+  .sb-rail.rail-dismissed:hover .rz-l{opacity:0;transform:translate(-6px,-50%);
+    transition-delay:0s}
   .navgroup{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--mut);padding:2px 11px 6px}
   .sb-pane .tab{display:flex;align-items:center;gap:10px;text-align:left;text-decoration:none;
