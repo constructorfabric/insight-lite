@@ -185,11 +185,33 @@ async function waitForVegaCharts(page) {
     .waitForFunction(
       () => {
         const panels = document.querySelectorAll(".vl-panel");
-        return Array.from(panels).every((p) => p.querySelector("svg"));
+        const drawnVega = Array.from(panels).every((p) => p.querySelector("svg"));
+        // Recharts draws into .ch (components/ui/chart). As charts migrate off
+        // Vega a route can hold either kind, or both, so wait for whichever is
+        // present rather than assuming.
+        const charts = document.querySelectorAll(".ch");
+        const drawnRecharts = Array.from(charts)
+          .every((c) => c.querySelector(".recharts-surface"));
+        return drawnVega && drawnRecharts;
       },
       { timeout: 5000 },
     )
     .catch(() => {});
+}
+
+/** Open every collapsible section, then wait for the charts inside them.
+ *
+ *  Flow keeps its board-movement views behind a closed <details>, so a plain
+ *  screenshot of /flow never contained the CFD chart at all — which is how the
+ *  Recharts swap for it came back as a 0.0000% diff on three shots while proving
+ *  nothing about the chart. A route that hides content behind a disclosure needs
+ *  a state where it is open, or the gate only guards what was already visible. */
+async function openSectionsAndWait(page) {
+  await page.evaluate(() => {
+    document.querySelectorAll("details.flow-sec").forEach((d) => { d.open = true; });
+  });
+  await waitForVegaCharts(page);
+  await page.waitForTimeout(300);           // let the areas finish laying out
 }
 
 // Dashboard (Phase 2, widget-system): the pixel-gate for the dashboards-on-React
@@ -320,6 +342,15 @@ export const routes = [
     path: `${FLOW_ROUTE}?slice=${encodeURIComponent(OVERVIEW_SLICE)}${FLOW_HASH}`,
     viewport: DEFAULT_VIEWPORT,
     setup: waitForVegaCharts,
+    threshold: CHART_THRESHOLD,
+  },
+  {
+    // The same page with every section expanded — the only state that contains the
+    // cumulative-flow chart, the dwell tables and the rewind list.
+    id: "flow-open",
+    path: `${FLOW_ROUTE}${FLOW_HASH}`,
+    viewport: DEFAULT_VIEWPORT,
+    setup: openSectionsAndWait,
     threshold: CHART_THRESHOLD,
   },
   {

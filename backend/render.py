@@ -2299,14 +2299,18 @@ def flow_json(pr: dict, meta: dict) -> dict:
         for p in (f.get("people") or [])
     ]
 
-    import vega_spec
+    # DATA, not a chart spec. The server used to hand the client a finished Vega-Lite
+    # spec; the client draws with Recharts now, so what crosses the boundary is the
+    # series it already had — `dates` plus one entry per stage with its colour. Same
+    # inputs stacked_area_spec was built from, minus the encoding.
     c = f.get("cfd") or {}
     cfd = {
         "hasData": bool(c.get("has_data")),
         "nDates": c.get("n_dates") or 0, "firstDate": c.get("first_date"),
-        "series": [{"key": s["key"], "name": s["name"], "color": s["color"]} for s in (c.get("series") or [])],
-        "spec": (vega_spec.stacked_area_spec(c.get("series"), c.get("dates"), c.get("series"), "items")
-                 if c.get("has_data") else None),
+        "dates": list(c.get("dates") or []),
+        "series": [{"key": s["key"], "name": s["name"], "color": s["color"],
+                    "vals": list(s.get("vals") or [])}
+                   for s in (c.get("series") or [])],
     }
 
     dw = f.get("dwell") or {}

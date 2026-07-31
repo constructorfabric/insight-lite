@@ -2532,7 +2532,7 @@ class Handler(BaseHTTPRequestHandler):
             self._log_page_open()
             self.send_bytes(
                 render.render_spa_page("flow", "flow", "Flow",
-                                       report_chrome=True, vega=True, filter_inputs=self._filter_inputs(),
+                                       report_chrome=True, filter_inputs=self._filter_inputs(),
                                        nav_carry=self._report_carry()).encode(),
                 "text/html; charset=utf-8")
         elif path == "/people":

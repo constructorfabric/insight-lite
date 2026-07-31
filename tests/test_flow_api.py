@@ -156,22 +156,29 @@ class FlowJsonTest(unittest.TestCase):
         colors = [p["frictionColor"] for p in out["flow"]["people"]]
         self.assertEqual(colors, ["#10b981", "#f59e0b", "#ef4444"])
 
-    def test_cfd_spec_built_when_has_data(self):
+    def test_cfd_carries_the_series_the_client_stacks(self):
+        # DATA, not a spec: the client draws with Recharts, so what crosses is the
+        # dates plus one entry per stage with its colour and values — the same inputs
+        # the retired stacked_area_spec was built from.
         out = render.flow_json({"flow": _flow()}, _meta())
         cfd = out["flow"]["cfd"]
         self.assertTrue(cfd["hasData"])
         self.assertEqual(cfd["nDates"], 5)
         self.assertEqual(cfd["firstDate"], "2026-01-01")
         self.assertEqual([s["key"] for s in cfd["series"]], ["done", "in_progress"])
-        self.assertIsNotNone(cfd["spec"])
+        self.assertNotIn("spec", cfd, "the server stopped shipping chart specs")
+        # every series is aligned to the same x axis, or the stack silently skews
+        for s in cfd["series"]:
+            self.assertEqual(len(s["vals"]), len(cfd["dates"]), s["key"])
+            self.assertTrue(s["color"])
 
     def test_cfd_no_data(self):
         out = render.flow_json({"flow": _flow(cfd={"has_data": False, "n_dates": 1,
                                                      "first_date": "2026-01-01"})}, _meta())
         cfd = out["flow"]["cfd"]
         self.assertFalse(cfd["hasData"])
-        self.assertIsNone(cfd["spec"])
         self.assertEqual(cfd["series"], [])
+        self.assertEqual(cfd["dates"], [])
 
     def test_dwell_stages_and_hours_formatted(self):
         out = render.flow_json({"flow": _flow()}, _meta())
