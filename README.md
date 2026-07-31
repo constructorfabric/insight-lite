@@ -278,6 +278,16 @@ python -m unittest discover -s tests -v
 python -m py_compile collect.py render.py ghclient.py identity.py directory.py reportctl.py server.py tests/test_rules.py
 ```
 
+The frontend has its own suite — component and hook tests on jsdom, run by vitest:
+
+```bash
+cd frontend && npm ci && npm test
+```
+
+Both run in one CI job, and the image build waits on it. Tests that need real layout
+rather than markup live in `frontend/visual/`, which drives a running server and is not
+part of that pipeline.
+
 ## Scheduling the refresh
 
 There is deliberately **no scheduled GitHub Actions workflow** in this repository. One
