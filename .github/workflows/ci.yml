@@ -44,6 +44,19 @@ jobs:
       - name: Run test suite
         run: python -m unittest discover -s tests -t . -v
 
+      # The frontend suite runs in the SAME job as the Python one, so `build`'s
+      # `needs: test` gate covers both: an image cannot exist for a commit whose
+      # component tests are red. Node is preinstalled on ubuntu-latest.
+      #
+      # jsdom, not a browser: these cover markup and state. Anything needing real
+      # layout is frontend/visual/, which drives a running server and is not part
+      # of this pipeline.
+      - name: Run frontend tests
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
   build:
     name: Image
     needs: test                     # the gate: no image without a green suite
