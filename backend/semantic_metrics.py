@@ -489,16 +489,19 @@ _STAGE_NAME = {k: n for k, n, _c in _FLOW_STAGES}
 _DEV_STAGES = {"backlog", "ready", "in_progress"}   # "back to development" targets
 
 
-def board_rewinds(conn, repos=None, since=None, until=None) -> dict:
-    """Workflow rewinds — items pushed BACKWARD on the board, specifically returned
-    to development from testing (stage `qa` → in_progress / ready / backlog).
+def board_rewind_scan(conn, repos=None) -> dict:
+    """Every qa→dev move the snapshots can show, with no window applied.
 
-    Reconstructed by diffing consecutive DAILY board snapshots (work_item_status):
-    GitHub Projects-v2 has no status-change history, so this only sees moves that
-    happened between two snapshots we captured — forward-only from the first snapshot
-    and sampled once a day (a qa→dev→qa within one day is missed). Treat counts as a
-    FLOOR. Windowed by the date of the later snapshot; owner = PR author / issue
-    first assignee, like the friction metric."""
+    This is the expensive half of board_rewinds and NONE of it depends on the window:
+    the whole of work_item_status is read (141k rows on the Constructor org — it has to
+    be, because a sequence cannot be reconstructed from a slice of itself), each row is
+    resolved to a stage, and consecutive pairs are diffed. Only which of the resulting
+    moves you COUNT depends on since/until.
+
+    Split out because the Flow page needs two windows — this period and the one before
+    it, for the tile's delta — and computing them separately meant doing this twice per
+    request, ~400ms each, for two lists that differ only in a date comparison. Callers
+    that want both pass the same scan to both board_rewinds() calls."""
     resolved = _resolver(conn)
     rf, rp = _repo_filter(repos)
     rows = [dict(r) for r in conn.execute(
@@ -506,8 +509,6 @@ def board_rewinds(conn, repos=None, since=None, until=None) -> dict:
         "FROM work_item_status WHERE status_raw IS NOT NULL" + rf
         + " ORDER BY item_id, taken_at", rp)]
     snaps = sorted({r["taken_at"] for r in rows})   # distinct snapshot instants
-    lo = since[:10] if since else None
-    hi = until[:10] if until else None
 
     seq: dict = {}
     for r in rows:
@@ -529,13 +530,11 @@ def board_rewinds(conn, repos=None, since=None, until=None) -> dict:
     names = {r["login"]: (r["name"] or r["login"])
              for r in conn.execute("SELECT login, name FROM person")}
 
-    events, by_person = [], {}
+    events = []
     for item_id, s in seq.items():
         for (_d0, a, _r0), (d1, b, r1) in zip(s, s[1:]):
             if a == "qa" and b in _DEV_STAGES:
                 day = d1[:10]
-                if (lo and day < lo) or (hi and day > hi):
-                    continue
                 repo, num = r1["repo"], r1["number"]
                 owner = pr_author.get((repo, num)) or issue_owner.get((repo, num))
                 is_pr = "pull" in (r1["item_type"] or "").lower()
@@ -547,14 +546,42 @@ def board_rewinds(conn, repos=None, since=None, until=None) -> dict:
                     "url": (f"https://github.com/{repo}/{'pull' if is_pr else 'issues'}/{num}"
                             if num else ""),
                 })
-                if owner:
-                    by_person[owner] = by_person.get(owner, 0) + 1
     events.sort(key=lambda x: (x["date"], x["repo"], x["ref"]), reverse=True)
     days = sorted({s[:10] for s in snaps})
     return {
         "has_history": len(snaps) >= 2,
         "n_dates": len(snaps), "first_date": days[0] if days else None,
         "last_date": days[-1] if days else None,
+        "events": events,
+    }
+
+
+def board_rewinds(conn, repos=None, since=None, until=None, scan=None) -> dict:
+    """Workflow rewinds — items pushed BACKWARD on the board, specifically returned
+    to development from testing (stage `qa` → in_progress / ready / backlog).
+
+    Reconstructed by diffing consecutive DAILY board snapshots (work_item_status):
+    GitHub Projects-v2 has no status-change history, so this only sees moves that
+    happened between two snapshots we captured — forward-only from the first snapshot
+    and sampled once a day (a qa→dev→qa within one day is missed). Treat counts as a
+    FLOOR. Windowed by the date of the later snapshot; owner = PR author / issue
+    first assignee, like the friction metric.
+
+    `scan` accepts a board_rewind_scan() result to window instead of doing the scan
+    itself — see that function for why a caller would hold one."""
+    if scan is None:
+        scan = board_rewind_scan(conn, repos)
+    lo = since[:10] if since else None
+    hi = until[:10] if until else None
+    events = [e for e in scan["events"]
+              if not ((lo and e["date"] < lo) or (hi and e["date"] > hi))]
+    by_person: dict = {}
+    for e in events:
+        if e["owner"]:
+            by_person[e["owner"]] = by_person.get(e["owner"], 0) + 1
+    return {
+        "has_history": scan["has_history"], "n_dates": scan["n_dates"],
+        "first_date": scan["first_date"], "last_date": scan["last_date"],
         "qa_to_dev": len(events), "events": events, "by_person": by_person,
     }
 
@@ -1025,20 +1052,23 @@ def flow_cycle_bar(items: list) -> dict:
     }
 
 
-def flow_kpis(conn, repos=None, since=None, until=None) -> dict:
+def flow_kpis(conn, repos=None, since=None, until=None, rewind_scan=None) -> dict:
     """The scalar flow numbers for one window — the same definitions flow_report puts
     on the tiles, computed over the PRECEDING window so those tiles can carry a
     period-over-period delta (delivery_metrics plays this role for Delivery).
 
     Includes the QA→dev rewind count, which is not part of the cohort aggregate but is
     the one number on the page a reader could least do anything with on its own: "15
-    returned to dev" only becomes information next to what it was last period."""
+    returned to dev" only becomes information next to what it was last period.
+
+    `rewind_scan` is passed straight to board_rewinds — see board_rewind_scan."""
     out = _flow_scalars(_flow_item_facts(conn, repos, since, until))
-    out["rewinds_qa_to_dev"] = board_rewinds(conn, repos, since, until).get("qa_to_dev") or 0
+    out["rewinds_qa_to_dev"] = (board_rewinds(conn, repos, since, until, rewind_scan)
+                                .get("qa_to_dev") or 0)
     return out
 
 
-def flow_report(conn, repos=None, since=None, until=None) -> dict:
+def flow_report(conn, repos=None, since=None, until=None, rewind_scan=None) -> dict:
     """The Flow tab dataset — retrospective delivery-flow health that EXPLAINS what
     "friction" means and adds the metrics the timeline stream makes possible.
 
@@ -1048,10 +1078,13 @@ def flow_report(conn, repos=None, since=None, until=None) -> dict:
 
     Also carries the board-movement views (cumulative flow, time-in-stage, QA→dev
     rewinds) so the Flow tab is the single home for how work MOVES and how long it
-    takes; Delivery keeps the point-in-time output + current board state."""
+    takes; Delivery keeps the point-in-time output + current board state.
+
+    `rewind_scan` is passed straight to board_rewinds — a caller that also wants the
+    preceding window's rewinds hands the same scan to both and pays for it once."""
     board = {"cfd": board_cfd(conn, repos, since, until),
              "dwell": stage_dwell(conn, repos, since, until),
-             "rewinds": board_rewinds(conn, repos, since, until)}
+             "rewinds": board_rewinds(conn, repos, since, until, rewind_scan)}
     items = _flow_item_facts(conn, repos, since, until)
     if not items:
         return {"has_data": False, **board}

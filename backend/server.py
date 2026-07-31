@@ -1426,9 +1426,15 @@ class Handler(BaseHTTPRequestHandler):
             repos = None
             if scope:
                 repos, _proj = discovery.repos_for_scope(conn, level, target)
+            # The rewind SCAN is done once and windowed twice below. It reads the whole
+            # of work_item_status and diffs it (~400ms on the Constructor org), and this
+            # page needs two windows of the result — this period for the panel, the
+            # preceding one for the tile's delta. Computing them independently paid that
+            # cost twice for two lists that differ only in a date comparison.
+            rewind_scan = semantic_metrics.board_rewind_scan(conn, repos)
             # in_flight takes no since/until on purpose — it is a point-in-time
             # quantity that must not move with the period control (see store.in_flight).
-            block = semantic_metrics.flow_report(conn, repos, since, until)
+            block = semantic_metrics.flow_report(conn, repos, since, until, rewind_scan)
             # period-over-period deltas vs the preceding equal window (skipped for
             # all-time / >2y spans) — same rule and same best-effort handling the
             # Delivery KPIs use, so a flow number never sits on the page with nothing
@@ -1439,7 +1445,8 @@ class Handler(BaseHTTPRequestHandler):
                 span = du - ds
                 if 0 < span.days <= 731:
                     p_since = (ds - span).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    prev = semantic_metrics.flow_kpis(conn, repos, p_since, since)
+                    prev = semantic_metrics.flow_kpis(conn, repos, p_since, since,
+                                                      rewind_scan)
                     block["deltas"] = render.delta_map(
                         block, prev, keys=semantic_metrics.FLOW_DELTA_KEYS)
             except Exception as exc:        # noqa: BLE001 — deltas are best-effort
