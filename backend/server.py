@@ -2726,26 +2726,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=31536000, immutable")
             self.end_headers()
             self.wfile.write(data)
-        elif path.startswith("/assets/vega/") and path.endswith(".min.js"):
-            # Vendored Vega/Vega-Lite/vega-embed bundle, served same-origin (no
-            # runtime CDN — supply-chain rule). Allowlist the exact three known
-            # filenames: basename-only + membership check blocks path traversal
-            # and arbitrary file serving even though the path already matched.
-            basename = path.rsplit("/", 1)[-1]
-            if basename not in ("vega.min.js", "vega-lite.min.js", "vega-embed.min.js"):
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            fp = ROOT / "assets" / "vega" / basename
-            if not fp.exists():
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            data = fp.read_bytes()
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/javascript")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
-            self.end_headers()
-            self.wfile.write(data)
         elif path.startswith("/assets/app/"):
             # Vite-built React bundle (see spa.py / frontend/), served same-
             # origin under the base path baked into frontend/vite.config.ts.
@@ -2991,7 +2971,7 @@ class Handler(BaseHTTPRequestHandler):
                 page = render.render_spa_page(
                     "dashboard-editor", "dashboards",
                     "Edit: " + spec.get("title", "Untitled dashboard"),
-                    vega=True, bootstrap=boot)
+                    bootstrap=boot)
             finally:
                 conn.close()
             self.send_bytes(page.encode(), "text/html; charset=utf-8")
@@ -3013,7 +2993,7 @@ class Handler(BaseHTTPRequestHandler):
                         "scopeTargets": discovery.scope_targets(conn)}
                 page = render.render_spa_page(
                     "dashboard", "dashboards", spec.get("title", "Dashboard"),
-                    vega=True, bootstrap=boot)
+                    bootstrap=boot)
             finally:
                 conn.close()
             self.send_bytes(page.encode(), "text/html; charset=utf-8")

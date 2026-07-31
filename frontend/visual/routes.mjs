@@ -180,19 +180,16 @@ async function waitForPersonDashboard(page) {
 // before screenshotting, on top of capture.mjs's generic network-idle/fetch-
 // drain settle. Trend has five charts per state, more chart-heavy than
 // Overview, so this extra guard keeps the shot deterministic.
-async function waitForVegaCharts(page) {
+async function waitForCharts(page) {
   await page
     .waitForFunction(
       () => {
-        const panels = document.querySelectorAll(".vl-panel");
-        const drawnVega = Array.from(panels).every((p) => p.querySelector("svg"));
-        // Recharts draws into .ch (components/ui/chart). As charts migrate off
-        // Vega a route can hold either kind, or both, so wait for whichever is
-        // present rather than assuming.
-        const charts = document.querySelectorAll(".ch");
-        const drawnRecharts = Array.from(charts)
+        // Every chart is Recharts now, drawn into .ch (components/ui/chart), and a
+        // dashboard panel mounts one into the .vl-panel container the server-rendered
+        // preview leaves behind.
+        const drawn = (sel) => Array.from(document.querySelectorAll(sel))
           .every((c) => c.querySelector(".recharts-surface"));
-        return drawnVega && drawnRecharts;
+        return drawn(".ch") && drawn(".vl-panel");
       },
       { timeout: 5000 },
     )
@@ -210,7 +207,7 @@ async function openSectionsAndWait(page) {
   await page.evaluate(() => {
     document.querySelectorAll("details.flow-sec").forEach((d) => { d.open = true; });
   });
-  await waitForVegaCharts(page);
+  await waitForCharts(page);
   await page.waitForTimeout(300);           // let the areas finish laying out
 }
 
@@ -282,28 +279,28 @@ export const routes = [
     path: `${TREND_ROUTE}${TREND_HASH}`,
     viewport: DEFAULT_VIEWPORT,
     // Default state: all-time, whole org, auto granularity, company breakdown.
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
     id: "trend-worktype",
     path: `${TREND_ROUTE}?tdim=work_type${TREND_HASH}`,
     viewport: DEFAULT_VIEWPORT,
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
     id: "trend-month",
     path: `${TREND_ROUTE}?tgran=month${TREND_HASH}`,
     viewport: DEFAULT_VIEWPORT,
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
     id: "trend-30d-slice",
     path: `${TREND_ROUTE}?p=30d&slice=${encodeURIComponent(OVERVIEW_SLICE)}${TREND_HASH}`,
     viewport: DEFAULT_VIEWPORT,
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
@@ -327,21 +324,21 @@ export const routes = [
     path: `${FLOW_ROUTE}${FLOW_HASH}`,
     viewport: DEFAULT_VIEWPORT,
     // Default state: all-time, whole org.
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
     id: "flow-30d",
     path: `${FLOW_ROUTE}?p=30d${FLOW_HASH}`,
     viewport: DEFAULT_VIEWPORT,
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
     id: "flow-slice",
     path: `${FLOW_ROUTE}?slice=${encodeURIComponent(OVERVIEW_SLICE)}${FLOW_HASH}`,
     viewport: DEFAULT_VIEWPORT,
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
@@ -463,7 +460,7 @@ export const routes = [
     id: "dashboard",
     path: DASHBOARD_ROUTE,
     viewport: DEFAULT_VIEWPORT,
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {
@@ -536,9 +533,9 @@ export const routes = [
     path: DASHBOARD_EDITOR_ROUTE,
     viewport: DEFAULT_VIEWPORT,
     headers: { "X-Forwarded-Preferred-Username": "demo-dev" },
-    // Panels render live previews (async fetch → vegaEmbed) — wait for every
+    // Panels render live previews (async fetch → a mounted chart) — wait for every
     // .vl-panel to paint an <svg>, like the dashboard view gate.
-    setup: waitForVegaCharts,
+    setup: waitForCharts,
     threshold: CHART_THRESHOLD,
   },
   {

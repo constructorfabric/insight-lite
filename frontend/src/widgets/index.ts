@@ -6,7 +6,7 @@
 // New widgets are added here as Phase 1 extracts them (BarRow, BarList, SplitBar,
 // Legend, MiniStats, StatRow, HeatStrip, Chips, MarkerTable, GroupedTable, FlowPipe,
 // PersonScore, Scorecard). The existing primitives under components/ (DataTable,
-// KpiTile, VegaChart, SegBar, FilterBar) are intentionally NOT moved yet (churn +
+// KpiTile, SegBar, FilterBar) are intentionally NOT moved yet (churn +
 // CSS-import diff-risk — see the spec); re-export them here if a single path is wanted.
 export { default as GhLink } from "./GhLink";
 export { BarRow, BarList } from "./BarRow";

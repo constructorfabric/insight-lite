@@ -350,28 +350,13 @@ BASE_CSS = """
   code{background:var(--panel2);padding:1px 5px;border-radius:6px;font-size:12.5px}
 """
 
-# CSS for the client-rendered Vega-Lite charts: the .vl-panel container sizing and
-# our-themed hover tooltip (#vg-tooltip-element). Inject wherever charts render —
-# the report, dashboard view, editor, and the /api/dashboard/preview-panel fragment.
-# All charts (report AND dashboards) render via Vega-Lite now (see vega_spec.py);
-# the hand-rolled SVG renderers are gone.
+# CSS for the chart panels a dashboard renders into. The container survived the move
+# off Vega-Lite because the server-rendered panel preview still emits it and the
+# editor mounts a React chart into it (see DashboardEditor's hydratePanels); the
+# Vega tooltip rules went with the runtime — components/ui/chart draws its own.
 CHART_CSS = """
 .vl-panel{width:100%}
-.vl-panel .marks{max-width:100%}
-#vg-tooltip-element.vg-tooltip{font:12px Inter,-apple-system,Segoe UI,sans-serif;
-  background:var(--panel);color:var(--ink);border:1px solid var(--line2);
-  border-radius:8px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);padding:6px 9px}
-#vg-tooltip-element.vg-tooltip td.key{color:var(--mut)}
-#vg-tooltip-element.vg-tooltip td.value{color:var(--ink)}
 """
-
-# Vendored Vega / Vega-Lite / vega-embed bundle (same-origin, no runtime CDN —
-# supply-chain rule), served by server.py's /assets/vega/*.min.js route. Load
-# helper only — client hydration (finding .vl-panel containers and calling
-# vegaEmbed) lives in each page's own <script> block (hydrateVega).
-VEGA_SCRIPTS = ('<script src="/assets/vega/vega.min.js"></script>'
-                '<script src="/assets/vega/vega-lite.min.js"></script>'
-                '<script src="/assets/vega/vega-embed.min.js"></script>')
 
 # Shared drawer toggle. Inlined once inside sidebar_html so every page (report,
 # identity, portal) gets identical behaviour without touching its own JS block.

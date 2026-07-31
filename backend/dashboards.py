@@ -311,6 +311,47 @@ def _auto_bars(rows) -> list:
     return out
 
 
+def chart_panel_data(viz, result, fields, title):
+    """What a chart panel needs, as data — the successor to vega_spec.build_spec.
+
+    line / area  → {"kind", "dates", "series":[{name,key,color,vals}]}, the same
+                   envelope the report charts use (render.chart_data), so one client
+                   component reads both.
+    bar / column / pie
+                 → {"kind", "rows":[{label,value,color}]}, already ordered the way
+                   the chart draws them: `bar` is horizontal and sorted descending,
+                   which the Vega spec did with sort="-x" and which has to happen
+                   here now that nothing downstream sorts.
+
+    None when there is nothing to draw — the caller turns that into the panel's
+    "no data" message, exactly as a null spec did. Never raises."""
+    try:
+        import render
+        if viz in ("line", "area"):
+            dates = result.get("dates") if isinstance(result, dict) else None
+            if not isinstance(dates, list) or not dates:
+                return None
+            series = []
+            for field in fields:
+                value = _dig(result, field) if field else result
+                for s in _auto_series(value, title):
+                    if isinstance(s.get("vals"), list):
+                        series.append({"name": s.get("name"), "vals": s["vals"]})
+            data = render.chart_data(series, dates, area_first=(viz == "area"))
+            return {**data, "kind": viz} if data else None
+
+        rows = _bars_for(result, fields)
+        if not rows:
+            return None
+        if viz == "bar":                    # horizontal bars read top-down, biggest first
+            rows = sorted(rows, key=lambda r: -(r.get("value") or 0))
+        return {"kind": viz,
+                "rows": [{"label": r["label"], "value": r["value"],
+                          "color": render._element_color(r["label"])} for r in rows]}
+    except Exception:                       # noqa: BLE001 — a panel is never fatal
+        return None
+
+
 def _bars_for(result, fields) -> list:
     """Rows [{label, value}] for a categorical chart (bar/column/pie), two modes:
     - breakdown: if any field digs to a list of dicts, that breakdown fills the
@@ -540,11 +581,15 @@ def resolve_panel_data(panel, scope, period) -> dict:
         return {**meta, "data": {"value": value}}
 
     if viz in _CHART_VIZ:
-        import vega_spec
-        spec = vega_spec.build_spec(viz, result, fields, title)
-        if not spec:
+        # DATA, not a chart spec. A panel's `viz` already says which picture to draw,
+        # so the payload only has to carry what to draw it FROM — the client composes
+        # it (frontend/src/widgets/registry). Two shapes, matching the two the retired
+        # vega_spec.build_spec had: a time series for line/area, labelled rows for the
+        # categorical three.
+        data = chart_panel_data(viz, result, fields, title)
+        if not data:
             return {**meta, "data": {"error": f"{title}: no data"}}
-        return {**meta, "data": spec}
+        return {**meta, "data": data}
 
     if viz == "table":
         first = _dig(result, fields[0]) if fields and fields[0] else result
