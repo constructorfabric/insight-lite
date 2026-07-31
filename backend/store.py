@@ -246,7 +246,15 @@ CREATE TABLE IF NOT EXISTS work_item_status (
                                   -- (≈ last status move; sharpens dwell / aging)
     PRIMARY KEY (taken_at, item_id)
 );
-CREATE INDEX IF NOT EXISTS idx_wis_item ON work_item_status(item_id);
+-- (item_id, date), not item_id alone: flow_metrics resolves the LATEST snapshot per
+-- item by joining this table to a MAX(date)-per-item subquery. With only item_id
+-- indexed, SQLite drove that join off idx_wis_date — and `date` is not selective here,
+-- because 141k snapshot rows over 1.6k items means each date=? lookup reads a great
+-- many rows to keep a few. The pair makes the subquery a covering scan and the join a
+-- point lookup: 1.663s -> 0.009s measured on the Constructor org, +6.5MB of index.
+-- It also covers every item_id-only lookup as a prefix, so it REPLACES idx_wis_item
+-- rather than joining it (see the migration, which drops the old one).
+CREATE INDEX IF NOT EXISTS idx_wis_item_date ON work_item_status(item_id, date);
 CREATE INDEX IF NOT EXISTS idx_wis_repo ON work_item_status(repo, number);
 CREATE INDEX IF NOT EXISTS idx_wis_date ON work_item_status(date);
 -- ---- Projects v2 OTHER board fields (Priority, Iteration/Sprint, Estimate, custom
@@ -666,7 +674,7 @@ def connect() -> sqlite3.Connection:
                 SELECT date || 'T00:00:00Z', date, item_id, project, item_type, repo,
                        number, status_raw, title FROM _wis_old;
             DROP TABLE _wis_old;
-            CREATE INDEX IF NOT EXISTS idx_wis_item ON work_item_status(item_id);
+            CREATE INDEX IF NOT EXISTS idx_wis_item_date ON work_item_status(item_id, date);
             CREATE INDEX IF NOT EXISTS idx_wis_repo ON work_item_status(repo, number);
             CREATE INDEX IF NOT EXISTS idx_wis_date ON work_item_status(date);
         """)
@@ -674,6 +682,11 @@ def connect() -> sqlite3.Connection:
     wcols2 = {r[1] for r in conn.execute("PRAGMA table_info(work_item_status)")}
     if wcols2 and "updated_at" not in wcols2:
         conn.execute("ALTER TABLE work_item_status ADD COLUMN updated_at TEXT")
+    # 2026-07: idx_wis_item(item_id) is superseded by idx_wis_item_date(item_id, date),
+    # which serves the same prefix lookups AND the latest-snapshot join flow_metrics
+    # makes (see the index's comment in the schema above). The schema block created the
+    # new one; drop the old rather than keep paying for it on every snapshot write.
+    conn.execute("DROP INDEX IF EXISTS idx_wis_item")
     # 2026-07: metrics-assistant token/cost accounting on chat_msg usage events.
     ucols = {r[1] for r in conn.execute("PRAGMA table_info(usage_event)")}
     for col, typ in (("tokens_in", "INTEGER"), ("tokens_out", "INTEGER"),
