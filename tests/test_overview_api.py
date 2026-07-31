@@ -116,7 +116,15 @@ class ContributorsJsonTest(unittest.TestCase):
         self.assertEqual(out["tiles"][0], {"value": "118", "label": "Total contributors",
                                             "color": "#1f2328", "sub": "+29 in 90d"})
         self.assertEqual(out["tiles"][1]["sub"], "-3 in 90d")
-        self.assertIsNotNone(out["chartSpec"])
+        # DATA, not a Vega spec: shared dates plus a series per line, which is what
+        # components/charts draws from.
+        chart = out["chart"]
+        self.assertNotIn("chartSpec", out, "the server stopped shipping chart specs")
+        self.assertEqual(len(chart["series"]), len(out["legend"]))
+        for s in chart["series"]:
+            self.assertEqual(len(s["vals"]), len(chart["dates"]), s["key"])
+            self.assertTrue(s["color"])
+        self.assertFalse(chart["stacked"])
         self.assertEqual(out["legend"], [{"name": "Total", "color": "#1f2328"}])
         self.assertEqual(out["since"], "2026-04-01")
 

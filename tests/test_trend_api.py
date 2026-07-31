@@ -90,16 +90,26 @@ class TrendJsonTest(unittest.TestCase):
 
     def test_charts_present_and_ttm_null_when_no_samples(self):
         d = render.trend_json(_pr(), _meta())["data"]
-        self.assertIsNotNone(d["commitChartSpec"])
-        self.assertIsNotNone(d["locChartSpec"])
-        self.assertIsNotNone(d["throughputLineSpec"])
-        self.assertIsNotNone(d["contributorsAreaSpec"])
-        self.assertIsNone(d["ttmAreaSpec"])   # every ttm sample was None
+        # Each is a chart_data envelope; the two per-company ones stack, the rest do
+        # not, and every series must line up with the shared x axis or the picture
+        # skews without erroring.
+        for key in ("commitChart", "locChart", "throughputChart", "contributorsChart"):
+            chart = d[key]
+            self.assertIsNotNone(chart, key)
+            self.assertTrue(chart["series"], key)
+            for s in chart["series"]:
+                self.assertEqual(len(s["vals"]), len(chart["dates"]), f"{key}/{s['key']}")
+        self.assertTrue(d["commitChart"]["stacked"])
+        self.assertTrue(d["locChart"]["stacked"])
+        self.assertFalse(d["throughputChart"]["stacked"])
+        self.assertTrue(d["contributorsChart"]["areaFirst"])
+        self.assertIsNone(d["ttmChart"])      # every ttm sample was None
 
     def test_ttm_present_when_any_sample(self):
         pr = _pr(ctrend=_ct(throughput={"opened": [1, 2, 3], "merged": [0, 1, 2], "ttm": [None, 5.0, None]}))
         d = render.trend_json(pr, _meta())["data"]
-        self.assertIsNotNone(d["ttmAreaSpec"])
+        self.assertIsNotNone(d["ttmChart"])
+        self.assertEqual(d["ttmChart"]["unit"], "hours")
 
     def test_dim_label_switches_with_active_dim(self):
         pr = _pr(ctrend=_ct(dim="work_type",

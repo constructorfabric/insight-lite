@@ -11,7 +11,8 @@
 // swaps. SSR-safe: no window/document access outside hooks/effects.
 import { useEffect, useRef, useState } from "react";
 import FilterBar from "../components/FilterBar";
-import VegaChart from "../components/VegaChart";
+import { type ChartData } from "../components/charts/TimeChart";
+import { FilledLine, LinesChart, StackChart } from "../components/charts/shapes";
 import { useReportData, useReportQuery, setReportQuery } from "../hooks/useReportData";
 import Loading from "../components/Loading";
 
@@ -31,11 +32,11 @@ type TrendData = {
     points: number;
     noun: string;
     legend: { company: string; color: string }[];
-    commitChartSpec: unknown;
-    locChartSpec: unknown;
-    throughputLineSpec: unknown;
-    ttmAreaSpec: unknown;
-    contributorsAreaSpec: unknown;
+    commitChart: ChartData | null;
+    locChart: ChartData | null;
+    throughputChart: ChartData | null;
+    ttmChart: ChartData | null;
+    contributorsChart: ChartData | null;
   } | null;
 };
 
@@ -65,18 +66,6 @@ export default function Trend() {
 
   const { data, error } = useReportData<TrendData>("trend", { gran, dim });
 
-  // Whether the CURRENT state corresponds to the monolith's live-refetch path
-  // rather than its build-time fast path — see VegaChart's `waitForFonts` doc.
-  // The monolith's Trend panel gets replaced by a live AJAX fetch (and so
-  // embeds its charts only after that round-trip, by which point the Inter
-  // webfont has had time to load) whenever the period, slice, granularity or
-  // breakdown dimension is anything other than the bare default; the bare
-  // default takes a build-time-cached fast path that embeds immediately,
-  // before any page text has triggered the font load. Mirroring that timing
-  // (rather than always/never waiting) is what keeps the pixel-parity gate
-  // clean across every state — see templates/report.j2's refreshMain()/
-  // _refreshTrend()/_pendingTrendOnce.
-  const isLiveRefetch = Boolean(query.p || query.from || query.to || query.slice || query.tgran || query.tdim);
 
   function chooseGran(g: string) {
     setGran(g);
@@ -144,10 +133,10 @@ export default function Trend() {
               </div>
 
               <h3 className="trend-h">Commits by {t.dimlabel}</h3>
-              <div className="areawrap"><VegaChart spec={t.commitChartSpec} waitForFonts={isLiveRefetch} /></div>
+              <div className="areawrap">{t.commitChart && <StackChart chart={t.commitChart} />}</div>
 
               <h3 className="trend-h">Meaningful LOC by {t.dimlabel}</h3>
-              <div className="areawrap"><VegaChart spec={t.locChartSpec} waitForFonts={isLiveRefetch} /></div>
+              <div className="areawrap">{t.locChart && <StackChart chart={t.locChart} />}</div>
             </section>
 
             <section className="trend-sec">
@@ -159,17 +148,17 @@ export default function Trend() {
                   <i style={{ background: "#2f80ed" }} />opened <i style={{ background: "#10b981" }} />merged
                 </span>
               </h3>
-              <div className="areawrap"><VegaChart spec={t.throughputLineSpec} waitForFonts={isLiveRefetch} /></div>
+              <div className="areawrap">{t.throughputChart && <LinesChart chart={t.throughputChart} />}</div>
 
-              {t.ttmAreaSpec ? (
+              {t.ttmChart ? (
                 <>
                   <h3 className="trend-h">Median time-to-merge</h3>
-                  <div className="areawrap"><VegaChart spec={t.ttmAreaSpec} waitForFonts={isLiveRefetch} /></div>
+                  <div className="areawrap">{t.ttmChart && <FilledLine chart={t.ttmChart} />}</div>
                 </>
               ) : null}
 
               <h3 className="trend-h">Active contributors</h3>
-              <div className="areawrap"><VegaChart spec={t.contributorsAreaSpec} waitForFonts={isLiveRefetch} /></div>
+              <div className="areawrap">{t.contributorsChart && <FilledLine chart={t.contributorsChart} />}</div>
             </section>
 
             <p className="conc">
