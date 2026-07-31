@@ -167,9 +167,11 @@ class FlowJsonTest(unittest.TestCase):
         self.assertEqual(cfd["firstDate"], "2026-01-01")
         self.assertEqual([s["key"] for s in cfd["series"]], ["done", "in_progress"])
         self.assertNotIn("spec", cfd, "the server stopped shipping chart specs")
+        chart = cfd["chart"]
+        self.assertTrue(chart["stacked"])
         # every series is aligned to the same x axis, or the stack silently skews
-        for s in cfd["series"]:
-            self.assertEqual(len(s["vals"]), len(cfd["dates"]), s["key"])
+        for s in chart["series"]:
+            self.assertEqual(len(s["vals"]), len(chart["dates"]), s["key"])
             self.assertTrue(s["color"])
 
     def test_cfd_no_data(self):
@@ -178,7 +180,7 @@ class FlowJsonTest(unittest.TestCase):
         cfd = out["flow"]["cfd"]
         self.assertFalse(cfd["hasData"])
         self.assertEqual(cfd["series"], [])
-        self.assertEqual(cfd["dates"], [])
+        self.assertIsNone(cfd["chart"])
 
     def test_dwell_stages_and_hours_formatted(self):
         out = render.flow_json({"flow": _flow()}, _meta())

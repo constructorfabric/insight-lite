@@ -969,6 +969,59 @@ def _kpi_tiles_json(pr: dict) -> list:
     ]
 
 
+def chart_data(series, dates, unit="", area_first=False, stacked=False):
+    """What a chart needs, as DATA — replacing the Vega-Lite specs the server used to
+    build and ship (vega_spec.line_spec / stacked_area_spec).
+
+    One shape covers every chart on the report, because a stacked area is the same
+    series list with a flag: `dates` for the shared x axis, one entry per series with
+    its name, colour and values, plus how to draw it. The client (components/charts/
+    SeriesChart) owns the drawing; nothing about Recharts leaks back here.
+
+    Colour falls back to the same name-hash the charts have always used, so a company
+    or element keeps its colour across every panel it appears in.
+
+    None on empty or unusable input — every caller renders a "no data" hint for that,
+    exactly as it did when a spec came back None. Never raises."""
+    try:
+        dates = list(dates or [])
+        rows = []
+        for entry in (series or []):
+            vals = list(entry.get("vals") or [])
+            if not any(v is not None for v in vals):
+                continue
+            name = entry.get("name") or entry.get("company") or entry.get("key") or ""
+            rows.append({"name": name, "key": entry.get("key") or name,
+                         "color": entry.get("color") or _element_color(name),
+                         "vals": vals})
+        if not dates or not rows:
+            return None
+        return {"dates": dates, "series": rows, "unit": unit or "",
+                "areaFirst": bool(area_first), "stacked": bool(stacked)}
+    except Exception:                       # noqa: BLE001 — a chart is never fatal
+        return None
+
+
+def _stack(rows, dates, company_rows, unit=""):
+    """chart_data for a STACKED area — the shape the per-company trends use.
+
+    `company_rows` carries the company->colour map the report keeps stable across
+    panels, so a company is the same colour on the commit chart and the LOC chart.
+    Rows name their company under any of three keys, which is how the callers have
+    always passed them."""
+    cmap = {}
+    for c in (company_rows or []):
+        name = c["company"] if isinstance(c, dict) else getattr(c, "company", None)
+        color = c["color"] if isinstance(c, dict) else getattr(c, "color", None)
+        if name:
+            cmap[name] = color
+    series = []
+    for r in (rows or []):
+        co = r.get("company") or r.get("key") or r.get("name")
+        series.append({"name": co, "vals": r.get("vals"), "color": cmap.get(co)})
+    return chart_data(series, dates, unit, stacked=True)
+
+
 def _contributors_json(contrib_block: dict | None) -> dict | None:
     """JSON form of the "Contributors" all-time cumulative block (build_model's
     contrib_block) — tiles + the cumulative-by-company line chart spec. All-time,
@@ -977,30 +1030,28 @@ def _contributors_json(contrib_block: dict | None) -> dict | None:
     every period/scope variant of the Overview payload."""
     if not contrib_block:
         return None
-    import vega_spec
     tiles = [{"value": _num(t["now"]), "label": t["label"], "color": t["color"],
               "sub": f"{'+' if t['delta'] > 0 else ''}{t['delta']} in 90d"}
              for t in contrib_block["tiles"]]
-    spec = vega_spec.line_spec(contrib_block["series"], contrib_block["dates"], "")
+    chart = chart_data(contrib_block["series"], contrib_block["dates"])
     legend = [{"name": s["name"], "color": s["color"]} for s in contrib_block["series"]]
-    return {"tiles": tiles, "chartSpec": spec, "legend": legend,
+    return {"tiles": tiles, "chart": chart, "legend": legend,
             "since": contrib_block["since"], "points": contrib_block["points"]}
 
 
 def _weekly_json(weekly: dict | None) -> dict | None:
-    """JSON form of panel_weekly() — one mini line-chart spec per metric (commits/
-    specs/prs/issues), area_first=True to match the macro's line_chart(..., true)."""
+    """JSON form of panel_weekly() — one mini filled line per metric (commits / specs /
+    prs / issues), area_first to match the fill the macro drew under it."""
     if not weekly or not weekly.get("weeks"):
         return None
-    import vega_spec
     wkcol = {"commits": "#5b5bf0", "specs": "#8b5cf6", "prs": "#2f80ed", "issues": "#f59e0b"}
     rows = []
     for r in weekly.get("rows", []):
         vals = r.get("vals") or []
-        spec = vega_spec.line_spec(
+        chart = chart_data(
             [{"name": r["title"], "vals": vals, "color": wkcol.get(r["key"], "#8b5cf6")}],
-            weekly.get("wlabels_short"), "", True)
-        rows.append({"title": r["title"], "total": _num(sum(v or 0 for v in vals)), "chartSpec": spec})
+            weekly.get("wlabels_short"), area_first=True)
+        rows.append({"title": r["title"], "total": _num(sum(v or 0 for v in vals)), "chart": chart})
     return {"rows": rows, "weeksCount": len(weekly["weeks"])}
 
 
@@ -1996,18 +2047,24 @@ def trend_json(pr: dict, meta: dict) -> dict:
         "points": ct.get("points", 0),
         "noun": noun,
         "legend": colors,
-        "commitChartSpec": vega_spec.stacked_area_spec(ct.get("commit_rows"), dates, colors, "commits"),
-        "locChartSpec": vega_spec.stacked_area_spec(ct.get("loc_rows"), dates, colors, "LOC"),
-        "throughputLineSpec": vega_spec.line_spec(
+        # Reversed, because Recharts stacks its first child at the BOTTOM and the
+        # Vega spec these replaced put the first company at the TOP — verified against
+        # the pre-migration render, where Acronis (row 0) was the band reaching 6k and
+        # Virtuozzo (last) was the sliver at the base. Flow's cumulative flow needs no
+        # reversal: its rows already arrive bottom-first (board_cfd reverses the stage
+        # list so completed work anchors the base), and its two renders agree as-is.
+        "commitChart": _stack(list(reversed(ct.get("commit_rows") or [])), dates, colors, "commits"),
+        "locChart": _stack(list(reversed(ct.get("loc_rows") or [])), dates, colors, "LOC"),
+        "throughputChart": chart_data(
             [{"name": "Opened", "vals": throughput.get("opened"), "color": "#2f80ed"},
              {"name": "Merged", "vals": throughput.get("merged"), "color": "#10b981"}],
-            dates, ""),
-        "ttmAreaSpec": (vega_spec.line_spec(
-            [{"name": "Median TTM", "vals": ttm_vals, "color": "#f59e0b"}], dates, "hours", True)
-            if has_ttm else None),
-        "contributorsAreaSpec": vega_spec.line_spec(
+            dates),
+        "ttmChart": (chart_data(
+            [{"name": "Median TTM", "vals": ttm_vals, "color": "#f59e0b"}],
+            dates, "hours", area_first=True) if has_ttm else None),
+        "contributorsChart": chart_data(
             [{"name": "Contributors", "vals": ct.get("contributors"), "color": "#8b5cf6"}],
-            dates, "", True),
+            dates, area_first=True),
     }
     return envelope
 
@@ -2307,10 +2364,10 @@ def flow_json(pr: dict, meta: dict) -> dict:
     cfd = {
         "hasData": bool(c.get("has_data")),
         "nDates": c.get("n_dates") or 0, "firstDate": c.get("first_date"),
-        "dates": list(c.get("dates") or []),
-        "series": [{"key": s["key"], "name": s["name"], "color": s["color"],
-                    "vals": list(s.get("vals") or [])}
+        # the page draws its own legend above the chart, hence `series` alongside
+        "series": [{"key": s["key"], "name": s["name"], "color": s["color"]}
                    for s in (c.get("series") or [])],
+        "chart": _stack(c.get("series"), c.get("dates"), c.get("series"), "items"),
     }
 
     dw = f.get("dwell") or {}

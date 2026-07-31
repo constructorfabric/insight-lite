@@ -11,10 +11,10 @@
 // hooks/effects.
 import type { ReactNode } from "react";
 import FilterBar from "../components/FilterBar";
-import {
-  AXIS, AreaChart, CartesianGrid, ChartArea, ChartContainer, ChartTooltip,
-  ChartTooltipContent, CURSOR, XAxis, YAxis, compactTick, type ChartConfig,
-} from "../components/ui/chart";
+import TimeChart, {
+  configOf, toRows, type ChartData,
+} from "../components/charts/TimeChart";
+import { ChartArea } from "../components/ui/chart";
 import type { KpiDelta } from "../components/KpiTile";
 import Section from "../components/Section";
 import { GhLink } from "../widgets";
@@ -54,7 +54,7 @@ type Person = {
 };
 type CfdSeries = { key: string; name: string; color: string; vals: number[] };
 type Cfd = { hasData: boolean; nDates: number; firstDate: string | null;
-             dates: string[]; series: CfdSeries[] };
+             series: CfdSeries[]; chart: ChartData | null };
 type DwellStage = {
   key: string; name: string; color: string; nCurrent: number;
   ageMedianH: string | null; ageMedianHours: number | null;
@@ -685,39 +685,21 @@ function InFlightPanel({ inf }: { inf: InFlight }) {
   );
 }
 
-/** Cumulative flow: one stacked band per stage over the snapshot dates.
- *
- *  Series are stacked in the order the server sends them — released first, so
- *  completed work anchors the base and widening upper bands read as growing WIP
- *  (backend/semantic_metrics.py's board_cfd reverses _FLOW_STAGES for exactly this).
- *  The thin panel-coloured stroke separating the bands, the .82 fill and the
- *  total-first tooltip are what the retired Vega spec drew. */
-function CfdArea({ cfd }: { cfd: Cfd }) {
-  const data = cfd.dates.map((d, i) => {
-    const row: Record<string, string | number> = { x: d };
-    for (const s of cfd.series) row[s.key] = s.vals[i] ?? 0;
-    return row;
-  });
-  const config: ChartConfig = Object.fromEntries(
-    cfd.series.map((s) => [s.key, { label: s.name, color: s.color }]),
-  );
+/** Stacked bands, one per board stage, in the order the server sends them —
+ *  released first, so completed work anchors the base and a widening upper band
+ *  reads as growing WIP. */
+function CfdArea({ chart }: { chart: ChartData }) {
   return (
-    <ChartContainer config={config} height={260}>
-      <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="x" {...AXIS} interval="preserveStartEnd" minTickGap={24} />
-        <YAxis {...AXIS} width={38} tickFormatter={compactTick} />
-        <ChartTooltip cursor={CURSOR} content={<ChartTooltipContent total />} />
-        {cfd.series.map((s) => (
-          <ChartArea
-            key={s.key} dataKey={s.key} name={s.name} stackId="cfd"
-            points={cfd.dates.length}
-            stroke="var(--panel)" strokeWidth={0.4}
-            fill={s.color} fillOpacity={0.82}
-          />
-        ))}
-      </AreaChart>
-    </ChartContainer>
+    <TimeChart data={toRows(chart)} config={configOf(chart)} unit={chart.unit} total>
+      {chart.series.map((s) => (
+        <ChartArea
+          key={s.key} dataKey={s.key} name={s.name} stackId="cfd"
+          dot={false}
+          stroke="var(--panel)" strokeWidth={0.4}
+          fill={s.color} fillOpacity={0.82}
+        />
+      ))}
+    </TimeChart>
   );
 }
 
@@ -738,7 +720,7 @@ function CfdChart({ cfd }: { cfd: Cfd }) {
           <span className="lg" key={s.key}><i style={{ background: s.color }} />{s.name}</span>
         ))}
       </div>
-      <div className="areawrap"><CfdArea cfd={cfd} /></div>
+      <div className="areawrap"><CfdArea chart={cfd.chart!} /></div>
       <p className="conc">
         Cumulative flow of board items by stage, from daily snapshots since {cfd.firstDate} ({cfd.nDates}{" "}
         days). A widening upper band = growing WIP / backlog; a fattening QA band = a testing bottleneck; a

@@ -380,7 +380,7 @@ class VegaRuntimeTest(unittest.TestCase):
         # Pinned rather than derived, so ADDING a chart to a page is a decision that
         # shows up in this diff next to the route that has to start loading the runtime.
         self.assertEqual(self._entries_reaching_vega(),
-                         {"overview", "trend", "dashboard", "dashboard-editor"})
+                         {"dashboard", "dashboard-editor"})
 
     def test_every_charting_route_asks_for_the_runtime(self):
         """The graph test above pins WHICH entries can chart; this pins that their
@@ -403,8 +403,8 @@ class VegaRuntimeTest(unittest.TestCase):
 
     def test_the_runtime_ships_only_where_a_chart_can_render(self):
         with patch.object(spa, "entry_assets", return_value=self._ASSETS):
-            charts = render.render_spa_page("trend", "trend", "Trend",
-                                            report_chrome=True, vega=True)
+            charts = render.render_spa_page("dashboard", "dashboards", "Dashboard",
+                                            vega=True)
             plain = render.render_spa_page("people", "people", "People",
                                            report_chrome=True)
         self.assertIn("vega-embed", charts)

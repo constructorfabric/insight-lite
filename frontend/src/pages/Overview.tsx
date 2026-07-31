@@ -7,7 +7,8 @@
 // GET /api/report/overview (render.overview_json) instead of server-rendered
 // HTML. SSR-safe: no window/document access outside hooks/effects.
 import FilterBar from "../components/FilterBar";
-import VegaChart from "../components/VegaChart";
+import { type ChartData } from "../components/charts/TimeChart";
+import { FilledLine, LinesChart } from "../components/charts/shapes";
 import KpiTile, { type KpiTileData } from "../components/KpiTile";
 import DataTable, { type Column } from "../components/DataTable";
 import { BarRow, SplitBar, Scorecard, type Segment as SplitSeg, type ScorecardData } from "../widgets";
@@ -25,13 +26,14 @@ type OverviewData = {
   kpis: KpiTileData[];
   contributors: {
     tiles: { value: string; label: string; sub: string; color?: string }[];
-    chartSpec: unknown;
+    chart: ChartData | null;
     legend: { name: string; color: string }[];
     since: string;
     points: number;
   } | null;
   companies: { rows: Record<string, unknown>[] };
-  weekly: { rows: { title: string; total: string; chartSpec: unknown }[]; weeksCount: number } | null;
+  weekly: { rows: { title: string; total: string; chart: ChartData | null }[];
+            weeksCount: number } | null;
   workType: {
     rows: { type: string; count: number; pct: number; color: string }[];
     total: number;
@@ -94,7 +96,9 @@ function Contributors({ data }: { data: NonNullable<OverviewData["contributors"]
             ))}
           </div>
         </div>
-        <div className="areawrap"><VegaChart spec={data.chartSpec} /></div>
+        <div className="areawrap">
+          {data.chart && <LinesChart chart={data.chart} />}
+        </div>
       </div>
     </>
   );
@@ -143,7 +147,7 @@ function Weekly({ data, periodLabel }: { data: NonNullable<OverviewData["weekly"
                 <span className="wkcell-t">{r.title}</span>
                 <span className="wkcell-n">{r.total}</span>
               </div>
-              <VegaChart spec={r.chartSpec} />
+              {r.chart && <FilledLine chart={r.chart} />}
             </div>
           ))}
         </div>
