@@ -30,14 +30,20 @@ def _days_between(a: str, b: str):
         return None
 
 
-def _repo_filter(repos):
-    """SQL fragment + params to scope a query to a repo slice. None = all repos."""
+def _repo_filter(repos, alias=""):
+    """SQL fragment + params to scope a query to a repo slice. None = all repos.
+
+    `alias` qualifies the column for a joined query — _repo_filter(repos, "w") gives
+    " AND w.repo IN (…)". Three call sites used to take the unaliased fragment and
+    rewrite it with str.replace, each of them depending on the exact text produced
+    here, which meant the text could not be touched without breaking them silently."""
+    col = f"{alias}.repo" if alias else "repo"
     if repos is None:
         return "", ()
     repos = list(repos)
     if not repos:
         return " AND 1=0", ()
-    return " AND repo IN (%s)" % ",".join("?" * len(repos)), tuple(repos)
+    return f" AND {col} IN (%s)" % ",".join("?" * len(repos)), tuple(repos)
 
 
 def _resolver(conn):
@@ -197,14 +203,13 @@ def drill_flow_stage(conn, stage: str, repos=None, limit: int = 500, offset: int
     status per item, resolved via the taxonomy) — matches the Workflow panel counts.
     entity='flow'; each row links to the issue/PR on GitHub."""
     resolved = _resolver(conn)
-    rf, rp = _repo_filter(repos)
+    rf, rp = _repo_filter(repos, "w")
     rows = conn.execute(
         "SELECT w.repo AS repo, w.number AS number, w.item_type AS item_type, "
         "w.status_raw AS status_raw, w.title AS title FROM work_item_status w "
         "JOIN (SELECT item_id, MAX(date) md FROM work_item_status GROUP BY item_id) x "
         "ON w.item_id=x.item_id AND w.date=x.md "
-        "WHERE w.status_raw IS NOT NULL AND w.status_raw<>''"
-        + rf.replace(" AND repo IN", " AND w.repo IN")
+        "WHERE w.status_raw IS NOT NULL AND w.status_raw<>''" + rf
         + " ORDER BY w.repo, w.number", rp).fetchall()
     out, total = [], 0
     for r in rows:
@@ -322,13 +327,12 @@ def flow_metrics(conn, repos=None) -> dict:
     resolved to a flow stage via the taxonomy, counted across the ordered pipeline.
     This is a NOW-state (not window-scoped) — status history isn't in GitHub's API."""
     resolved = _resolver(conn)
-    rf, rp = _repo_filter(repos)
+    rf, rp = _repo_filter(repos, "w")
     rows = conn.execute(
         "SELECT w.repo AS repo, w.status_raw AS status_raw FROM work_item_status w "
         "JOIN (SELECT item_id, MAX(date) md FROM work_item_status GROUP BY item_id) x "
         "ON w.item_id=x.item_id AND w.date=x.md "
-        "WHERE w.status_raw IS NOT NULL AND w.status_raw<>''" + rf.replace(" AND repo IN", " AND w.repo IN"),
-        rp).fetchall()
+        "WHERE w.status_raw IS NOT NULL AND w.status_raw<>''" + rf, rp).fetchall()
     counts: dict = {}
     for r in rows:
         stg = semantic.stage_for(resolved(r["repo"] or ""), r["status_raw"] or "")
@@ -501,12 +505,17 @@ def board_snapshot_rows(conn, repos=None) -> list:
     Not shared with board_cfd, which does not need rows at all — it aggregates in SQL.
 
     A caller that wants both passes the result to both; either function still reads for
-    itself when given nothing, so they stay usable on their own."""
+    itself when given nothing, so they stay usable on their own.
+
+    sqlite3.Row objects, NOT dicts. Both consumers only read fields, and at 141k rows
+    the difference is 108MB against 93MB held for as long as the caller keeps the list —
+    a per-request cost, multiplied by however many flow requests are in flight. `date`
+    is left out for the same reason: neither consumer reads it."""
     rf, rp = _repo_filter(repos)
-    return [dict(r) for r in conn.execute(
-        "SELECT taken_at, date, updated_at, item_id, repo, number, item_type, "
+    return conn.execute(
+        "SELECT taken_at, updated_at, item_id, repo, number, item_type, "
         "status_raw, title FROM work_item_status "
-        "WHERE status_raw IS NOT NULL" + rf + " ORDER BY item_id, taken_at", rp)]
+        "WHERE status_raw IS NOT NULL" + rf + " ORDER BY item_id, taken_at", rp).fetchall()
 
 
 def board_rewind_scan(conn, repos=None, rows=None) -> dict:
@@ -633,8 +642,8 @@ def board_cfd(conn, repos=None, since=None, until=None) -> dict:
     ones — so grouping first and mapping the groups gives the same numbers off 1050 rows
     instead of 141k. Measured 283ms -> 46ms on the Constructor org."""
     resolved = _resolver(conn)
-    rf, rp = _repo_filter(repos)
-    wrf = rf.replace(" AND repo IN", " AND w.repo IN")
+    rf, rp = _repo_filter(repos)              # subquery: unaliased table
+    wrf, _ = _repo_filter(repos, "w")         # outer query: the joined alias
     # Several snapshots can share a day — count only the LAST of each day. The subquery
     # carries the SAME filters as the outer one, so "latest snapshot of a day" means the
     # latest one this scope can see, exactly as it did when both were one row list.
