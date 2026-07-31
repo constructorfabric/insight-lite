@@ -33,7 +33,7 @@ class ReleasesAccessorTest(unittest.TestCase):
 
 class WhatsNewApiEndpointTest(unittest.TestCase):
     """Same ThreadingHTTPServer + isolated REPORT_DB harness as
-    VegaAssetEndpointTest/AssetAppEndpointTest (see tests/test_dashboards.py,
+    RetiredVegaRouteTest/AssetAppEndpointTest (see tests/test_dashboards.py,
     tests/test_spa.py) — GET /api/whats-new needs no DB, so an isolated
     (empty) REPORT_DB just keeps the test from touching the real one."""
 

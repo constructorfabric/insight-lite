@@ -14,6 +14,25 @@ import html as _h
 # {type, title, detail}. Prepend new releases at the top.
 CHANGELOG = [
     {
+        "date": "2026-07-31",
+        "changes": [
+            {"type": "improvement", "title": "Charts load faster and weigh less",
+             "detail": "Every chart in the report and on dashboards is drawn by a new engine, "
+                       "bundled with the page instead of fetched as a separate 800 KB library. "
+                       "Pages that draw no charts at all — Delivery, People, Person, "
+                       "Repositories, Elements, Traffic, AI tools — stop downloading it "
+                       "entirely. Same charts, same colours, same hover tooltips; the only "
+                       "visible change is that a legend no longer appears twice under the "
+                       "per-company trends."},
+            {"type": "improvement", "title": "Delivery opens in a quarter of a second",
+             "detail": "The board-state panel ran a query that read most of the snapshot table "
+                       "to find each item's latest status. With the right index it is 185x "
+                       "faster and the page went from 1.8s to under 0.1s. Flow got the same "
+                       "treatment — it was reading that table three times per request and now "
+                       "reads it once."},
+        ],
+    },
+    {
         "date": "2026-07-29",
         "changes": [
             {"type": "fix", "title": "A company keeps the same colour from one report to the next",

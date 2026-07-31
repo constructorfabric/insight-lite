@@ -798,8 +798,8 @@ def _env() -> Environment:
     env.filters["dur"] = _dur
     env.filters["hours"] = _hours
     env.globals["ecolor"] = _element_color
-    env.globals["stacked_area"] = _stacked_area_vega
-    env.globals["line_chart"] = _line_chart_vega
+    env.globals["stacked_area"] = _stacked_area_panel
+    env.globals["line_chart"] = _line_chart_panel
     env.globals["trend_colors"] = _trend_colors
     env.globals["wtcolor"] = _worktype_color
     env.globals["scol"] = _score_color
@@ -842,7 +842,7 @@ def _panel_container(chart, kind):
     )
 
 
-def _stacked_area_vega(rows, dates, company_rows, unit="commits", noun=None):
+def _stacked_area_panel(rows, dates, company_rows, unit="commits", noun=None):
     """Jinja global for `stacked_area(...)`: the chart-panel container for a stacked
     area, hydrated client-side by components/charts/PanelChart.
 
@@ -888,7 +888,7 @@ _WORKTYPE_COLORS = {"feat": "#5b5bf0", "fix": "#ef4444", "docs": "#06b6d4",
                     "style": "#a3a3a3", "revert": "#e11d48", "other": "#9aa3b2"}
 
 
-def _line_chart_vega(series, dates, unit="", area_first=False):
+def _line_chart_panel(series, dates, unit="", area_first=False):
     """Jinja global for `line_chart(...)`: the chart-panel container for a line or
     filled line, hydrated client-side by components/charts/PanelChart. Empty input →
     Markup("") so the template macros' "no data" hint still shows."""

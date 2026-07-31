@@ -7,7 +7,7 @@ docs/superpowers/plans/2026-07-22-react-phaseR-report.md, Task R-P1):
   (same convention as serve_custom_period/build_model's all_block), so the
   JSON-shaping logic is covered without needing a fully-seeded store.
 - GET /api/report/overview: the same ThreadingHTTPServer + isolated REPORT_DB
-  harness as WhatsNewApiEndpointTest (tests/test_whats_new.py) / VegaAssetEndpointTest
+  harness as WhatsNewApiEndpointTest (tests/test_whats_new.py) / RetiredVegaRouteTest
   (tests/test_dashboards.py) — validation paths (no data / bad params) that
   don't need real collected data, mirroring PortalSecurityTest's
   test_period_without_db_returns_404 for /api/period.

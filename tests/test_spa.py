@@ -87,7 +87,7 @@ class RenderSpaPageTest(unittest.TestCase):
 
 class AssetAppEndpointTest(unittest.TestCase):
     """Same ThreadingHTTPServer + isolated REPORT_DB harness as the existing
-    /assets/vega/ endpoint tests (see VegaAssetEndpointTest in
+    /assets/vega/ route tests (see RetiredVegaRouteTest in
     tests/test_dashboards.py). Uses the real frontend/ build output under
     assets/app/ when present, else a temp fixture with server.ROOT patched."""
 

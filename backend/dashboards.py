@@ -292,7 +292,7 @@ def _normalize_panel(panel: dict) -> dict:
 
 def _auto_bars(rows) -> list:
     """Normalise a table-shaped source value into [{label, value}] for the
-    bar/column/pie charts (built by vega_spec): first string column is the label, first non-bool
+    bar/column/pie charts (see chart_panel_data): first string column is the label, first non-bool
     numeric column is the value. Rows missing a numeric value are skipped.
     Never raises: bad input yields []."""
     rows = rows if isinstance(rows, list) else []
@@ -541,9 +541,9 @@ def resolve_panel_data(panel, scope, period) -> dict:
       table  → {"columns": [...], "rows": [...]}  — the same columns/rows the HTML
                                                  table renders (breakdown field, or
                                                  the measure-values fallback).
-      chart  → a Vega-Lite spec dict            — from vega_spec.build_spec, kept
-        (line/area/                              server-side and returned verbatim
-         column/bar/pie)                         (consumed by <VegaChart spec=…>).
+      chart  → what to draw FROM               — from chart_panel_data: `kind` plus
+        (line/area/                              a time series or labelled rows; the
+         column/bar/pie)                         client composes it (PanelChart).
 
     On any resolve failure — unknown viz, tool not allowed, source exception, a
     missing field, or empty/no data — `data` is {"error": "<message>"} instead,

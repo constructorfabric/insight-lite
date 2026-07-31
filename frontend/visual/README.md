@@ -1,5 +1,11 @@
 # Screenshot-diff harness (pixel-parity gate)
 
+> The baseline is no longer "the pre-migration server-rendered page" — that layer is
+> gone. It is the last accepted render of the app against itself, recaptured whenever
+> a change is deliberately visual. It was recaptured on 2026-07-31 for the move off
+> Vega-Lite: the per-company trends lost a duplicate legend, so every chart page got
+> ~20px shorter and the old baseline could never match again.
+
 This is the acceptance gate for the React migration (see
 `docs/superpowers/plans/2026-07-22-react-phase0.md` and the "Pixel-parity
 strategy" section of the design spec). A route is not "done" migrating

@@ -49,7 +49,7 @@ def _collect_css(manifest: dict, key: str, seen: set[str]) -> list[str]:
     entry's own `css` key while that entry is the file's SOLE consumer; once a
     second entry statically imports the same CSS (as every migrated report
     view does — base/shell/chart/report.css, plus whatever a shared component
-    like VegaChart pulls in), Vite hoists it into a shared chunk reachable only
+    like recharts pulls in), Vite hoists it into a shared chunk reachable only
     via `imports`, not `css` — see
     https://vite.dev/guide/backend-integration.html's own recommended
     `findCssFiles` walk. `seen` guards against revisiting a chunk reachable via
