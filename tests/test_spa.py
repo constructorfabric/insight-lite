@@ -354,6 +354,11 @@ class NoChartRuntimeTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         self.assertFalse((root / "backend/vega_spec.py").exists())
         self.assertFalse((root / "assets/vega").exists())
+        # every import FORM, not just the one the code happened to use — `from
+        # vega_spec import build_spec` and `import vega_spec as vs` would both have
+        # slipped past a substring check for "import vega_spec".
+        import re
+        form = re.compile(r"^\s*(from\s+vega_spec\s+import|import\s+vega_spec\b)", re.M)
         for name in ("render.py", "dashboards.py", "server.py", "shell.py"):
-            self.assertNotIn("import vega_spec", (root / "backend" / name).read_text(), name)
+            self.assertIsNone(form.search((root / "backend" / name).read_text()), name)
 

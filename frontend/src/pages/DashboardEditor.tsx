@@ -58,6 +58,22 @@ function readBootstrap(): Boot {
  *  refresh would leak one and React would warn about mounting twice on one node. */
 const panelRoots = new WeakMap<HTMLElement, Root>();
 
+/** Unmount every chart inside `host` BEFORE its markup is replaced.
+ *
+ *  This has to happen first, and the version that did it inside hydratePanels was
+ *  wrong: `host.innerHTML = html` destroys the old `.vl-panel` elements, so by the
+ *  time hydration runs the keys it would look up are detached and every refresh
+ *  leaks a React root. */
+function disposePanels(host: HTMLElement) {
+  host.querySelectorAll<HTMLElement>(".vl-panel").forEach((el) => {
+    const r = panelRoots.get(el);
+    if (r) {
+      r.unmount();
+      panelRoots.delete(el);
+    }
+  });
+}
+
 function hydratePanels(root: HTMLElement) {
   root.querySelectorAll<HTMLElement>(".vl-panel").forEach((el) => {
     const s = el.querySelector("script.vl-spec");
@@ -68,7 +84,6 @@ function hydratePanels(root: HTMLElement) {
     } catch {
       return;
     }
-    panelRoots.get(el)?.unmount();
     el.textContent = "";
     const r = createRoot(el);
     panelRoots.set(el, r);
@@ -136,10 +151,12 @@ export default function DashboardEditor() {
       })
         .then((r) => r.text())
         .then((html) => {
+          disposePanels(el);
           el.innerHTML = html;
           hydratePanels(el);
         })
         .catch(() => {
+          disposePanels(el);
           el.innerHTML = "<div class='dp-err'>preview failed</div>";
         });
     });
@@ -254,11 +271,13 @@ export default function DashboardEditor() {
       .then((r) => r.text())
       .then((html) => {
         if (seq !== previewSeq.current || !wpPreviewRef.current) return;
+        disposePanels(wpPreviewRef.current);
         wpPreviewRef.current.innerHTML = html;
         hydratePanels(wpPreviewRef.current);
       })
       .catch(() => {
         if (seq !== previewSeq.current || !wpPreviewRef.current) return;
+        disposePanels(wpPreviewRef.current);
         wpPreviewRef.current.innerHTML = "<div class='dp-err'>preview failed</div>";
       });
   }

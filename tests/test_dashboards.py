@@ -582,6 +582,20 @@ class RetiredVegaRouteTest(unittest.TestCase):
         self._expect_404("/assets/vega/../../server.py")
 
 
+def _chart_of(html):
+    """The panel's chart DATA. The container and its script tag are unchanged — the
+    preview is still server-rendered HTML the editor hydrates — but what rides in the
+    tag is what to draw FROM (dashboards.chart_panel_data), not a spec.
+
+    Module level because two test classes need it; two identical copies with the same
+    docstring were two things that could drift."""
+    import json
+    import re as _re
+    m = _re.search(r'class="vl-spec"[^>]*>(.*?)</script>', html, _re.S)
+    assert m, f"no chart data in: {html[:200]}"
+    return json.loads(m.group(1).replace("<\\/", "</"))
+
+
 class WidgetV2Test(unittest.TestCase):
     def test_normalize_legacy_panel(self):
         p = dashboards._normalize_panel(
@@ -622,14 +636,6 @@ class WidgetV2Test(unittest.TestCase):
             {"title": "D", "panels": [{"id": "p", "viz": "table", "data": {"tool": "sql_query", "fields": ["x"]}}]})
         self.assertFalse(ok)
 
-    def _chart_of(self, html):
-        """The panel's chart DATA. The container and its script tag are unchanged —
-        the preview is still server-rendered HTML the editor hydrates — but what rides
-        in the tag is what to draw FROM (dashboards.chart_panel_data), not a spec."""
-        import json, re
-        m = re.search(r'class="vl-spec"[^>]*>(.*?)</script>', html, re.S)
-        self.assertTrue(m, f"no chart data in: {html[:200]}")
-        return json.loads(m.group(1).replace("<\\/", "</"))
 
     def test_render_multi_series_line(self):
         html = dashboards.render_panel(
@@ -637,7 +643,7 @@ class WidgetV2Test(unittest.TestCase):
              "data": {"tool": "trend", "fields": ["commit_rows", "loc_rows"]}}, "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        chart = self._chart_of(html)
+        chart = _chart_of(html)
         self.assertEqual(chart["kind"], "line")
         self.assertGreater(len(chart["series"]), 1, "two fields → more than one line")
         for ser in chart["series"]:
@@ -677,14 +683,6 @@ class EditorVizV2Test(unittest.TestCase):
 class WidgetFixesTest(unittest.TestCase):
     """Regressions from the W3-T2/T3 reviews."""
 
-    def _chart_of(self, html):
-        """The panel's chart DATA. The container and its script tag are unchanged —
-        the preview is still server-rendered HTML the editor hydrates — but what rides
-        in the tag is what to draw FROM (dashboards.chart_panel_data), not a spec."""
-        import json, re
-        m = re.search(r'class="vl-spec"[^>]*>(.*?)</script>', html, re.S)
-        self.assertTrue(m, f"no chart data in: {html[:200]}")
-        return json.loads(m.group(1).replace("<\\/", "</"))
 
     def test_validate_fieldless_legacy_panel_still_saves(self):
         # A pre-v2 panel whose source had no `field` was always accepted (renders
@@ -709,7 +707,7 @@ class WidgetFixesTest(unittest.TestCase):
             "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        chart = self._chart_of(html)
+        chart = _chart_of(html)
         self.assertEqual(chart["kind"], "column")
         self.assertEqual(len(chart["rows"]), 3, "one bar per measure")
         self.assertTrue(all(r["color"] for r in chart["rows"]))
@@ -720,7 +718,7 @@ class WidgetFixesTest(unittest.TestCase):
              "data": {"tool": "contribution", "fields": ["totals.bugs", "totals.prs"]}}, "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        chart = self._chart_of(html)
+        chart = _chart_of(html)
         self.assertEqual(chart["kind"], "pie")
         self.assertEqual(len(chart["rows"]), 2)
 
@@ -739,7 +737,7 @@ class WidgetFixesTest(unittest.TestCase):
              "data": {"tool": "contribution", "fields": ["by_company"]}}, "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        chart = self._chart_of(html)
+        chart = _chart_of(html)
         self.assertEqual(chart["kind"], "bar")
         self.assertTrue(chart["rows"])
         # horizontal bars read top-down, biggest first — nothing downstream sorts now
