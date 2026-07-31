@@ -2571,10 +2571,15 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
     else:
         body = filt + boot + '<div id="root">' + root_inner + '</div>'
 
-    # `vega` brings the Vega runtime WITHOUT the report chat/drill/sort chrome —
-    # the dashboard view needs charts but (like its legacy Jinja render) has no
-    # #mx-fab chat button / drill modal / sort listener. report_chrome implies vega.
-    head_scripts = shell.VEGA_SCRIPTS if (report_chrome or vega) else ""
+    # `vega` brings the Vega runtime, and it is INDEPENDENT of report_chrome. It used
+    # to be implied by it, which meant all ten report routes carried 808KB (272 gzip)
+    # of vega + vega-lite + vega-embed in <head> — more than the whole application —
+    # while only three of them can draw a chart. Each route asks for what it renders
+    # now; the import graph says exactly five entries can reach a <VegaChart>:
+    # overview, trend, flow, dashboard, dashboard-editor. tests/test_spa.py pins that,
+    # so adding a chart to a page that does not ask for the runtime fails loudly
+    # rather than rendering an empty panel.
+    head_scripts = shell.VEGA_SCRIPTS if vega else ""
     # Report views also get the floating metrics-assistant chat + the drill-down
     # modal (click a data-drill cell → /api/drill) + click-to-sort. These used to be
     # injected as vanilla shell.CHAT_WIDGET_JS/DRILL_JS/SORT_JS <script> blocks; they
