@@ -1436,6 +1436,11 @@ class Handler(BaseHTTPRequestHandler):
             # quantity that must not move with the period control (see store.in_flight).
             block = semantic_metrics.flow_report(conn, repos, since, until, rewind_scan,
                                                  board_rows)
+            # 93MB of snapshot rows, and nothing below this line wants them. Dropped
+            # explicitly because the handler runs on for a while yet (in_flight,
+            # abandoned_prs, the deltas) and concurrent flow requests each hold their
+            # own copy.
+            board_rows = None
             # period-over-period deltas vs the preceding equal window (skipped for
             # all-time / >2y spans) — same rule and same best-effort handling the
             # Delivery KPIs use, so a flow number never sits on the page with nothing
