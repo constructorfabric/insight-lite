@@ -159,7 +159,10 @@ export function ChartTooltipContent({
   };
   return (
     <div className="ch-tip">
-      <div className="ch-tip-h">{labelName}: {label}</div>
+      {/* `labelName` names the x dimension ("Period: Q3 25"). The categorical
+          panels pass "" because a bar is its own label, and a bare ": Acronis"
+          is worse than no header at all. */}
+      <div className="ch-tip-h">{labelName ? `${labelName}: ${label}` : label}</div>
       {total && (
         <div className="ch-tip-r ch-tip-total"><span>Total</span><b>{format(sum)}</b></div>
       )}

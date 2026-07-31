@@ -624,7 +624,7 @@ def _render_panel(panel, scope, period) -> str:
         view = comps.get(prim)
         if not view:
             return "<div class='dp-err'>unknown component</div>"
-    # A chart's resolved data IS its Vega-Lite spec (never carries an "error" key);
+    # A chart's resolved data IS its chart-data payload (never carries an "error" key);
     # every failure path sets data={"error": …}.
     if isinstance(data, dict) and "error" in data and viz not in _CHART_VIZ:
         return f"<div class='dp-err'>{_esc(data['error'])}</div>"

@@ -24,7 +24,7 @@ CHANGELOG = [
                        "entirely. Same charts, same colours, same hover tooltips; the only "
                        "visible change is that a legend no longer appears twice under the "
                        "per-company trends."},
-            {"type": "improvement", "title": "Delivery opens in a quarter of a second",
+            {"type": "improvement", "title": "Delivery opens in under a tenth of a second",
              "detail": "The board-state panel ran a query that read most of the snapshot table "
                        "to find each item's latest status. With the right index it is 185x "
                        "faster and the page went from 1.8s to under 0.1s. Flow got the same "

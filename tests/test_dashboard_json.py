@@ -49,8 +49,7 @@ def _is_chart_data(data) -> bool:
     what to draw it from — a time series (dates + series) or labelled rows. It used to
     be a Vega-Lite spec; the client composes the chart now, so nothing about the
     renderer crosses this boundary."""
-    if not isinstance(data, dict) or data.get("kind") not in ("line", "area", "column",
-                                                              "bar", "pie"):
+    if not isinstance(data, dict) or data.get("kind") not in _CHART_VIZ:
         return False
     if data["kind"] in ("line", "area"):
         return isinstance(data.get("dates"), list) and isinstance(data.get("series"), list)
