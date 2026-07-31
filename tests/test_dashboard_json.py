@@ -8,7 +8,7 @@ out of `_render_panel`) and the two JSON endpoints that expose it:
 Per-viz data shapes asserted here:
   number → {"value": <number|null>}
   table  → {"columns": [...], "rows": [...]}
-  chart  → a Vega-Lite spec dict (built server-side by vega_spec.build_spec; has
+  chart  → what to draw from (built server-side by chart_panel_data; has
            "$schema"/"mark"/"layer") — NOT stringified into HTML.
 
 Uses the real REPORT_DB (run with `REPORT_DB=history/report.db`) so the tool

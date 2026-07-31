@@ -522,7 +522,7 @@ class MeasuresTest(unittest.TestCase):
 
 class DashboardPageChromeTest(unittest.TestCase):
     """A dashboard page must carry the Vega bundle same-origin (M-T1) and the
-    Vega-Lite chart CSS (.vl-panel + the themed tooltip), because a panel's chart
+    the chart-panel container CSS (.vl-panel), because a panel's chart
     renders into it.
 
     These used to assert against render_dashboard_page/-_editor, the server-Jinja

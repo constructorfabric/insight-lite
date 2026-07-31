@@ -100,7 +100,7 @@ _VIEWS = [
     view("line_chart", kind="chart", group="charts",
          purpose="Multi-series line/area chart over a shared date axis.",
          when_to_use="A trend over time with one or more series (e.g. per-company).",
-         ref="fn:render._line_chart_vega",
+         ref="fn:render._line_chart_panel",
          params=[
              _p("series", "list", "[{name, color, vals:[…]}] one entry per line", True),
              _p("dates", "list", "x-axis labels aligned to vals", True),
@@ -108,12 +108,12 @@ _VIEWS = [
              _p("area_first", "bool", "fill under the first series"),
          ],
          example="{{ line_chart(series, dates, unit='commits', area_first=true) }}",
-         html_contract="a .vl-panel div carrying a Vega-Lite spec, hydrated client-side.",
+         html_contract="a .vl-panel div carrying the chart's data, mounted client-side.",
          dashboard=True, binding={"shape": "series", "series_param": "series"}),
     view("stacked_area", kind="chart", group="charts",
          purpose="Stacked-area chart (total + company breakdown) over a date axis.",
          when_to_use="Cumulative composition over time — e.g. contributors by company.",
-         ref="fn:render._stacked_area_vega",
+         ref="fn:render._stacked_area_panel",
          params=[
              _p("rows", "list", "per-date stacked values", True),
              _p("dates", "list", "x-axis labels", True),
@@ -122,7 +122,7 @@ _VIEWS = [
              _p("noun", "str", "label noun for tooltips"),
          ],
          example="{{ stacked_area(rows, dates, company_rows, unit='commits') }}",
-         html_contract="a .vl-panel div carrying a Vega-Lite spec, hydrated client-side."),
+         html_contract="a .vl-panel div carrying the chart's data, mounted client-side."),
     view("data_table", kind="table", group="tables",
          purpose="A schema-driven, sortable table — declare columns, pass row objects.",
          when_to_use="Any multi-column breakdown (by company, element, reviewer, repo). "
