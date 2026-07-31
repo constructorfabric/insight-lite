@@ -44,8 +44,17 @@ def _load_seed_panels():
 PANELS = _load_seed_panels()
 
 
-def _is_vega_spec(data) -> bool:
-    return isinstance(data, dict) and ("$schema" in data or "mark" in data or "layer" in data)
+def _is_chart_data(data) -> bool:
+    """A chart panel's payload: `kind` says which of the five pictures, and the rest is
+    what to draw it from — a time series (dates + series) or labelled rows. It used to
+    be a Vega-Lite spec; the client composes the chart now, so nothing about the
+    renderer crosses this boundary."""
+    if not isinstance(data, dict) or data.get("kind") not in ("line", "area", "column",
+                                                              "bar", "pie"):
+        return False
+    if data["kind"] in ("line", "area"):
+        return isinstance(data.get("dates"), list) and isinstance(data.get("series"), list)
+    return isinstance(data.get("rows"), list)
 
 
 class ResolvePanelDataShapeTest(unittest.TestCase):
@@ -77,8 +86,9 @@ class ResolvePanelDataShapeTest(unittest.TestCase):
                     self.assertIn("rows", data)
                     self.assertIsInstance(data["columns"], list)
                     self.assertIsInstance(data["rows"], list)
-                else:  # chart family → a Vega-Lite spec object
-                    self.assertTrue(_is_vega_spec(data), f"{viz} not a vega spec: {list(data)[:5]}")
+                else:  # chart family → what to draw, not how
+                    self.assertTrue(_is_chart_data(data),
+                                    f"{viz} is not chart data: {list(data)[:5]}")
 
     def test_number_value_is_a_scalar(self):
         panel = next(p for p in PANELS if p["viz"] == "number")
@@ -201,7 +211,7 @@ class DashboardJsonEndpointTest(unittest.TestCase):
                     self.assertIn("columns", data)
                     self.assertIn("rows", data)
                 else:
-                    self.assertTrue(_is_vega_spec(data))
+                    self.assertTrue(_is_chart_data(data))
 
     def test_panel_json_get_unknown_id_404(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:
@@ -223,7 +233,7 @@ class DashboardJsonEndpointTest(unittest.TestCase):
                 elif panel["viz"] == "table":
                     self.assertIn("columns", data)
                 else:
-                    self.assertTrue(_is_vega_spec(data))
+                    self.assertTrue(_is_chart_data(data))
 
     def test_preview_panel_json_rejects_sql_query(self):
         resp = self._post("/api/dashboard/preview-panel.json",

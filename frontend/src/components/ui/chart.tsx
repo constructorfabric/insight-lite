@@ -29,7 +29,8 @@ import {
 } from "react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend,
-  Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Line, LineChart, Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip,
+  XAxis, YAxis,
 } from "recharts";
 
 /** Above this many buckets per-point dots stop being readable and turn the line
@@ -195,5 +196,5 @@ export function ChartLegendContent({ payload }: { payload?: TipEntry[] }) {
 
 export {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart,
-  Line, LineChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis,
+  Line, LineChart, Pie, PieChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis,
 };

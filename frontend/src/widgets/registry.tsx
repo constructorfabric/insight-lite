@@ -8,14 +8,15 @@
 //   number             → KpiTile   (data {value}      → {value, label})
 //   table              → DataTable (data {columns,rows}→ Column[]/rows)
 //   line|area|column|
-//   bar|pie            → VegaChart (data IS the Vega-Lite spec → <VegaChart spec>)
+//   bar|pie            → PanelChart (data carries `kind` + what to draw from)
 //   {error}            → the .dp-err element (any resolve failure, any viz)
 //
-// build_spec stays server-side (a chart's `data` already IS its Vega-Lite spec).
+// dashboards.chart_panel_data shapes it server-side; nothing about the renderer
+// crosses the boundary.
 import type { ComponentType } from "react";
 import KpiTile from "../components/KpiTile";
 import DataTable, { type Column } from "../components/DataTable";
-import VegaChart from "../components/VegaChart";
+import PanelChart, { type PanelChartData } from "../components/charts/PanelChart";
 
 // The chart vizzes (dashboards._CHART_VIZ) — their resolved `data` is a spec.
 export const CHART_VIZ = ["line", "area", "column", "bar", "pie"] as const;
@@ -75,9 +76,11 @@ export type RegistryEntry = {
 };
 
 const chartEntry: RegistryEntry = {
-  // VegaChart takes the server-built Vega-Lite spec as its `spec` prop.
-  component: VegaChart as ComponentType<Record<string, unknown>>,
-  adapt: (data) => ({ spec: data }),
+  // The five chart vizzes are five compositions over the shared surface (see
+  // components/charts/PanelChart); `viz` travels in the payload as `kind`, so one
+  // entry serves all of them and the registry stays a lookup rather than a switch.
+  component: PanelChart as unknown as ComponentType<Record<string, unknown>>,
+  adapt: (data) => ({ data: data as unknown as PanelChartData }),
 };
 
 export const registry: Record<string, RegistryEntry> = {

@@ -332,87 +332,28 @@ class CarryHrefTest(unittest.TestCase):
         self.assertIn("p=30d", out)
 
 
-class VegaRuntimeTest(unittest.TestCase):
-    """The Vega runtime is 808KB (272 gzip) of <script> in the head — more than the
-    whole application — and it used to be implied by `report_chrome`, so all ten
-    report routes carried it while only three can draw a chart.
+class NoChartRuntimeTest(unittest.TestCase):
+    """Vega-Lite is gone: every chart is Recharts, inside the page's own bundle.
 
-    The pairing is now per-route, which creates a new way to be wrong: add a chart to
-    a page that does not ask for the runtime and the panel renders as nothing, with no
-    error. So this walks the IMPORT GRAPH — which entries can reach a <VegaChart> —
-    and requires the two lists to agree."""
+    What stood here guarded WHICH routes carried the 808KB runtime. There is no
+    runtime to carry now, so what is worth guarding is that nothing brings one back —
+    a charting library in a <script src>, or a route asking for one."""
 
-    _ASSETS = {"js": "/assets/app/assets/x.js", "css": []}
-
-    def _entries_reaching_vega(self):
-        import re
-        root = Path(__file__).resolve().parents[1] / "frontend/src"
-        def strip(text):                     # a mention in a COMMENT is not a use:
-            text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)   # widgets/index.ts names
-            return "\n".join(l for l in text.split("\n")        # VegaChart in its header
-                             if not l.lstrip().startswith("//"))
-        code = {p.resolve(): strip(p.read_text()) for p in root.rglob("*.ts*")}
-        def target(base, spec):
-            if not spec.startswith("."):
-                return None
-            p = (base.parent / spec).resolve()
-            for c in (p.with_suffix(".tsx"), p.with_suffix(".ts"),
-                      p / "index.tsx", p / "index.ts"):
-                if c in code:
-                    return c
-            return None
-        uses = {p for p, s in code.items() if re.search(r"\bVegaChart\b|vegaEmbed", s)}
-        out = set()
-        for entry in (root / "entries").glob("*.tsx"):
-            seen, stack = set(), [entry.resolve()]
-            while stack:
-                n = stack.pop()
-                if n in seen:
-                    continue
-                seen.add(n)
-                stack.extend(t for m in re.finditer(r'from\s+"([^"]+)"', code.get(n, ""))
-                             if (t := target(n, m.group(1))))
-            if seen & uses:
-                out.add(entry.stem)
-        return out
-
-    def test_every_entry_that_can_chart_is_known(self):
-        # Pinned rather than derived, so ADDING a chart to a page is a decision that
-        # shows up in this diff next to the route that has to start loading the runtime.
-        self.assertEqual(self._entries_reaching_vega(),
-                         {"dashboard", "dashboard-editor"})
-
-    def test_every_charting_route_asks_for_the_runtime(self):
-        """The graph test above pins WHICH entries can chart; this pins that their
-        ROUTES turn the runtime on. Without it, dropping `vega=True` from /flow leaves
-        every other test green and ships a page whose chart renders as nothing."""
-        import ast
-        tree = ast.parse((Path(__file__).resolve().parents[1] / "backend/server.py").read_text())
-        wired = {}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "render_spa_page":
-                if not (node.args and isinstance(node.args[0], ast.Constant)):
-                    continue          # /dashboard/<id>: entry chosen at runtime
-                on = any(k.arg == "vega" and getattr(k.value, "value", None) is True
-                         for k in node.keywords)
-                wired[node.args[0].value] = on
-        asks = {entry for entry, on in wired.items() if on}
-        self.assertEqual(asks, self._entries_reaching_vega() & set(wired),
-                         "a route that can draw a chart must pass vega=True, and one "
-                         "that cannot must not carry 808KB for nothing")
-
-    def test_the_runtime_ships_only_where_a_chart_can_render(self):
-        with patch.object(spa, "entry_assets", return_value=self._ASSETS):
-            charts = render.render_spa_page("dashboard", "dashboards", "Dashboard",
-                                            vega=True)
-            plain = render.render_spa_page("people", "people", "People",
-                                           report_chrome=True)
-        self.assertIn("vega-embed", charts)
-        self.assertNotIn("vega", plain.replace("vega=", ""))
-
-    def test_report_chrome_no_longer_drags_it_in(self):
-        # The chat widget, the drill modal and click-to-sort are what report_chrome is
-        # for; none of them draws anything.
-        with patch.object(spa, "entry_assets", return_value=self._ASSETS):
-            html = render.render_spa_page("traffic", "traffic", "Traffic", report_chrome=True)
+    def test_no_page_loads_a_chart_runtime_from_the_head(self):
+        with patch.object(spa, "entry_assets", return_value={"js": "/x.js", "css": []}):
+            html = render.render_spa_page("overview", "overview", "Overview",
+                                          report_chrome=True)
         self.assertNotIn("/assets/vega/", html)
+        self.assertNotIn("vega-lite", html)
+
+    def test_render_spa_page_has_no_vega_switch_left(self):
+        import inspect
+        self.assertNotIn("vega", inspect.signature(render.render_spa_page).parameters)
+
+    def test_the_retired_spec_builder_and_its_bundles_are_gone(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertFalse((root / "backend/vega_spec.py").exists())
+        self.assertFalse((root / "assets/vega").exists())
+        for name in ("render.py", "dashboards.py", "server.py", "shell.py"):
+            self.assertNotIn("import vega_spec", (root / "backend" / name).read_text(), name)
+

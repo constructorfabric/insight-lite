@@ -6,6 +6,7 @@ in a browser and inside an email client.
 """
 from __future__ import annotations
 
+from markupsafe import Markup
 import json
 import os
 from datetime import date, datetime, timedelta, timezone
@@ -822,24 +823,34 @@ def _score_color(v) -> str:
 _ELEM_PALETTE = ["#5b5bf0", "#8b5cf6", "#f59e0b", "#06b6d4", "#10b981", "#ef4444", "#2f80ed", "#d946ef"]
 
 
+def _panel_container(chart, kind):
+    """A chart panel the client mounts into: an empty div carrying its DATA.
+
+    Inherited from the Vega era, which put a spec in the same script tag — the
+    hand-off is unchanged, only the payload is, so the dashboard editor's hydration
+    and the `.vl-panel` styling still apply. Falsy chart → Markup("") so a caller's
+    "no data" hint shows instead. Never raises."""
+    if not chart:
+        return Markup("")
+    try:
+        payload = json.dumps({**chart, "kind": kind}).replace("</", "<\\/")
+    except Exception:                       # noqa: BLE001
+        return Markup("")
+    return Markup(
+        '<div class="vl-panel"><script type="application/json" class="vl-spec">%s'
+        "</script></div>" % payload
+    )
+
+
 def _stacked_area_vega(rows, dates, company_rows, unit="commits", noun=None):
-    """Jinja global for `stacked_area(...)`: builds a Vega-Lite stacked-area spec
-    and wraps it in a `vl-panel` container for client-side hydration (see
-    vega_spec.stacked_area_spec / panel_html). `noun` is accepted for call-site
-    compatibility (e.g. the board CFD passes 'items') but unused — the spec
-    derives its own tooltip/axis labels. Empty input → Markup("") so the
-    template macros' "no data" hint still shows. `vega_spec` is imported lazily
-    because it imports `render` at module scope."""
-    import vega_spec
-    return vega_spec.panel_html(vega_spec.stacked_area_spec(rows, dates, company_rows, unit))
+    """Jinja global for `stacked_area(...)`: the chart-panel container for a stacked
+    area, hydrated client-side by components/charts/PanelChart.
 
+    `noun` is accepted for call-site compatibility (the board CFD passes 'items') but
+    unused — the chart derives its own labels. Empty input → Markup("") so the
+    template macros' "no data" hint still shows."""
+    return _panel_container(_stack(rows, dates, company_rows, unit), "area")
 
-# Keyed lowercase so both the Work-type panel (raw 'feat'/'ci') and the Trend
-# breakdown (display 'Feat'/'CI') resolve to the same colour.
-_WORKTYPE_COLORS = {"feat": "#5b5bf0", "fix": "#ef4444", "docs": "#06b6d4",
-                    "test": "#10b981", "refactor": "#8b5cf6", "chore": "#9aa3b2",
-                    "perf": "#f59e0b", "build": "#2f80ed", "ci": "#d946ef",
-                    "style": "#a3a3a3", "revert": "#e11d48", "other": "#9aa3b2"}
 
 
 def _worktype_color(name: str) -> str:
@@ -871,15 +882,19 @@ def _trend_colors(dim, rows, pr):
     return [{"company": n, "color": cmap.get(n) or "#9aa3b2"} for n in labels]
 
 
+_WORKTYPE_COLORS = {"feat": "#5b5bf0", "fix": "#ef4444", "docs": "#06b6d4",
+                    "test": "#10b981", "refactor": "#8b5cf6", "chore": "#9aa3b2",
+                    "perf": "#f59e0b", "build": "#2f80ed", "ci": "#d946ef",
+                    "style": "#a3a3a3", "revert": "#e11d48", "other": "#9aa3b2"}
+
+
 def _line_chart_vega(series, dates, unit="", area_first=False):
-    """Jinja global for `line_chart(...)`: builds a Vega-Lite line/area spec and
-    wraps it in a `vl-panel` container for client-side hydration (see
-    vega_spec.line_spec / panel_html). Used for PR throughput, time-to-merge and
-    active contributors. Empty input → Markup("") so the template macros' "no
-    data" hint still shows. `vega_spec` is imported lazily because it imports
-    `render` at module scope."""
-    import vega_spec
-    return vega_spec.panel_html(vega_spec.line_spec(series, dates, unit, area_first))
+    """Jinja global for `line_chart(...)`: the chart-panel container for a line or
+    filled line, hydrated client-side by components/charts/PanelChart. Empty input →
+    Markup("") so the template macros' "no data" hint still shows."""
+    return _panel_container(chart_data(series, dates, unit, area_first=area_first),
+                            "area" if area_first else "line")
+
 
 
 def _element_color(name: str) -> str:
@@ -971,7 +986,7 @@ def _kpi_tiles_json(pr: dict) -> list:
 
 def chart_data(series, dates, unit="", area_first=False, stacked=False):
     """What a chart needs, as DATA — replacing the Vega-Lite specs the server used to
-    build and ship (vega_spec.line_spec / stacked_area_spec).
+    build and ship — one shape for every chart on the report.
 
     One shape covers every chart on the report, because a stacked area is the same
     series list with a flag: `dates` for the shared x axis, one entry per series with
@@ -1145,7 +1160,7 @@ def overview_json(pr: dict, meta: dict) -> dict:
     NOT vary with the period/scope filter: org/window info, scope_targets, the
     all-time contrib_block, and the resolved period/scope echoed back for the
     filter bar to reflect. Pure / never touches the DB — same discipline as
-    vega_spec.build_spec: bad input degrades a section to empty, never raises."""
+    chart_data: bad input degrades a section to empty, never raises."""
     return {
         "ok": True,
         "meta": {
@@ -2022,7 +2037,6 @@ def trend_json(pr: dict, meta: dict) -> dict:
         envelope["data"] = None
         return envelope
 
-    import vega_spec
     dim = ct.get("dim") or "company"
     dims = ct.get("dims") or []
     dim_label = "company"
@@ -2539,7 +2553,7 @@ def report_redirect_shim() -> str:
 
 
 def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool = False,
-                    bootstrap: dict | None = None, vega: bool = False,
+                    bootstrap: dict | None = None,
                     sidebar: bool = True, nav_carry: dict | None = None,
                     filter_inputs: dict | None = None) -> str:
     """Full page for a React-mounted route (see spa.py + frontend/). Chrome is
@@ -2549,8 +2563,7 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
     same CSS applies to both.
 
     `report_chrome=True` (report views: Overview, ...) additionally carries
-    shell.VEGA_SCRIPTS (same-origin vega/vega-lite/vega-embed, so the page's
-    <VegaChart> can call window.vegaEmbed) and the `report-chrome` React bundle
+    the `report-chrome` React bundle
     (frontend/src/components/{ChatWidget,ReportChrome,reportChromeEffects} — the
     floating metrics-assistant chat + the drill-down modal + click-to-sort) — a
     report view needs both. Non-report SPA pages (e.g. /whats-new) don't opt in:
@@ -2632,15 +2645,6 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
     else:
         body = filt + boot + '<div id="root">' + root_inner + '</div>'
 
-    # `vega` brings the Vega runtime, and it is INDEPENDENT of report_chrome. It used
-    # to be implied by it, which meant all ten report routes carried 808KB (272 gzip)
-    # of vega + vega-lite + vega-embed in <head> — more than the whole application —
-    # while only three of them can draw a chart. Each route asks for what it renders
-    # now; the import graph says exactly five entries can reach a <VegaChart>:
-    # overview, trend, flow, dashboard, dashboard-editor. tests/test_spa.py pins that,
-    # so adding a chart to a page that does not ask for the runtime fails loudly
-    # rather than rendering an empty panel.
-    head_scripts = shell.VEGA_SCRIPTS if vega else ""
     # Report views also get the floating metrics-assistant chat + the drill-down
     # modal (click a data-drill cell → /api/drill) + click-to-sort. These used to be
     # injected as vanilla shell.CHAT_WIDGET_JS/DRILL_JS/SORT_JS <script> blocks; they
@@ -2665,8 +2669,7 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f'<title>{_e(title)} — Constructor Insight</title>'
-        '<style>' + shell.BASE_CSS + shell.SHELL_CSS + shell.CHART_CSS + '</style>'
-        + head_scripts +
+        '<style>' + shell.BASE_CSS + shell.SHELL_CSS + shell.CHART_CSS + '</style>' +
         '</head><body>' + body + tags + body_scripts + '</body></html>')
 
 

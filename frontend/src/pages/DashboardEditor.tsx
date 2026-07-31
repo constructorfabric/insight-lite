@@ -6,10 +6,12 @@
 // preview), and Save. Reads the spec from render_spa_page bootstrap; measures/
 // catalog/preview come from the existing /api/dashboard/* endpoints; Save POSTs to
 // /api/dashboard/<id>. Previews are injected imperatively into ref'd divs (then
-// hydrateVega) so vegaEmbed's SVG isn't clobbered by React re-renders.
+// hydratePanels) so the mounted chart isn't clobbered by React re-renders.
 //
 // SSR-safe: no top-level window/document access — only in effects / handlers.
 import { useEffect, useReducer, useRef, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import PanelChart, { type PanelChartData } from "../components/charts/PanelChart";
 
 type Panel = any;
 type Boot = { id: string; title: string; visibility: string; spec: { title?: string; panels?: Panel[] } };
@@ -45,33 +47,32 @@ function readBootstrap(): Boot {
   }
 }
 
-function hydrateVega(root: HTMLElement) {
+/** Mount a chart into each panel container the server-rendered preview left behind.
+ *
+ *  The preview still arrives as HTML (POST /api/dashboard/preview-panel), so a chart
+ *  comes back as an empty `.vl-panel` with its DATA in a script tag — the same
+ *  hand-off Vega used, minus the spec. This replaces the vegaEmbed call that used to
+ *  read it: same containers, same island, a React root instead.
+ *
+ *  Roots are kept per element and unmounted before a re-render, or every preview
+ *  refresh would leak one and React would warn about mounting twice on one node. */
+const panelRoots = new WeakMap<HTMLElement, Root>();
+
+function hydratePanels(root: HTMLElement) {
   root.querySelectorAll<HTMLElement>(".vl-panel").forEach((el) => {
-    if (el.dataset.done) return;
     const s = el.querySelector("script.vl-spec");
-    const w = window as any;
-    if (!s || !w.vegaEmbed) return;
-    let spec: any;
+    if (!s) return;
+    let data: PanelChartData;
     try {
-      spec = JSON.parse(s.textContent || "");
+      data = JSON.parse(s.textContent || "");
     } catch {
       return;
     }
-    const tryEmbed = () => {
-      if (el.dataset.done) return true;
-      if (!el.clientWidth) return false;
-      el.dataset.done = "1";
-      w.vegaEmbed(el, spec, { actions: false, renderer: "svg", tooltip: true }).catch(() => {
-        el.innerHTML = '<div class="dp-err">chart failed</div>';
-      });
-      return true;
-    };
-    if (!tryEmbed() && w.ResizeObserver) {
-      const ro = new w.ResizeObserver(() => {
-        if (tryEmbed()) ro.disconnect();
-      });
-      ro.observe(el);
-    }
+    panelRoots.get(el)?.unmount();
+    el.textContent = "";
+    const r = createRoot(el);
+    panelRoots.set(el, r);
+    r.render(<PanelChart data={data} />);
   });
 }
 
@@ -136,7 +137,7 @@ export default function DashboardEditor() {
         .then((r) => r.text())
         .then((html) => {
           el.innerHTML = html;
-          hydrateVega(el);
+          hydratePanels(el);
         })
         .catch(() => {
           el.innerHTML = "<div class='dp-err'>preview failed</div>";
@@ -254,7 +255,7 @@ export default function DashboardEditor() {
       .then((html) => {
         if (seq !== previewSeq.current || !wpPreviewRef.current) return;
         wpPreviewRef.current.innerHTML = html;
-        hydrateVega(wpPreviewRef.current);
+        hydratePanels(wpPreviewRef.current);
       })
       .catch(() => {
         if (seq !== previewSeq.current || !wpPreviewRef.current) return;

@@ -526,38 +526,34 @@ class DashboardPageChromeTest(unittest.TestCase):
     renders into it.
 
     These used to assert against render_dashboard_page/-_editor, the server-Jinja
-    pages. Those went with the legacy layer — both routes are React now — so the
-    claim moves to the shell that serves them, which is where `vega=True` decides
-    whether the bundle and its CSS are injected at all."""
+    pages, then against the `vega=True` flag that injected a charting runtime. Both
+    are gone — the routes are React and the charts are Recharts inside the page's own
+    bundle — so what is left to claim is that the shell still carries the CONTAINER a
+    panel mounts into."""
 
     def _shell(self, entry):
         import render
-        return render.render_spa_page(entry, "dashboards", "T", vega=True,
+        return render.render_spa_page(entry, "dashboards", "T",
                                       bootstrap={"id": "x", "title": "T", "spec": {}})
 
-    def test_dashboard_view_carries_vega_and_chart_css(self):
+    def test_dashboard_view_carries_the_panel_container_css(self):
         html = self._shell("dashboard")
-        self.assertIn("/assets/vega/vega-embed.min.js", html)
-        self.assertIn(".vl-panel", html)
-        self.assertIn("vg-tooltip", html)
-
-    def test_editor_carries_vega_and_chart_css(self):
-        html = self._shell("dashboard-editor")
-        self.assertIn("/assets/vega/vega-embed.min.js", html)
         self.assertIn(".vl-panel", html)
 
-    def test_a_page_without_vega_does_not_ship_the_bundle(self):
-        """The flag has to mean something: the same shell without it must not carry
-        828 KB of charting library on a page that draws no charts."""
-        import render
-        html = render.render_spa_page("dashboards", "dashboards", "T")
-        self.assertNotIn("/assets/vega/vega-embed.min.js", html)
+    def test_editor_carries_it_too(self):
+        self.assertIn(".vl-panel", self._shell("dashboard-editor"))
+
+    def test_no_charting_runtime_rides_along_any_more(self):
+        for entry in ("dashboard", "dashboard-editor", "dashboards"):
+            html = self._shell(entry)
+            self.assertNotIn("/assets/vega/", html, entry)
+            self.assertNotIn("vg-tooltip", html, entry)
 
 
-class VegaAssetEndpointTest(unittest.TestCase):
-    """Same ThreadingHTTPServer + isolated REPORT_DB harness as
-    DashboardEditorEndpointTest — the Vega bundle route sits next to the font
-    route (public, no auth header needed) in server.py's do_GET chain."""
+class RetiredVegaRouteTest(unittest.TestCase):
+    """/assets/vega/*.min.js served the vendored bundle. The bundle is deleted, so the
+    route is too — and this is the test that used to prove it worked, kept to prove it
+    is not quietly serving something else from that directory."""
 
     def setUp(self):
         self._tmp = TemporaryDirectory()
@@ -565,8 +561,7 @@ class VegaAssetEndpointTest(unittest.TestCase):
         self._env.start()
         import server
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-        self.port = self.httpd.server_address[1]
-        self.base = f"http://127.0.0.1:{self.port}"
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
     def tearDown(self):
@@ -574,24 +569,17 @@ class VegaAssetEndpointTest(unittest.TestCase):
         self._env.stop()
         self._tmp.cleanup()
 
-    def _get(self, path, headers=None):
-        req = urllib.request.Request(self.base + path, headers=headers or {})
-        return urllib.request.urlopen(req)
-
-    def test_vega_asset_served(self):
-        resp = self._get("/assets/vega/vega-lite.min.js")
-        self.assertEqual(resp.status, 200)
-        self.assertIn("javascript", resp.headers.get("Content-Type", ""))
-
-    def test_vega_asset_rejects_unknown(self):
+    def _expect_404(self, path):
         with self.assertRaises(urllib.error.HTTPError) as cm:
-            self._get("/assets/vega/evil.min.js")
-        self.assertEqual(cm.exception.code, 404)
-
-    def test_vega_asset_rejects_path_traversal(self):
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            self._get("/assets/vega/../../server.py")
+            urllib.request.urlopen(self.base + path)
         self.assertIn(cm.exception.code, (400, 404))
+
+    def test_the_bundle_route_is_gone(self):
+        self._expect_404("/assets/vega/vega-lite.min.js")
+
+    def test_and_serves_nothing_else_from_there(self):
+        self._expect_404("/assets/vega/evil.min.js")
+        self._expect_404("/assets/vega/../../server.py")
 
 
 class WidgetV2Test(unittest.TestCase):
@@ -634,10 +622,13 @@ class WidgetV2Test(unittest.TestCase):
             {"title": "D", "panels": [{"id": "p", "viz": "table", "data": {"tool": "sql_query", "fields": ["x"]}}]})
         self.assertFalse(ok)
 
-    def _spec_of(self, html):
+    def _chart_of(self, html):
+        """The panel's chart DATA. The container and its script tag are unchanged —
+        the preview is still server-rendered HTML the editor hydrates — but what rides
+        in the tag is what to draw FROM (dashboards.chart_panel_data), not a spec."""
         import json, re
         m = re.search(r'class="vl-spec"[^>]*>(.*?)</script>', html, re.S)
-        self.assertTrue(m, f"no vl-spec in: {html[:200]}")
+        self.assertTrue(m, f"no chart data in: {html[:200]}")
         return json.loads(m.group(1).replace("<\\/", "</"))
 
     def test_render_multi_series_line(self):
@@ -646,7 +637,11 @@ class WidgetV2Test(unittest.TestCase):
              "data": {"tool": "trend", "fields": ["commit_rows", "loc_rows"]}}, "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        self.assertEqual(self._spec_of(html)["encoding"]["color"]["field"], "series")
+        chart = self._chart_of(html)
+        self.assertEqual(chart["kind"], "line")
+        self.assertGreater(len(chart["series"]), 1, "two fields → more than one line")
+        for ser in chart["series"]:
+            self.assertEqual(len(ser["vals"]), len(chart["dates"]), ser["name"])
 
     def test_render_legacy_still_works(self):
         html = dashboards.render_panel(
@@ -682,10 +677,13 @@ class EditorVizV2Test(unittest.TestCase):
 class WidgetFixesTest(unittest.TestCase):
     """Regressions from the W3-T2/T3 reviews."""
 
-    def _spec_of(self, html):
+    def _chart_of(self, html):
+        """The panel's chart DATA. The container and its script tag are unchanged —
+        the preview is still server-rendered HTML the editor hydrates — but what rides
+        in the tag is what to draw FROM (dashboards.chart_panel_data), not a spec."""
         import json, re
         m = re.search(r'class="vl-spec"[^>]*>(.*?)</script>', html, re.S)
-        self.assertTrue(m, f"no vl-spec in: {html[:200]}")
+        self.assertTrue(m, f"no chart data in: {html[:200]}")
         return json.loads(m.group(1).replace("<\\/", "</"))
 
     def test_validate_fieldless_legacy_panel_still_saves(self):
@@ -711,10 +709,10 @@ class WidgetFixesTest(unittest.TestCase):
             "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        spec = self._spec_of(html)
-        mark = spec["mark"]
-        self.assertEqual(mark["type"] if isinstance(mark, dict) else mark, "bar")
-        self.assertEqual(len(spec["data"]["values"]), 3)
+        chart = self._chart_of(html)
+        self.assertEqual(chart["kind"], "column")
+        self.assertEqual(len(chart["rows"]), 3, "one bar per measure")
+        self.assertTrue(all(r["color"] for r in chart["rows"]))
 
     def test_multi_scalar_pie(self):
         html = dashboards.render_panel(
@@ -722,8 +720,9 @@ class WidgetFixesTest(unittest.TestCase):
              "data": {"tool": "contribution", "fields": ["totals.bugs", "totals.prs"]}}, "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        spec = self._spec_of(html)
-        self.assertEqual(spec["mark"]["type"], "arc")
+        chart = self._chart_of(html)
+        self.assertEqual(chart["kind"], "pie")
+        self.assertEqual(len(chart["rows"]), 2)
 
     def test_scalar_table_is_measure_values(self):
         html = dashboards.render_panel(
@@ -740,9 +739,12 @@ class WidgetFixesTest(unittest.TestCase):
              "data": {"tool": "contribution", "fields": ["by_company"]}}, "", "all")
         self.assertNotIn("dp-err", html)
         self.assertIn("vl-panel", html)
-        spec = self._spec_of(html)
-        mark = spec["mark"]
-        self.assertEqual(mark["type"] if isinstance(mark, dict) else mark, "bar")
+        chart = self._chart_of(html)
+        self.assertEqual(chart["kind"], "bar")
+        self.assertTrue(chart["rows"])
+        # horizontal bars read top-down, biggest first — nothing downstream sorts now
+        values = [r["value"] for r in chart["rows"]]
+        self.assertEqual(values, sorted(values, reverse=True))
 
     def test_validate_multi_scalar_column_ok(self):
         ok, err = dashboards.validate_spec(
