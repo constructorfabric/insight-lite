@@ -218,8 +218,8 @@ jobs:
   # minutes, because the frontend's npm install and Vite build ran interpreted;
   # ubuntu-24.04-arm is free for public repositories and runs it as fast as amd64.
   arm:
-    name: Image (arm64)
-    needs: test
+    name: Image (arm64) + manifest
+    needs: [test, build]
     # Not `inputs.arm64 != false`: on a push `inputs.arm64` is the empty string,
     # GitHub compares loosely, '' == false, and the job skipped itself on the very
     # first run. Gate the input on the event that actually carries one.
@@ -230,8 +230,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -255,27 +253,20 @@ jobs:
           cache-to: type=gha,mode=max,scope=arm64
           provenance: false
 
-  # Re-point the user-facing tags at a real multi-arch manifest. Until this runs they
-  # resolve to amd64 alone, which is correct-but-partial rather than broken: an ARM
-  # user pulling in that window gets "no matching manifest", not a wrong binary.
-  #
-  # Skipped along with `arm` when arm64 was opted out, which leaves the tags amd64-only
-  # for that commit — the deliberate cost of asking for a fast deploy.
-  manifest:
-    name: Multi-arch manifest
-    needs: [build, arm]
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # Re-point the user-facing tags at a real multi-arch manifest. This lives in the
+      # arm64 job rather than a fourth one on purpose: the split into per-arch jobs made
+      # the BUILDS 10x faster (88s natively against ~16min emulated) and the pipeline
+      # SLOWER, because four jobs pay four runner acquisitions and on a bad day one of
+      # those cost nine minutes on its own. Merging here removes a hop.
+      #
+      # It costs ordering — arm64 now waits for amd64 instead of running beside it — and
+      # that is the right way round: amd64 is what a deploy pins, so it lands first and
+      # scripts/deploy.sh can go out while this job is still finishing.
+      #
+      # Until this step runs the tags resolve to amd64 alone, which is
+      # correct-but-partial rather than broken: an ARM user pulling in that window gets
+      # "no matching manifest", not an image that will not start. Opting arm64 out
+      # leaves the commit's tags amd64-only, the deliberate cost of a fast deploy.
       - name: Tags and labels
         id: meta
         uses: docker/metadata-action@v5
@@ -290,7 +281,7 @@ jobs:
         run: |
           set -euo pipefail
           amd64='${{ needs.build.outputs.digest }}'
-          arm64='${{ needs.arm.outputs.digest }}'
+          arm64='${{ steps.push.outputs.digest }}'
           [ -n "$amd64" ] && [ -n "$arm64" ] || { echo "::error::missing a digest: amd64=$amd64 arm64=$arm64"; exit 1; }
           # `if`, not `[ … ] && …`: under `set -e` a blank line in the tag list would
           # make the loop body's last command return 1 and kill the step.
@@ -305,19 +296,3 @@ jobs:
             echo "== $tag"
             docker buildx imagetools inspect "$tag" | grep -E "Platform|MediaType" | head -6
           done
-
-      - name: Summary
-        if: github.event_name != 'pull_request'
-        run: |
-          {
-            echo "### Published"
-            echo
-            echo '```'
-            echo "${{ steps.meta.outputs.tags }}"
-            echo '```'
-            echo
-            echo "Pull it:"
-            echo '```bash'
-            echo "docker pull ${{ env.IMAGE }}:latest"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
