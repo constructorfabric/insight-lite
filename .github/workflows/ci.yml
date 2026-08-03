@@ -220,7 +220,12 @@ jobs:
   arm:
     name: Image (arm64)
     needs: test
-    if: github.event_name != 'pull_request' && inputs.arm64 != false
+    # Not `inputs.arm64 != false`: on a push `inputs.arm64` is the empty string,
+    # GitHub compares loosely, '' == false, and the job skipped itself on the very
+    # first run. Gate the input on the event that actually carries one.
+    if: |
+      github.event_name != 'pull_request' &&
+      (github.event_name != 'workflow_dispatch' || inputs.arm64)
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -253,6 +258,9 @@ jobs:
   # Re-point the user-facing tags at a real multi-arch manifest. Until this runs they
   # resolve to amd64 alone, which is correct-but-partial rather than broken: an ARM
   # user pulling in that window gets "no matching manifest", not a wrong binary.
+  #
+  # Skipped along with `arm` when arm64 was opted out, which leaves the tags amd64-only
+  # for that commit — the deliberate cost of asking for a fast deploy.
   manifest:
     name: Multi-arch manifest
     needs: [build, arm]
