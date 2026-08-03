@@ -722,15 +722,6 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_bytes(path.read_bytes(), ctype)
 
-    def send_html_file_with_nav(self, path: Path, active: str) -> None:
-        if not path.exists() or not path.is_file():
-            self.send_error(HTTPStatus.NOT_FOUND)
-            return
-        # The report/identity pages now bake the full sidebar shell (incl. the
-        # Update/Report/Identity switch at the sidebar bottom), so no top-bar
-        # injection is needed — serve the file as-is.
-        self.send_bytes(path.read_bytes(), "text/html; charset=utf-8")
-
     def _oauth_user(self) -> str:
         """Best-effort identity of the signed-in user from the oauth2-proxy headers
         (varies by proxy config). Falls back to 'anon' so calibration still works."""

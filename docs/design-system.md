@@ -46,8 +46,8 @@ lived in their comments was not thrown away — `setup.css` and `SetupWizard.tsx
 record what was ported and which rules were deliberately omitted, now pointing at git
 history rather than a live symbol.
 
-Still outstanding from the same era: the unused `send_html_file_with_nav` method on
-the request handler.
+Nothing is left from that era: `send_html_file_with_nav`, the last unused method it
+left behind, is gone too.
 
 ### Why the backend has colours at all
 
