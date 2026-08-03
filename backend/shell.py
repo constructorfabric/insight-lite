@@ -156,7 +156,7 @@ SHELL_CSS = """
   .nav-backdrop{display:none}
   .app{display:flex;align-items:flex-start}
   .sidebar{position:sticky;top:0;flex:0 0 236px;width:236px;height:100vh;overflow-y:auto;font-size:14.5px;line-height:1.55;
-    padding:20px 14px;border-right:1px solid var(--line);background:var(--bg,#f5f6f9);z-index:40;
+    padding:20px 14px;border-right:1px solid var(--line);background:var(--bg);z-index:40;
     display:flex;flex-direction:column}
   .sidebar .brand{font-size:15px;font-weight:800;
     line-height:1.15;margin:0 6px 18px;letter-spacing:-.02em}
@@ -202,7 +202,7 @@ SHELL_CSS = """
      because the pane runs to that edge: any narrower and its rows show past the fill as
      a sliver of half-covered menu down the side of the open rail. */
   .sb-rail::before{content:"";position:absolute;inset:0 auto 0 0;width:208px;
-    pointer-events:none;background:var(--bg,#f5f6f9);
+    pointer-events:none;background:var(--bg);
     opacity:0;transition:opacity 0s .1s}
   .sb-rail:hover::before,.sb-rail:focus-within::before{opacity:1;transition:opacity 0s .18s}
   .sb-rail-inner{display:flex;flex-direction:column;gap:3px;width:44px;height:100%}
@@ -225,7 +225,7 @@ SHELL_CSS = """
      `center` put it in a 44px box, so nothing moves between the two states. */
   .rz{position:relative;display:flex;align-items:center;justify-content:flex-start;
     padding-left:12.5px;box-sizing:border-box;
-    width:44px;height:40px;flex:none;color:var(--ink2,#475467);
+    width:44px;height:40px;flex:none;color:var(--ink2);
     text-decoration:none;cursor:pointer;
     transition:width 0s .1s}
   /* Timed to the fill (see .sb-rail::before): the hit area may never be wider than the
@@ -248,11 +248,11 @@ SHELL_CSS = """
   .rz svg{position:relative;flex:none;width:19px;height:19px;stroke:currentColor;
     stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
   .rz:hover{color:var(--ink)}
-  .rz:hover::before{background:var(--panel2,#eaeef2)}
-  .rz.active{color:var(--acc-ink,#4a45d6)}
-  .rz.active::before{background:var(--panel,#fff);
+  .rz:hover::before{background:var(--panel2)}
+  .rz.active{color:var(--acc-ink)}
+  .rz.active::before{background:var(--panel);
     box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08))}
-  .rz.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
+  .rz.active svg{opacity:1;stroke:var(--acc)}
   /* Always in the DOM so a screen reader gets it; clipped out of sight when the rail
      is closed, and never a pointer target. */
   /* The labels are the only thing that actually moves: a short slide in from under the
@@ -284,7 +284,7 @@ SHELL_CSS = """
   .navgroup{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--mut);padding:2px 11px 6px}
   .sb-pane .tab{display:flex;align-items:center;gap:10px;text-align:left;text-decoration:none;
-    border:none;background:transparent;color:var(--ink2,#475467);border-radius:10px;padding:8px 10px;
+    border:none;background:transparent;color:var(--ink2);border-radius:10px;padding:8px 10px;
     font:600 13px/1.4 inherit;cursor:pointer;min-width:0}
   /* The label is its own span so it can ellipsis: as a bare text node it was a flex
      child that overflow:hidden simply CUT, mid-glyph. Labels are short by policy (see
@@ -292,10 +292,10 @@ SHELL_CSS = """
   .sb-pane .tab>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sb-pane .tab svg{flex:none;width:17px;height:17px;stroke:currentColor;stroke-width:1.9;
     fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
-  .sb-pane .tab:hover{background:var(--panel2,#eaeef2);color:var(--ink)}
-  .sb-pane .tab.active{background:var(--panel,#fff);color:var(--acc-ink,#4a45d6);
+  .sb-pane .tab:hover{background:var(--panel2);color:var(--ink)}
+  .sb-pane .tab.active{background:var(--panel);color:var(--acc-ink);
     box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08));font-weight:700}
-  .sb-pane .tab.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
+  .sb-pane .tab.active svg{opacity:1;stroke:var(--acc)}
   .wrap{flex:1 1 auto;min-width:0}
   @media(max-width:900px){
     .app{display:block}
@@ -303,8 +303,8 @@ SHELL_CSS = """
       background:var(--panel);border-bottom:1px solid var(--line);padding:9px 14px}
     .navburger{display:inline-flex;align-items:center;justify-content:center;flex:none;
       width:40px;height:36px;border:1px solid var(--line);border-radius:9px;
-      background:var(--bg,#fff);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
-    .navburger:active{background:var(--panel2,#eaeef2)}
+      background:var(--bg);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
+    .navburger:active{background:var(--panel2)}
     .navbar-title{font-weight:800;font-size:14px;letter-spacing:-.01em;line-height:1.1}
     .navbar-title span{display:block;font-size:10px;font-weight:600;color:var(--mut)}
     .sidebar{position:fixed;top:0;left:0;height:100vh;width:250px;max-width:82vw;flex:none;

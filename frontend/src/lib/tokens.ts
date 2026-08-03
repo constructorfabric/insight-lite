@@ -98,7 +98,7 @@ export function css(name: TokenName): string {
   return `var(--${name})`;
 }
 
-// Colours handed out in code rather than referenced from CSS. A list's ORDER is load-bearing — it decides which colour a work type gets by index, so appending is safe and reordering repaints existing types. Several of these also exist in backend/render.py (_ELEM_PALETTE, _PILLAR_COLORS, _WORKTYPE_COLORS, _BAND_COLORS); the backend does not read this file yet, so those remain a hand-kept twin — see docs/design-system.md.
+// Colours handed out in code rather than referenced from CSS — a chart series' `color` in an API payload, a score band, an index-assigned swatch. Both the frontend (lib/tokens.ts) and the backend (backend/tokens.py VALUES/palettes) read these from here. A list's ORDER is load-bearing: it decides which colour something gets by index, so appending is safe and reordering repaints existing items.
 
 export const CATEGORY_SWATCHES: readonly string[] = [
   "#5b5bf0",
@@ -111,9 +111,73 @@ export const CATEGORY_SWATCHES: readonly string[] = [
   "#d946ef",
 ];
 
+// Company series colours, assigned by a name-derived hash (store.company_color_map) so a company keeps its colour as ranks change. The teal was #0a7ea4, which sat 58 units from the blue in RGB — close enough that two adjacent series read as one colour; #14b8a6 is 95 from its nearest neighbour.
+export const COMPANY_PALETTE: readonly string[] = [
+  "#0969da",
+  "#8250df",
+  "#1a7f37",
+  "#bf8700",
+  "#cf222e",
+  "#14b8a6",
+  "#d946ef",
+  "#6e7781",
+];
+
 export const PILLAR_COLORS: Readonly<Record<string, string>> = {
   engagement: "#5b5bf0",
   delivery: "#06b6d4",
   craft: "#10b981",
   flow: "#f59e0b",
+};
+
+export const BAND_COLORS: Readonly<Record<string, string>> = {
+  Strong: "#10b981",
+  Solid: "#2f80ed",
+  Developing: "#f59e0b",
+  Building: "#ef4444",
+};
+
+export const WORKTYPE_COLORS: Readonly<Record<string, string>> = {
+  feat: "#5b5bf0",
+  fix: "#ef4444",
+  docs: "#06b6d4",
+  test: "#10b981",
+  refactor: "#8b5cf6",
+  chore: "#9aa3b2",
+  perf: "#f59e0b",
+  build: "#2f80ed",
+  ci: "#d946ef",
+  style: "#a3a3a3",
+  revert: "#e11d48",
+  other: "#9aa3b2",
+};
+
+export const FLOW_STAGE_COLORS: Readonly<Record<string, string>> = {
+  backlog: "#9aa3b2",
+  ready: "#06b6d4",
+  in_progress: "#8b5cf6",
+  review: "#f59e0b",
+  qa: "#2f80ed",
+  done: "#10b981",
+  released: "#5b5bf0",
+};
+
+export const ELEMENT_DEFAULTS: Readonly<Record<string, string>> = {
+  platform: "#5b5bf0",
+  app: "#8b5cf6",
+};
+
+// One-off named series in specific charts. The frontend legend swatches in Trend.tsx mirror `opened`/`merged`, so both sides now read the same entry instead of two hand-matched literals.
+export const SERIES_COLORS: Readonly<Record<string, string>> = {
+  total: "#1f2328",
+  opened: "#2f80ed",
+  merged: "#10b981",
+  ttm: "#f59e0b",
+  contributors: "#8b5cf6",
+  commits: "#5b5bf0",
+  specs: "#8b5cf6",
+  prs: "#2f80ed",
+  issues: "#f59e0b",
+  rework: "#f59e0b",
+  first_pass: "#2f80ed",
 };

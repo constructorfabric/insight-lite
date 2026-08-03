@@ -153,6 +153,88 @@ class ImportOrderTest(unittest.TestCase):
                          f"a rule precedes an @import in base.css and will drop it: {head.strip()[:80]!r}")
 
 
+class NoStrayColoursTest(unittest.TestCase):
+    """The whole point of the source file: a colour is declared once, there.
+
+    Without this the consolidation decays the first time someone reaches for a hex in
+    a hurry, and nothing complains. Anything genuinely un-tokenisable belongs in an
+    ALLOW entry with a reason, not in a stylesheet.
+    """
+
+    # (path, matched text) pairs that are deliberately not tokens.
+    ALLOW = {
+        # Doc examples in the view registry, showing a caller what the markup looks
+        # like — inert strings rendered nowhere.
+        ("backend/view_registry.py", "#10b981"),
+        ("backend/view_registry.py", "#ef4444"),
+    }
+
+    HEX = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3,8}\b")
+
+    def _offenders(self, paths, strip_comments):
+        out = []
+        for path in paths:
+            rel = str(path.relative_to(ROOT))
+            text = strip_comments(path.read_text())
+            for m in self.HEX.finditer(text):
+                if (rel, m.group(0)) in self.ALLOW:
+                    continue
+                line = text[:m.start()].count("\n") + 1
+                out.append(f"{rel}:{line} {m.group(0)}")
+        return out
+
+    def test_no_colour_literal_in_any_stylesheet(self):
+        sheets = [p for p in STYLES.glob("*.css") if p.name != "tokens.css"]
+        self.assertEqual(
+            self._offenders(sheets, lambda t: re.sub(r"/\*.*?\*/", "", t, flags=re.S)), [])
+
+    def test_no_colour_literal_in_any_component(self):
+        src = ROOT / "frontend" / "src"
+        files = [p for p in src.rglob("*.ts") if p.name != "tokens.ts"]
+        files += list(src.rglob("*.tsx"))
+        self.assertEqual(
+            self._offenders(files, lambda t: re.sub(r"//[^\n]*|/\*.*?\*/", "", t, flags=re.S)), [])
+
+    def test_no_colour_literal_in_the_backend(self):
+        """The backend emits colours inside API payloads, so it holds values rather
+        than var() references — but they come from tokens.VALUES, not from literals.
+        Three separate copies of the same eight-colour swatch list used to live here.
+
+        Parsed, not regexed, and via `ast` rather than `tokenize`. Two earlier versions
+        of this test were vacuous, which is worth recording because both failure modes
+        look fine in review:
+          * stripping Python comments with `#[^\\n]*` also eats `"#abcdef"` inside a
+            string — the very thing being searched for;
+          * skipping docstrings by "the previous token ended a statement" also skips
+            the second line of an implicitly-concatenated string, so a colour written
+            across two adjacent string literals slipped through.
+        `ast` has neither problem: comments are absent from the tree, a docstring is a
+        precisely identifiable node, and implicit concatenation arrives as one node."""
+        import ast
+
+        offenders = []
+        for path in sorted((ROOT / "backend").glob("*.py")):
+            if path.name == "tokens.py":
+                continue
+            rel = str(path.relative_to(ROOT))
+            tree = ast.parse(path.read_text())
+            docstrings = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Module, ast.ClassDef,
+                                     ast.FunctionDef, ast.AsyncFunctionDef)):
+                    doc = node.body[0] if node.body else None
+                    if (isinstance(doc, ast.Expr) and isinstance(doc.value, ast.Constant)
+                            and isinstance(doc.value.value, str)):
+                        docstrings.add(id(doc.value))
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                        and id(node) not in docstrings):
+                    for m in self.HEX.finditer(node.value):
+                        if (rel, m.group(0)) not in self.ALLOW:
+                            offenders.append(f"{rel}:{node.lineno} {m.group(0)}")
+        self.assertEqual(offenders, [])
+
+
 def _relative_luminance(hex_colour: str) -> float:
     h = hex_colour.lstrip("#")
     channels = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]

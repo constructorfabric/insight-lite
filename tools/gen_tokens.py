@@ -57,6 +57,31 @@ def entries(theme: dict, group: str) -> dict:
     return {k: v for k, v in theme.get(group, {}).items() if not k.startswith("_")}
 
 
+def flat_values(data: dict) -> dict:
+    """Every token as name -> value, across all groups. What server-side code needs:
+    a colour that goes into an API payload cannot be a CSS custom property."""
+    theme = data["themes"]["light"]
+    return {name: spec["value"]
+            for group in GROUPS
+            for name, spec in entries(theme, group).items()}
+
+
+def palettes(data: dict):
+    """Yields (name, note, value) for each palette, normalising the three shapes the
+    source file uses: a bare list, a `{_note, values}` wrapper around a list, and a
+    plain mapping (whose own `_note` is pulled out)."""
+    for name, spec in data.get("palettes", {}).items():
+        if name.startswith("_"):
+            continue
+        if isinstance(spec, list):
+            yield name, None, spec
+        elif "values" in spec:
+            yield name, spec.get("_note"), spec["values"]
+        else:
+            yield name, spec.get("_note"), {k: v for k, v in spec.items()
+                                            if not k.startswith("_")}
+
+
 def root_block(theme: dict, selector: str = ":root") -> str:
     """One `:root{...}` block. Values are emitted verbatim — the point of the source
     file is that it holds exactly what ships, with no arithmetic in between."""
@@ -111,7 +136,52 @@ def render_py(data: dict) -> str:
         + "\n"
         + _py_literal("ELEMENTS_CSS", elements,
                       "Copied verbatim from frontend/src/styles/base-elements.css.")
+        + "\n"
+        + _py_values(data)
     )
+
+
+def _wrap(text: str, width: int = 86, prefix: str = "# ") -> str:
+    words, lines, cur = text.split(), [], prefix.rstrip()
+    for w in words:
+        if len(cur) + len(w) + 1 > width and cur.strip() != prefix.strip():
+            lines.append(cur)
+            cur = prefix + w
+        else:
+            cur = f"{cur} {w}" if cur.strip() not in ("", "#") else prefix + w
+    lines.append(cur)
+    return "\n".join(lines)
+
+
+def _py_values(data: dict) -> str:
+    """Colour VALUES and the palettes, for server-side code.
+
+    The backend puts colours into API payloads — a chart series' `color`, an element's
+    default, a score band — so it needs values, not custom properties. These used to be
+    literals spread across render.py, store.py, collect.py and semantic_metrics.py,
+    including three separate copies of the same eight-colour swatch list."""
+    out = [
+        _wrap("Colour VALUES for server-side code. The backend emits colours inside API "
+              "payloads (a chart series' `color`, an element default, a score band), which "
+              "a CSS custom property cannot reach — so those sites read from here rather "
+              "than carrying their own literals."),
+        "VALUES = {",
+    ]
+    out += [f'    "{name}": "{value}",' for name, value in flat_values(data).items()]
+    out += ["}", ""]
+    for name, note, value in palettes(data):
+        const = name.upper()
+        if note:
+            out.append(_wrap(note))
+        if isinstance(value, list):
+            out.append(f"{const} = [")
+            out += [f'    "{v}",' for v in value]
+            out += ["]", ""]
+        else:
+            out.append(f"{const} = {{")
+            out += [f'    "{k}": "{v}",' for k, v in value.items()]
+            out += ["}", ""]
+    return "\n".join(out)
 
 
 def render_ts(data: dict) -> str:
@@ -148,14 +218,13 @@ def render_ts(data: dict) -> str:
         "}",
         "",
     ]
-    palettes = data.get("palettes", {})
-    note = palettes.get("_note")
-    if note and any(not k.startswith("_") for k in palettes):
-        lines += [f"// {note}", ""]
-    for pal_name, values in palettes.items():
-        if pal_name.startswith("_"):
-            continue
+    top_note = data.get("palettes", {}).get("_note")
+    if top_note:
+        lines += [f"// {top_note}", ""]
+    for pal_name, note, values in palettes(data):
         const = pal_name.upper()
+        if note:
+            lines.append(f"// {note}")
         if isinstance(values, list):
             lines.append(f"export const {const}: readonly string[] = [")
             lines += [f'  "{v}",' for v in values]

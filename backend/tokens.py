@@ -149,3 +149,181 @@ ELEMENTS_CSS = """
       box-shadow:0 0 0 3px rgba(91,91,240,.14)}
     code{background:var(--panel2);padding:1px 5px;border-radius:6px;font-size:12.5px}
 """
+
+# Colour VALUES for server-side code. The backend emits colours inside API payloads (a
+# chart series' `color`, an element default, a score band), which a CSS custom
+# property cannot reach — so those sites read from here rather than carrying their own
+# literals.
+VALUES = {
+    "bg": "#f5f6f9",
+    "panel": "#ffffff",
+    "panel2": "#eef1f5",
+    "line": "#eceef2",
+    "line2": "#e2e6ec",
+    "ink": "#101828",
+    "ink2": "#475467",
+    "mut": "#8a93a3",
+    "acc": "#5b5bf0",
+    "acc-ink": "#4a45d6",
+    "on-solid": "#ffffff",
+    "good": "#0f9d58",
+    "good-bg": "#e7f6ee",
+    "warn": "#b7791f",
+    "bad": "#e5484d",
+    "bad-bg": "#fdeaea",
+    "bad-soft": "#fff5f5",
+    "acc-soft": "#edecfe",
+    "acc-bg": "#eeeefe",
+    "warn-bg": "#fbf3e2",
+    "dup": "#5b5bf0",
+    "star": "#f5a623",
+    "violet": "#8b5cf6",
+    "violet-bg": "#f0ebfe",
+    "code-bg": "#0d1117",
+    "code-fg": "#c9d1d9",
+    "chg-design": "#8250df",
+    "chg-design-bg": "rgba(130,80,223,.14)",
+    "swatch-empty": "#888888",
+    "company-empty": "#8b949e",
+    "plat": "#5b5bf0",
+    "app": "#8b5cf6",
+    "c-commit": "#5b5bf0",
+    "c-loc": "#8b5cf6",
+    "c-pr": "#2f80ed",
+    "c-spec": "#f59e0b",
+    "c-bug": "#ef4444",
+    "c-epic": "#8b5cf6",
+    "c-story": "#10b981",
+    "c-feature": "#10b981",
+    "c-people": "#06b6d4",
+    "c-other": "#9aa3b2",
+    "cat-bug": "#ef4444",
+    "cat-feature": "#10b981",
+    "cat-task": "#8b5cf6",
+    "cat-epic": "#5b5bf0",
+    "cat-spec": "#f59e0b",
+    "cat-docs": "#06b6d4",
+    "cat-test": "#2f80ed",
+    "cat-other": "#9aa3b2",
+    "pill-good-bg": "#dafbe1",
+    "pill-good-fg": "#116329",
+    "pill-attn-bg": "#fff8c5",
+    "pill-attn-fg": "#7d4e00",
+    "pill-bad-bg": "#ffebe9",
+    "pill-bad-fg": "#cf222e",
+    "exact-bg": "#eafff0",
+    "exact-fg": "#1a7f37",
+    "heur-bg": "#fff8e6",
+    "heur-fg": "#9a6700",
+    "exp-bg": "#f59e0b22",
+    "exp-line": "#f59e0b55",
+    "exp-fg": "#c77700",
+    "good-line": "#a0d8b0",
+    "warn-line": "#e8d8a0",
+    "bad-line": "#e6a0a0",
+    "run-line": "#a9c7ea",
+    "run-bg": "#f0f6fc",
+    "tag-ext-line": "#d4b75c",
+    "tag-legacy-line": "#c4a7e7",
+    "period-line": "#aacbf0",
+    "row-hover": "#f7f8fc",
+    "row-alt": "#f4f5f7",
+    "row-alt-hover": "#e9f2fc",
+    "tooltip-bg": "#1f2328",
+    "chat-tool-bg": "#f6f8fa",
+    "option-fg": "#111111",
+    "score-good": "#10b981",
+    "score-mid": "#f59e0b",
+    "score-bad": "#ef4444",
+    "r": "16px",
+    "r-sm": "12px",
+    "sh": "0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)",
+    "sh-lift": "0 10px 30px rgba(16,24,40,.10)",
+}
+
+CATEGORY_SWATCHES = [
+    "#5b5bf0",
+    "#8b5cf6",
+    "#f59e0b",
+    "#06b6d4",
+    "#10b981",
+    "#ef4444",
+    "#2f80ed",
+    "#d946ef",
+]
+
+# Company series colours, assigned by a name-derived hash (store.company_color_map) so
+# a company keeps its colour as ranks change. The teal was #0a7ea4, which sat 58 units
+# from the blue in RGB — close enough that two adjacent series read as one colour;
+# #14b8a6 is 95 from its nearest neighbour.
+COMPANY_PALETTE = [
+    "#0969da",
+    "#8250df",
+    "#1a7f37",
+    "#bf8700",
+    "#cf222e",
+    "#14b8a6",
+    "#d946ef",
+    "#6e7781",
+]
+
+PILLAR_COLORS = {
+    "engagement": "#5b5bf0",
+    "delivery": "#06b6d4",
+    "craft": "#10b981",
+    "flow": "#f59e0b",
+}
+
+BAND_COLORS = {
+    "Strong": "#10b981",
+    "Solid": "#2f80ed",
+    "Developing": "#f59e0b",
+    "Building": "#ef4444",
+}
+
+WORKTYPE_COLORS = {
+    "feat": "#5b5bf0",
+    "fix": "#ef4444",
+    "docs": "#06b6d4",
+    "test": "#10b981",
+    "refactor": "#8b5cf6",
+    "chore": "#9aa3b2",
+    "perf": "#f59e0b",
+    "build": "#2f80ed",
+    "ci": "#d946ef",
+    "style": "#a3a3a3",
+    "revert": "#e11d48",
+    "other": "#9aa3b2",
+}
+
+FLOW_STAGE_COLORS = {
+    "backlog": "#9aa3b2",
+    "ready": "#06b6d4",
+    "in_progress": "#8b5cf6",
+    "review": "#f59e0b",
+    "qa": "#2f80ed",
+    "done": "#10b981",
+    "released": "#5b5bf0",
+}
+
+ELEMENT_DEFAULTS = {
+    "platform": "#5b5bf0",
+    "app": "#8b5cf6",
+}
+
+# One-off named series in specific charts. The frontend legend swatches in Trend.tsx
+# mirror `opened`/`merged`, so both sides now read the same entry instead of two
+# hand-matched literals.
+SERIES_COLORS = {
+    "total": "#1f2328",
+    "opened": "#2f80ed",
+    "merged": "#10b981",
+    "ttm": "#f59e0b",
+    "contributors": "#8b5cf6",
+    "commits": "#5b5bf0",
+    "specs": "#8b5cf6",
+    "prs": "#2f80ed",
+    "issues": "#f59e0b",
+    "rework": "#f59e0b",
+    "first_pass": "#2f80ed",
+}

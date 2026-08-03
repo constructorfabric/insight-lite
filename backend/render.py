@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from jinja2 import Environment, DictLoader
 
 import paths
+import tokens          # GENERATED — see tools/gen_tokens.py, design/tokens.json
 import shell
 import metrics_registry as _mreg
 _m = _mreg.metric
@@ -555,7 +556,7 @@ def build_model(d: dict) -> dict:
            if co and co != "Other" and (_latest_by_co.get(co) or 0) > 0][:3]
     # Was a palette of its own, indexed by rank — so a company could be purple in this
     # chart and amber in the company table of the SAME report. Same source as everywhere.
-    CONTRIB_COLORS = {"Total": "#1f2328"}
+    CONTRIB_COLORS = {"Total": tokens.SERIES_COLORS["total"]}
     CONTRIB_COLORS.update(_store.company_color_map(CO3, _co_pins))
     contrib_block = None
     if contrib_raw:
@@ -813,14 +814,14 @@ def _score_color(v) -> str:
     if v is None:
         return "var(--mut)"
     if v >= 67:
-        return "#10b981"
+        return tokens.VALUES["score-good"]
     if v >= 45:
-        return "#f59e0b"
-    return "#ef4444"
+        return tokens.VALUES["score-mid"]
+    return tokens.VALUES["score-bad"]
 
 
 # Palette shared with the Config page's elemColor() so element colours match there.
-_ELEM_PALETTE = ["#5b5bf0", "#8b5cf6", "#f59e0b", "#06b6d4", "#10b981", "#ef4444", "#2f80ed", "#d946ef"]
+_ELEM_PALETTE = tokens.CATEGORY_SWATCHES
 
 
 def _panel_container(chart, kind):
@@ -879,13 +880,10 @@ def _trend_colors(dim, rows, pr):
         cmap = {n: _element_color(n) for n in labels}
     else:  # work_type
         cmap = {n: _worktype_color(n) for n in labels}
-    return [{"company": n, "color": cmap.get(n) or "#9aa3b2"} for n in labels]
+    return [{"company": n, "color": cmap.get(n) or tokens.VALUES["c-other"]} for n in labels]
 
 
-_WORKTYPE_COLORS = {"feat": "#5b5bf0", "fix": "#ef4444", "docs": "#06b6d4",
-                    "test": "#10b981", "refactor": "#8b5cf6", "chore": "#9aa3b2",
-                    "perf": "#f59e0b", "build": "#2f80ed", "ci": "#d946ef",
-                    "style": "#a3a3a3", "revert": "#e11d48", "other": "#9aa3b2"}
+_WORKTYPE_COLORS = tokens.WORKTYPE_COLORS
 
 
 def _line_chart_panel(series, dates, unit="", area_first=False):
@@ -901,17 +899,15 @@ def _element_color(name: str) -> str:
     """Deterministic colour for a product element (stable hash → palette). Mirrors
     the JS elemColor() in the Config editor so the two never drift."""
     if not name or name == "Other":
-        return "#9aa3b2"
+        return tokens.VALUES["c-other"]
     h = 0
     for ch in str(name):
         h = (h * 31 + ord(ch)) & 0xFFFFFFFF
     return _ELEM_PALETTE[h % len(_ELEM_PALETTE)]
 
 
-_BAND_COLORS = {"Strong": "#10b981", "Solid": "#2f80ed",
-                "Developing": "#f59e0b", "Building": "#ef4444"}
-_PILLAR_COLORS = {"engagement": "#5b5bf0", "delivery": "#06b6d4",
-                   "craft": "#10b981", "flow": "#f59e0b"}
+_BAND_COLORS = tokens.BAND_COLORS
+_PILLAR_COLORS = tokens.PILLAR_COLORS
 
 
 def _delta_chip(d: dict | None, lower_better: bool = False) -> dict | None:
@@ -1059,12 +1055,12 @@ def _weekly_json(weekly: dict | None) -> dict | None:
     prs / issues), area_first to match the fill the macro drew under it."""
     if not weekly or not weekly.get("weeks"):
         return None
-    wkcol = {"commits": "#5b5bf0", "specs": "#8b5cf6", "prs": "#2f80ed", "issues": "#f59e0b"}
+    wkcol = {k: tokens.SERIES_COLORS[k] for k in ("commits", "specs", "prs", "issues")}
     rows = []
     for r in weekly.get("rows", []):
         vals = r.get("vals") or []
         chart = chart_data(
-            [{"name": r["title"], "vals": vals, "color": wkcol.get(r["key"], "#8b5cf6")}],
+            [{"name": r["title"], "vals": vals, "color": wkcol.get(r["key"], tokens.VALUES["app"])}],
             weekly.get("wlabels_short"), area_first=True)
         rows.append({"title": r["title"], "total": _num(sum(v or 0 for v in vals)), "chart": chart})
     return {"rows": rows, "weeksCount": len(weekly["weeks"])}
@@ -1098,7 +1094,7 @@ def _score_json(score: dict | None) -> dict | None:
     if not score or not score.get("n"):
         return None
     active = score.get("active_pillars") or ["engagement", "delivery", "craft", "flow"]
-    bands = [{"band": b["band"], "n": b["n"], "color": _BAND_COLORS.get(b["band"], "#9aa3b2")}
+    bands = [{"band": b["band"], "n": b["n"], "color": _BAND_COLORS.get(b["band"], tokens.VALUES["c-other"])}
              for b in score.get("bands", [])]
     top = []
     for r in score.get("top", []):
@@ -2070,14 +2066,14 @@ def trend_json(pr: dict, meta: dict) -> dict:
         "commitChart": _stack(list(reversed(ct.get("commit_rows") or [])), dates, colors, "commits"),
         "locChart": _stack(list(reversed(ct.get("loc_rows") or [])), dates, colors, "LOC"),
         "throughputChart": chart_data(
-            [{"name": "Opened", "vals": throughput.get("opened"), "color": "#2f80ed"},
-             {"name": "Merged", "vals": throughput.get("merged"), "color": "#10b981"}],
+            [{"name": "Opened", "vals": throughput.get("opened"), "color": tokens.SERIES_COLORS["opened"]},
+             {"name": "Merged", "vals": throughput.get("merged"), "color": tokens.SERIES_COLORS["merged"]}],
             dates),
         "ttmChart": (chart_data(
-            [{"name": "Median TTM", "vals": ttm_vals, "color": "#f59e0b"}],
+            [{"name": "Median TTM", "vals": ttm_vals, "color": tokens.SERIES_COLORS["ttm"]}],
             dates, "hours", area_first=True) if has_ttm else None),
         "contributorsChart": chart_data(
-            [{"name": "Contributors", "vals": ct.get("contributors"), "color": "#8b5cf6"}],
+            [{"name": "Contributors", "vals": ct.get("contributors"), "color": tokens.SERIES_COLORS["contributors"]}],
             dates, area_first=True),
     }
     return envelope
@@ -2218,7 +2214,9 @@ def delivery_json(pr: dict, meta: dict) -> dict:
 def _friction_color(v) -> str:
     """Traffic-light colour for a friction/item score — JSON port of the Flow
     template's `fcolor(v)` macro (templates/panels/04_flow.j2)."""
-    return "#10b981" if v < 0.5 else ("#f59e0b" if v < 1.5 else "#ef4444")
+    return (tokens.VALUES["score-good"] if v < 0.5
+            else tokens.VALUES["score-mid"] if v < 1.5
+            else tokens.VALUES["score-bad"])
 
 
 def flow_json(pr: dict, meta: dict) -> dict:
