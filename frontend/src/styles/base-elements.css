@@ -27,7 +27,7 @@
   a{color:var(--acc-ink)}
   /* Buttons — pill-ish, Jakarta, indigo primary. Matches the report chrome. */
   button,.btn,a.btn,input[type=submit]{border:1px solid var(--line2);background:var(--panel);
-    color:var(--ink);border-radius:10px;padding:8px 14px;font:600 13.5px/1.4 inherit;cursor:pointer;
+    color:var(--ink);border-radius:var(--r-md);padding:8px 14px;font:600 13.5px/1.4 inherit;cursor:pointer;
     box-shadow:var(--sh);transition:border-color .12s,background .12s,box-shadow .12s}
   button:hover,.btn:hover,a.btn:hover{border-color:var(--line2);box-shadow:var(--sh-lift)}
   button.primary,.btn.primary,a.btn.primary,input[type=submit]{background:var(--acc);
@@ -35,8 +35,8 @@
   button.primary:hover,.btn.primary:hover{background:var(--acc-ink);border-color:var(--acc-ink)}
   button:disabled,.btn:disabled{opacity:.5;cursor:default;box-shadow:none}
   /* Form controls */
-  input,select,textarea{border:1px solid var(--line2);border-radius:10px;padding:8px 11px;
+  input,select,textarea{border:1px solid var(--line2);border-radius:var(--r-md);padding:8px 11px;
     font:inherit;font-size:14px;background:var(--panel);color:var(--ink)}
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);
     box-shadow:0 0 0 3px rgba(91,91,240,.14)}
-  code{background:var(--panel2);padding:1px 5px;border-radius:6px;font-size:12.5px}
+  code{background:var(--panel2);padding:1px 5px;border-radius:var(--r-sm);font-size:12.5px}

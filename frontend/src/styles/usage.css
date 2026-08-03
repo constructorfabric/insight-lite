@@ -2,7 +2,7 @@
    server.usage_page()'s inline <style> — page-block rules + the resets the
    standalone Jinja page carried (body margin:0, *{box-sizing}, body 14px/1.5).
    The legacy .kpi / table.u were declared once then re-overridden after BASE_CSS
-   to var(--r-sm) + box-shadow; merged to the effective result. All tokens exist
+   to var(--r-lg) + box-shadow; merged to the effective result. All tokens exist
    in base.css (--panel2, --sh, --sh-lift, …). */
 *{box-sizing:border-box}
 body{margin:0;font-size:14px;line-height:1.5}
@@ -12,13 +12,13 @@ h2{font-size:16px;margin:28px 0 10px}
 @media(max-width:900px){main.wrap{padding:16px}}
 .sub{color:var(--mut);margin:0 0 6px;max-width:74ch}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 4px}
-.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--sh);padding:13px 14px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh);padding:13px 14px}
 .kpi .n{font-size:26px;font-weight:700} .kpi .l{font-size:12px;color:var(--mut)}
 .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0}
-.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px;color:var(--ink)}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;font-size:13px;color:var(--ink)}
 .chip.active{background:var(--acc);border-color:var(--acc);color:var(--on-solid)}
-.chips input{border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-size:13px}
-table.u{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--sh);overflow:hidden;font-size:13px}
+.chips input{border:1px solid var(--line);border-radius:var(--r-sm);padding:4px 7px;font-size:13px}
+table.u{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh);overflow:hidden;font-size:13px}
 table.u th,table.u td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
 table.u thead th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
 table.u td.n,table.u th.n{font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -33,7 +33,7 @@ tr.clk{cursor:pointer} tr.clk:hover td{background:var(--panel2)}
 .kpi.clk:hover{border-color:var(--acc);box-shadow:var(--sh-lift,0 6px 20px rgba(0,0,0,.10))}
 .dov{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding:8vh 16px;z-index:50}
 .dov[hidden]{display:none}
-.dbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:520px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.dbox{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);max-width:520px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)}
 .dhead{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
 .dhead b{font-size:15px} .dhead button{border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--mut);line-height:1}
 .dbody{padding:6px 16px 16px} .dbody h3{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:14px 0 6px}

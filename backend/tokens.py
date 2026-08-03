@@ -22,14 +22,14 @@ TOKENS_CSS = """
     --line2:#e2e6ec;   /* control border */
     --ink:#101828;   /* primary text */
     --ink2:#475467;   /* secondary text */
-    --mut:#8a93a3;   /* muted text — labels, meta */
+    --mut:#656e80;   /* muted text — labels, meta. Darkened 2026-08-03 from #8a93a3, which was 2.73:1 on --panel2 — below AA even for large text — across 223 uses. */
     --acc:#5b5bf0;   /* primary action */
     --acc-ink:#4a45d6;   /* link / pressed action */
     --on-solid:#ffffff;   /* text/icons on any saturated fill (--acc, --good, --bad) */
-    --good:#0f9d58;   /* success */
+    --good:#0c7f47;   /* success. Darkened 2026-08-03 from #0f9d58 (3.14:1 on --good-bg). */
     --good-bg:#e7f6ee;   /* success surface */
-    --warn:#b7791f;   /* warning */
-    --bad:#e5484d;   /* danger */
+    --warn:#a26b1b;   /* warning. Darkened 2026-08-03 from #b7791f (3.64:1 on --panel). */
+    --bad:#d41e24;   /* danger. Darkened 2026-08-03 from #e5484d (3.38:1 on --bad-bg). */
     --bad-bg:#fdeaea;   /* danger surface */
     --bad-soft:#fff5f5;   /* the failed-to-load card's fill (set from TS) */
     --acc-soft:#edecfe;   /* accent surface — chips, selected rows */
@@ -80,7 +80,7 @@ TOKENS_CSS = """
     --heur-fg:#9a6700;
     --exp-bg:#f59e0b22;   /* 'experimental' badge — amber at 13% / 33% */
     --exp-line:#f59e0b55;
-    --exp-fg:#c77700;
+    --exp-fg:#9a5c00;   /* Darkened 2026-08-03 from #c77700, which was 3.13:1 on the badge fill. --exp-bg is amber at 13% alpha, compositing to #fef2de over a card, so the fill is far lighter than its hex suggests. */
     --good-line:#a0d8b0;   /* healthy card / status border */
     --warn-line:#e8d8a0;   /* at-risk card / status border */
     --bad-line:#e6a0a0;   /* failed status border */
@@ -96,8 +96,12 @@ TOKENS_CSS = """
     --chat-tool-bg:#f6f8fa;   /* tool-call block in the chat log */
     --option-fg:#111111;   /* native <option> text, which ignores most inherited colour */
     /* radius */
-    --r:16px;   /* card */
-    --r-sm:12px;   /* inner card, control */
+    --r-xs:4px;   /* legend swatch, thin bar */
+    --r-sm:6px;   /* inline code, small chip. WAS 12px until 2026-08-03 — every var(--r-sm) was remapped to --r-lg in the same commit. */
+    --r-md:8px;   /* button, input, select */
+    --r-lg:12px;   /* inner card, panel */
+    --r-xl:16px;   /* card. Was --r. */
+    --r-pill:999px;   /* fully-rounded chip, badge, tag */
     /* shadow */
     --sh:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);   /* resting card / button */
     --sh-lift:0 10px 30px rgba(16,24,40,.10);   /* hover / floating */
@@ -135,7 +139,7 @@ ELEMENTS_CSS = """
     a{color:var(--acc-ink)}
     /* Buttons — pill-ish, Jakarta, indigo primary. Matches the report chrome. */
     button,.btn,a.btn,input[type=submit]{border:1px solid var(--line2);background:var(--panel);
-      color:var(--ink);border-radius:10px;padding:8px 14px;font:600 13.5px/1.4 inherit;cursor:pointer;
+      color:var(--ink);border-radius:var(--r-md);padding:8px 14px;font:600 13.5px/1.4 inherit;cursor:pointer;
       box-shadow:var(--sh);transition:border-color .12s,background .12s,box-shadow .12s}
     button:hover,.btn:hover,a.btn:hover{border-color:var(--line2);box-shadow:var(--sh-lift)}
     button.primary,.btn.primary,a.btn.primary,input[type=submit]{background:var(--acc);
@@ -143,11 +147,11 @@ ELEMENTS_CSS = """
     button.primary:hover,.btn.primary:hover{background:var(--acc-ink);border-color:var(--acc-ink)}
     button:disabled,.btn:disabled{opacity:.5;cursor:default;box-shadow:none}
     /* Form controls */
-    input,select,textarea{border:1px solid var(--line2);border-radius:10px;padding:8px 11px;
+    input,select,textarea{border:1px solid var(--line2);border-radius:var(--r-md);padding:8px 11px;
       font:inherit;font-size:14px;background:var(--panel);color:var(--ink)}
     input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);
       box-shadow:0 0 0 3px rgba(91,91,240,.14)}
-    code{background:var(--panel2);padding:1px 5px;border-radius:6px;font-size:12.5px}
+    code{background:var(--panel2);padding:1px 5px;border-radius:var(--r-sm);font-size:12.5px}
 """
 
 # Colour VALUES for server-side code. The backend emits colours inside API payloads (a
@@ -162,14 +166,14 @@ VALUES = {
     "line2": "#e2e6ec",
     "ink": "#101828",
     "ink2": "#475467",
-    "mut": "#8a93a3",
+    "mut": "#656e80",
     "acc": "#5b5bf0",
     "acc-ink": "#4a45d6",
     "on-solid": "#ffffff",
-    "good": "#0f9d58",
+    "good": "#0c7f47",
     "good-bg": "#e7f6ee",
-    "warn": "#b7791f",
-    "bad": "#e5484d",
+    "warn": "#a26b1b",
+    "bad": "#d41e24",
     "bad-bg": "#fdeaea",
     "bad-soft": "#fff5f5",
     "acc-soft": "#edecfe",
@@ -217,7 +221,7 @@ VALUES = {
     "heur-fg": "#9a6700",
     "exp-bg": "#f59e0b22",
     "exp-line": "#f59e0b55",
-    "exp-fg": "#c77700",
+    "exp-fg": "#9a5c00",
     "good-line": "#a0d8b0",
     "warn-line": "#e8d8a0",
     "bad-line": "#e6a0a0",
@@ -235,8 +239,12 @@ VALUES = {
     "score-good": "#10b981",
     "score-mid": "#f59e0b",
     "score-bad": "#ef4444",
-    "r": "16px",
-    "r-sm": "12px",
+    "r-xs": "4px",
+    "r-sm": "6px",
+    "r-md": "8px",
+    "r-lg": "12px",
+    "r-xl": "16px",
+    "r-pill": "999px",
     "sh": "0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)",
     "sh-lift": "0 10px 30px rgba(16,24,40,.10)",
 }

@@ -29,7 +29,7 @@ h1{font-size:24px;margin:0 0 4px}
 .clist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
 .citem{display:flex;gap:12px;align-items:flex-start}
 .cpill{flex:0 0 auto;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
-  padding:3px 9px;border-radius:999px;margin-top:2px;min-width:64px;text-align:center}
+  padding:3px 9px;border-radius:var(--r-pill);margin-top:2px;min-width:64px;text-align:center}
 .cpill.sec{background:rgba(154,103,0,.15);color:var(--warn)}
 .cpill.fix{background:rgba(26,127,55,.14);color:var(--good)}
 .cpill.feat{background:rgba(9,105,218,.12);color:var(--acc)}

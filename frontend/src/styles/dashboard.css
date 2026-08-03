@@ -40,7 +40,7 @@ h1 {
   grid-column: span var(--w, 2);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-lg);
   padding: 12px;
   min-height: 80px;
   box-shadow: var(--sh);

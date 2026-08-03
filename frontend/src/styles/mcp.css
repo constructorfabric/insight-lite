@@ -2,7 +2,7 @@
    inline <style> — the page-block rules plus the resets the standalone Jinja page
    carried that base.css does not (body margin:0, *{box-sizing}, and the base
    font-size/line-height, here 14px/1.5). The legacy `.card` was declared twice
-   (border-radius:8px, then after BASE_CSS overridden to var(--r-sm) + box-shadow);
+   (border-radius:8px, then after BASE_CSS overridden to var(--r-lg) + box-shadow);
    merged to the effective result. Extra tokens use base.css values / inline
    fallbacks, so no :root block is needed. */
 *{box-sizing:border-box}
@@ -12,12 +12,12 @@ h1{font-size:24px;margin:0 0 4px}
 h2{font-size:16px;margin:28px 0 10px}
 @media(max-width:900px){main.wrap{padding:16px}}
 .sub{color:var(--mut);margin:0 0 6px;max-width:70ch}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--sh);padding:14px 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh);padding:14px 16px}
 .label{font-size:12px;color:var(--mut)}
 .fine{color:var(--mut);font-size:12px;margin-top:4px}
 .mut{color:var(--mut)}
 table.mcp{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
-  border-radius:8px;overflow:hidden;font-size:13px}
+  border-radius:var(--r-md);overflow:hidden;font-size:13px}
 table.mcp th,table.mcp td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
 table.mcp thead th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);background:var(--panel2)}
 table.mcp tbody tr:last-child td{border-bottom:none}

@@ -235,9 +235,30 @@ class NoStrayColoursTest(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
-def _relative_luminance(hex_colour: str) -> float:
+def _channels(hex_colour: str) -> list[int]:
     h = hex_colour.lstrip("#")
-    channels = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+
+
+def flatten(colour: str, backdrop: str) -> str:
+    """An #rrggbbaa colour composited over an opaque backdrop.
+
+    Needed because a translucent fill is far lighter than its hex suggests, and
+    judging the text on it by the raw hex gives the wrong answer: --exp-bg is
+    #f59e0b22, amber at 13%, which over a white card is #fef2de."""
+    if len(colour.lstrip("#")) != 8:
+        return colour
+    fg = _channels(colour)
+    alpha = int(colour.lstrip("#")[6:8], 16) / 255
+    bg = _channels(backdrop)
+    return "#%02x%02x%02x" % tuple(
+        round(fg[i] * alpha + bg[i] * (1 - alpha)) for i in range(3))
+
+
+def _relative_luminance(hex_colour: str) -> float:
+    channels = [c / 255 for c in _channels(hex_colour)]
     linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
@@ -254,24 +275,27 @@ class ContrastTest(unittest.TestCase):
 
     AA_NORMAL = 4.5
 
-    # Measured 2026-08-03, the state this change inherited. Each entry is a debt, not a
-    # target: delete the line when the colour is fixed and the test starts enforcing it.
-    KNOWN_FAILURES = {
-        ("mut", "panel"): 3.10,
-        ("mut", "bg"): 2.86,
-        ("mut", "panel2"): 2.73,
-        ("good", "panel"): 3.51,
-        ("good", "good-bg"): 3.14,
-        ("warn", "panel"): 3.64,
-        ("bad", "panel"): 3.91,
-        ("bad", "bad-bg"): 3.38,
-    }
+    # Empty since 2026-08-03: the eight inherited failures were fixed by darkening
+    # --mut, --good, --warn, --bad and --exp-fg to the lowest value that clears 4.5:1,
+    # keeping each hue and saturation. An entry here is a debt, not a target — add one
+    # only with the measured ratio, and delete it when the colour is fixed.
+    KNOWN_FAILURES: dict[tuple[str, str], float] = {}
+
+    # Groups that declare text pairs. `color` holds the semantic base, `status` the
+    # badge and pill surfaces.
+    PAIR_GROUPS = ("color", "status")
 
     def _pairs(self):
-        colours = gen_tokens.load()["themes"]["light"]["color"]
-        for fg, spec in colours.items():
-            for bg in spec.get("text_on", []):
-                yield fg, bg, contrast_ratio(spec["value"], colours[bg]["value"])
+        theme = gen_tokens.load()["themes"]["light"]
+        values = {name: spec["value"]
+                  for group in self.PAIR_GROUPS
+                  for name, spec in gen_tokens.entries(theme, group).items()}
+        panel = values["panel"]
+        for group in self.PAIR_GROUPS:
+            for fg, spec in gen_tokens.entries(theme, group).items():
+                for bg in spec.get("text_on", []):
+                    yield fg, bg, contrast_ratio(flatten(spec["value"], panel),
+                                                 flatten(values[bg], panel))
 
     def test_no_new_pair_falls_below_aa(self):
         for fg, bg, ratio in self._pairs():

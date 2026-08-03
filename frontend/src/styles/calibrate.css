@@ -12,9 +12,9 @@ main.wrap{padding:20px 34px 90px}
 h1{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
 .sub{color:var(--mut);font-size:13.5px;margin:2px 0 16px;max-width:78ch}
 .exp{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--exp-fg);
-  background:var(--exp-bg);border:1px solid var(--exp-line);border-radius:999px;padding:2px 8px;margin-left:8px;vertical-align:middle}
+  background:var(--exp-bg);border:1px solid var(--exp-line);border-radius:var(--r-pill);padding:2px 8px;margin-left:8px;vertical-align:middle}
 table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
-  border-radius:12px;overflow:hidden;font-size:14px}
+  border-radius:var(--r-lg);overflow:hidden;font-size:14px}
 th,td{padding:10px 12px;text-align:left;border-top:1px solid var(--line)}
 thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;border-top:none}
 .num{font-variant-numeric:tabular-nums}
@@ -23,10 +23,10 @@ td.sc{font-weight:800}
 .stars{white-space:nowrap}
 .star{border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--line);padding:0 1px}
 .star:hover,.star.on{color:var(--star)}
-.note{width:100%;max-width:220px;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font:inherit;font-size:13px;background:var(--panel)}
+.note{width:100%;max-width:220px;border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 9px;font:inherit;font-size:13px;background:var(--panel)}
 .saved{color:var(--good);font-size:12px;font-weight:700;white-space:nowrap}
 .empty{padding:26px;text-align:center;color:var(--mut)}
-.wtcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:26px 0 0;max-width:640px}
+.wtcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;margin:26px 0 0;max-width:640px}
 .wtcard h2{font-size:16px;font-weight:800;margin:0 0 3px}
 .wtcard .wsub{color:var(--mut);font-size:12.5px;margin:0 0 14px;line-height:1.5}
 .wtrow{display:grid;grid-template-columns:120px 1fr 68px;align-items:center;gap:12px;padding:5px 0}
@@ -37,7 +37,7 @@ td.sc{font-weight:800}
 .wtfoot{display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap}
 .wt-total{font-size:12.5px;color:var(--mut)} .wt-total b{color:var(--ink);font-size:14px}
 .wtbtns{margin-left:auto;display:flex;align-items:center;gap:10px}
-.btn{border:1px solid var(--acc);background:var(--acc);color:var(--on-solid);border-radius:8px;padding:7px 14px;
+.btn{border:1px solid var(--acc);background:var(--acc);color:var(--on-solid);border-radius:var(--r-md);padding:7px 14px;
   font:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .btn:disabled{opacity:.55;cursor:default}
 .btn.ghost{background:var(--panel);color:var(--acc)}

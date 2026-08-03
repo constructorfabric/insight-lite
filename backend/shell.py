@@ -241,7 +241,7 @@ SHELL_CSS = """
      on open it snaps at .18s, the moment the surface starts appearing; on close it snaps
      back at .1s, once the surface has gone. Either way the change happens while this
      element is invisible or the panel behind it is, so nothing is seen to stretch. */
-  .rz::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;border-radius:11px;
+  .rz::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;border-radius:var(--r-lg);
     pointer-events:none;transition:background .13s ease,box-shadow .13s ease,width 0s .1s}
   .sb-rail:hover .rz::before,.sb-rail:focus-within .rz::before{width:196px;
     transition:background .13s ease,box-shadow .13s ease,width 0s .18s}
@@ -284,7 +284,7 @@ SHELL_CSS = """
   .navgroup{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--mut);padding:2px 11px 6px}
   .sb-pane .tab{display:flex;align-items:center;gap:10px;text-align:left;text-decoration:none;
-    border:none;background:transparent;color:var(--ink2);border-radius:10px;padding:8px 10px;
+    border:none;background:transparent;color:var(--ink2);border-radius:var(--r-md);padding:8px 10px;
     font:600 13px/1.4 inherit;cursor:pointer;min-width:0}
   /* The label is its own span so it can ellipsis: as a bare text node it was a flex
      child that overflow:hidden simply CUT, mid-glyph. Labels are short by policy (see
@@ -302,7 +302,7 @@ SHELL_CSS = """
     .navbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:60;
       background:var(--panel);border-bottom:1px solid var(--line);padding:9px 14px}
     .navburger{display:inline-flex;align-items:center;justify-content:center;flex:none;
-      width:40px;height:36px;border:1px solid var(--line);border-radius:9px;
+      width:40px;height:36px;border:1px solid var(--line);border-radius:var(--r-md);
       background:var(--bg);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
     .navburger:active{background:var(--panel2)}
     .navbar-title{font-weight:800;font-size:14px;letter-spacing:-.01em;line-height:1.1}

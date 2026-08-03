@@ -13,7 +13,7 @@ h1{font-size:24px;margin:0 0 4px}
   color:var(--ink2);margin:26px 0 12px}
 .quality{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
 .qitem{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line2);
-  border-radius:12px;padding:14px 16px;box-shadow:var(--sh);transition:box-shadow .15s,transform .15s}
+  border-radius:var(--r-lg);padding:14px 16px;box-shadow:var(--sh);transition:box-shadow .15s,transform .15s}
 .qitem.ok{border-left-color:var(--good)} .qitem.warn{border-left-color:var(--warn)}
 .qitem.bad{border-left-color:var(--bad)}
 .qitem .qv{font-size:22px;font-weight:800;letter-spacing:-.02em}
@@ -23,7 +23,7 @@ a.qitem:hover{box-shadow:var(--sh-lift);transform:translateY(-2px)}
 .qitem .qfix{margin-top:8px;font-size:12.5px;font-weight:700;color:var(--acc-ink)}
 .qitem .qfix.done{color:var(--good);font-weight:700} .qitem .qfix.muted{color:var(--mut);font-weight:500}
 .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--sh)}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;box-shadow:var(--sh)}
 .stat .sv{font-size:21px;font-weight:800;letter-spacing:-.02em;overflow-wrap:anywhere}
 .stat .sl{font-size:12.5px;color:var(--ink);font-weight:600;margin-top:3px}
 .stat .sub{font-size:11.5px;color:var(--mut);margin-top:2px}

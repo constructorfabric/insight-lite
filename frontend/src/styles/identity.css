@@ -22,16 +22,16 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px) saturate(160%);
   border-bottom:1px solid var(--line)}
 .search{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line2);
-  border-radius:10px;padding:6px 12px;max-width:520px}
+  border-radius:var(--r-md);padding:6px 12px;max-width:520px}
 .search svg{width:16px;height:16px;color:var(--mut);flex:none}
 .search input{border:0;background:transparent;width:100%;font-size:14px;padding:2px 0;box-shadow:none}
 .search input:focus{outline:none;box-shadow:none}
 .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
 .chip{border:1px solid var(--line2);background:var(--panel);color:var(--ink2);font-weight:600;font-size:12.5px;
-  padding:6px 12px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:7px;box-shadow:none}
+  padding:6px 12px;border-radius:var(--r-pill);cursor:pointer;display:flex;align-items:center;gap:7px;box-shadow:none}
 .chip:hover{border-color:var(--acc)} .chip.on{background:var(--acc);border-color:var(--acc);color:var(--on-solid)}
 .chip .n{font-variant-numeric:tabular-nums;background:color-mix(in srgb,var(--ink) 8%,transparent);
-  border-radius:999px;padding:0 7px;font-size:11px} .chip.on .n{background:rgba(255,255,255,.25)}
+  border-radius:var(--r-pill);padding:0 7px;font-size:11px} .chip.on .n{background:rgba(255,255,255,.25)}
 .chip.warn:not(.on){color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line2))}
 .layout{display:grid;grid-template-columns:1fr 400px;gap:20px;align-items:start}
 @media(max-width:920px){ .layout{grid-template-columns:1fr} .detail-wrap{position:static!important} }
@@ -40,27 +40,27 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
 .grouphead .dot{width:8px;height:8px;border-radius:50%} .grouphead .c{color:var(--mut);font-weight:600;text-transform:none;letter-spacing:0}
 .list{display:flex;flex-direction:column;gap:7px}
 .row{display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:center;background:var(--panel);
-  border:1px solid var(--line);border-radius:12px;padding:10px 13px;cursor:pointer;box-shadow:var(--sh);transition:.1s}
+  border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 13px;cursor:pointer;box-shadow:var(--sh);transition:.1s}
 .row:hover{border-color:var(--line2)} .row.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
 .row.attn{border-left:3px solid var(--warn)} .row.dup{border-left:3px solid var(--dup)}
-.cbox{width:17px;height:17px;border:1.5px solid var(--line2);border-radius:5px;cursor:pointer;
+.cbox{width:17px;height:17px;border:1.5px solid var(--line2);border-radius:var(--r-xs);cursor:pointer;
   display:grid;place-items:center;background:var(--panel)}
 .cbox.on{background:var(--acc);border-color:var(--acc)}
 .cbox.on::after{content:"";width:9px;height:5px;border:2px solid var(--on-solid);border-top:0;border-right:0;transform:rotate(-45deg) translateY(-1px)}
 .who{min-width:0} .who .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .who .nm{font-weight:700} .who .lg{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut)}
 .who .meta{font-size:12px;color:var(--ink2);margin-top:2px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
-.tag{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px}
+.tag{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:var(--r-pill)}
 .tag.ext{background:var(--panel2);color:var(--ink2)} .tag.bot{background:var(--panel2);color:var(--mut)}
 .tag.other{background:var(--warn-bg);color:var(--warn)} .tag.dup{background:var(--acc-bg);color:var(--acc-ink)}
 .co-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600}
-.co-dot{width:7px;height:7px;border-radius:2px} .rt{text-align:right;color:var(--mut);font-size:12px}
+.co-dot{width:7px;height:7px;border-radius:var(--r-xs)} .rt{text-align:right;color:var(--mut);font-size:12px}
 .rt .k{font-size:11px}
 .gh{color:var(--acc-ink);text-decoration:none} .gh:hover{text-decoration:underline}
 .detail-wrap{position:sticky;top:112px}
-.detail{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
+.detail{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-xl);box-shadow:var(--sh);overflow:hidden}
 .d-head{padding:15px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center}
-.avatar{width:42px;height:42px;border-radius:12px;background:var(--acc-bg);color:var(--acc-ink);
+.avatar{width:42px;height:42px;border-radius:var(--r-lg);background:var(--acc-bg);color:var(--acc-ink);
   display:grid;place-items:center;font-weight:800;font-size:16px;flex:none}
 .d-id{min-width:0} .d-id .nm{font-size:16px;font-weight:800} .d-id .lg{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut)}
 .d-body{padding:15px 16px;display:flex;flex-direction:column;gap:14px}
@@ -68,29 +68,29 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
 .field .ctl,.field select,.field input{width:100%}
 .ghint{font-size:11.5px;color:var(--ink2);margin-top:6px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .ghint b{color:var(--ink)} .ghint button{padding:3px 9px;font-size:11px;box-shadow:none}
-.seg{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:var(--r-md);overflow:hidden}
 .seg button{border:0;border-radius:0;background:var(--panel);color:var(--ink2);padding:7px 16px;box-shadow:none}
 .seg button.on{background:var(--acc);color:var(--on-solid)}
 .emails{display:flex;flex-direction:column;gap:5px}
-.erow{display:flex;align-items:center;gap:8px;font-size:13px;background:var(--panel2);border-radius:8px;padding:6px 9px}
+.erow{display:flex;align-items:center;gap:8px;font-size:13px;background:var(--panel2);border-radius:var(--r-md);padding:6px 9px}
 .erow .x{color:var(--mut);cursor:pointer;font-weight:700} .erow .x:hover{color:var(--bad)}
 .erow.alias{color:var(--mut)} .erow .kind{font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase}
 .addrow{display:flex;gap:7px;margin-top:2px} .addrow input{flex:1}
-.dup-card{border:1px solid var(--acc);background:var(--acc-bg);border-radius:12px;padding:12px 13px}
+.dup-card{border:1px solid var(--acc);background:var(--acc-bg);border-radius:var(--r-lg);padding:12px 13px}
 .dup-card .h{font-size:12px;font-weight:700;color:var(--acc-ink);margin-bottom:7px}
 .dup-card .body{font-size:13px} .dup-card .prev{font-size:12px;color:var(--ink2);margin:7px 0 10px;line-height:1.5}
 .dup-card .prev code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
 .dup-card .acts{display:flex;gap:8px} .dup-card button{padding:6px 11px;font-size:12.5px}
-.confpill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+.confpill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:var(--r-pill)}
 .conf-good{background:var(--good-bg);color:var(--good)} .conf-mid{background:var(--acc-bg);color:var(--acc-ink)}
 .conf-low{background:var(--warn-bg);color:var(--warn)} .evid{font-size:11.5px;color:var(--mut);margin-top:6px}
 .empty{color:var(--mut);font-size:13px;text-align:center;padding:48px 20px}
 .legendnote{font-size:11.5px;color:var(--mut);margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}
 .bulk{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:40;background:var(--ink);color:var(--bg);
-  border-radius:13px;box-shadow:var(--sh-lift);display:flex;align-items:center;gap:12px;padding:10px 15px;font-size:13px;font-weight:600}
+  border-radius:var(--r-lg);box-shadow:var(--sh-lift);display:flex;align-items:center;gap:12px;padding:10px 15px;font-size:13px;font-weight:600}
 .bulk.hidden{display:none}
 .bulk select{background:transparent;color:var(--bg);border:1px solid color-mix(in srgb,var(--bg) 35%,transparent);
-  border-radius:8px;padding:6px 9px;box-shadow:none} .bulk select option{color:var(--option-fg)}
+  border-radius:var(--r-md);padding:6px 9px;box-shadow:none} .bulk select option{color:var(--option-fg)}
 .bulk .bb{border:1px solid color-mix(in srgb,var(--bg) 35%,transparent);background:transparent;color:var(--bg);
-  border-radius:8px;padding:6px 11px;box-shadow:none} .bulk .bb:hover{background:color-mix(in srgb,var(--bg) 15%,transparent)}
+  border-radius:var(--r-md);padding:6px 11px;box-shadow:none} .bulk .bb:hover{background:color-mix(in srgb,var(--bg) 15%,transparent)}
 .bulk .clear{color:color-mix(in srgb,var(--bg) 70%,transparent);cursor:pointer}

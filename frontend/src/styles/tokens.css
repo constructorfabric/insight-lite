@@ -8,14 +8,14 @@
   --line2:#e2e6ec;   /* control border */
   --ink:#101828;   /* primary text */
   --ink2:#475467;   /* secondary text */
-  --mut:#8a93a3;   /* muted text — labels, meta */
+  --mut:#656e80;   /* muted text — labels, meta. Darkened 2026-08-03 from #8a93a3, which was 2.73:1 on --panel2 — below AA even for large text — across 223 uses. */
   --acc:#5b5bf0;   /* primary action */
   --acc-ink:#4a45d6;   /* link / pressed action */
   --on-solid:#ffffff;   /* text/icons on any saturated fill (--acc, --good, --bad) */
-  --good:#0f9d58;   /* success */
+  --good:#0c7f47;   /* success. Darkened 2026-08-03 from #0f9d58 (3.14:1 on --good-bg). */
   --good-bg:#e7f6ee;   /* success surface */
-  --warn:#b7791f;   /* warning */
-  --bad:#e5484d;   /* danger */
+  --warn:#a26b1b;   /* warning. Darkened 2026-08-03 from #b7791f (3.64:1 on --panel). */
+  --bad:#d41e24;   /* danger. Darkened 2026-08-03 from #e5484d (3.38:1 on --bad-bg). */
   --bad-bg:#fdeaea;   /* danger surface */
   --bad-soft:#fff5f5;   /* the failed-to-load card's fill (set from TS) */
   --acc-soft:#edecfe;   /* accent surface — chips, selected rows */
@@ -66,7 +66,7 @@
   --heur-fg:#9a6700;
   --exp-bg:#f59e0b22;   /* 'experimental' badge — amber at 13% / 33% */
   --exp-line:#f59e0b55;
-  --exp-fg:#c77700;
+  --exp-fg:#9a5c00;   /* Darkened 2026-08-03 from #c77700, which was 3.13:1 on the badge fill. --exp-bg is amber at 13% alpha, compositing to #fef2de over a card, so the fill is far lighter than its hex suggests. */
   --good-line:#a0d8b0;   /* healthy card / status border */
   --warn-line:#e8d8a0;   /* at-risk card / status border */
   --bad-line:#e6a0a0;   /* failed status border */
@@ -82,8 +82,12 @@
   --chat-tool-bg:#f6f8fa;   /* tool-call block in the chat log */
   --option-fg:#111111;   /* native <option> text, which ignores most inherited colour */
   /* radius */
-  --r:16px;   /* card */
-  --r-sm:12px;   /* inner card, control */
+  --r-xs:4px;   /* legend swatch, thin bar */
+  --r-sm:6px;   /* inline code, small chip. WAS 12px until 2026-08-03 — every var(--r-sm) was remapped to --r-lg in the same commit. */
+  --r-md:8px;   /* button, input, select */
+  --r-lg:12px;   /* inner card, panel */
+  --r-xl:16px;   /* card. Was --r. */
+  --r-pill:999px;   /* fully-rounded chip, badge, tag */
   /* shadow */
   --sh:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);   /* resting card / button */
   --sh-lift:0 10px 30px rgba(16,24,40,.10);   /* hover / floating */

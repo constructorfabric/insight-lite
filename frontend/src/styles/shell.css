@@ -14,7 +14,7 @@
   .sidebar .brand{display:flex;align-items:center;gap:11px;font-size:15px;font-weight:800;
     line-height:1.15;margin:0 6px 18px;letter-spacing:-.02em}
   .sidebar .brand span{display:block;font-size:11px;font-weight:600;color:var(--mut);margin-top:2px}
-  .sidebar .brand .logo{flex:none;width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
+  .sidebar .brand .logo{flex:none;width:32px;height:32px;border-radius:var(--r-md);display:grid;place-items:center;
     background:linear-gradient(135deg,var(--acc),var(--app));box-shadow:0 4px 12px rgba(91,91,240,.35)}
   .sidebar .brand .logo svg{width:18px;height:18px;stroke:var(--on-solid);stroke-width:2.2;fill:none;
     stroke-linecap:round;stroke-linejoin:round}
@@ -23,7 +23,7 @@
   .sidenav .navgroup{padding-top:0}
   .tabs{display:flex;flex-direction:column;gap:2px}
   .tabs .tab,.sidenav a{display:flex;align-items:center;gap:11px;text-align:left;text-decoration:none;
-    border:none;background:transparent;color:var(--ink2);border-radius:10px;padding:8px 11px;
+    border:none;background:transparent;color:var(--ink2);border-radius:var(--r-md);padding:8px 11px;
     font:600 13.5px/1.4 inherit;white-space:nowrap;cursor:pointer}
   .tabs .tab svg,.sidenav a svg{flex:none;width:18px;height:18px;stroke:currentColor;stroke-width:1.9;
     fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
@@ -40,7 +40,7 @@
     .navbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:60;
       background:var(--panel);border-bottom:1px solid var(--line);padding:9px 14px}
     .navburger{display:inline-flex;align-items:center;justify-content:center;flex:none;
-      width:40px;height:36px;border:1px solid var(--line);border-radius:9px;
+      width:40px;height:36px;border:1px solid var(--line);border-radius:var(--r-md);
       background:var(--bg);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
     .navburger:active{background:var(--panel2)}
     .navbar-title{font-weight:800;font-size:14px;letter-spacing:-.01em;line-height:1.1}
