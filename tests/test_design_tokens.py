@@ -60,15 +60,42 @@ class GeneratorTest(unittest.TestCase):
         self.assertEqual(gen_tokens.main(["--check"]), 0,
                          "generated token files are stale — run: python3 tools/gen_tokens.py")
 
-    def test_every_token_in_the_source_reaches_both_outputs(self):
+    def test_every_css_token_reaches_both_css_outputs(self):
         data = gen_tokens.load()
         import tokens
         css = (STYLES / "tokens.css").read_text()
-        for group in gen_tokens.GROUPS:
-            for name, spec in data["themes"]["light"].get(group, {}).items():
+        theme = data["themes"]["light"]
+        for group in gen_tokens.CSS_GROUPS:
+            for name, spec in gen_tokens.entries(theme, group).items():
                 decl = f"--{name}:{spec['value']};"
-                self.assertIn(decl, css, f"{name} missing from tokens.css")
-                self.assertIn(decl, tokens.TOKENS_CSS, f"{name} missing from tokens.py")
+                with self.subTest(token=name):
+                    self.assertIn(decl, css, f"{name} missing from tokens.css")
+                    self.assertIn(decl, tokens.TOKENS_CSS, f"{name} missing from tokens.py")
+
+    def test_every_token_reaches_the_ts_module(self):
+        """tokens.ts carries ALL groups, including `score`, which is read only from JS
+        (PersonScore picks a band) and would be dead weight in every page's <style>."""
+        data = gen_tokens.load()
+        ts = (ROOT / "frontend" / "src" / "lib" / "tokens.ts").read_text()
+        theme = data["themes"]["light"]
+        for group in gen_tokens.GROUPS:
+            for name, spec in gen_tokens.entries(theme, group).items():
+                with self.subTest(token=name):
+                    self.assertIn(f'"{name}": "{spec["value"]}"', ts)
+
+    def test_score_is_deliberately_absent_from_the_css(self):
+        """The split is intentional, so it is asserted — otherwise a later reader
+        'fixes' it by adding score to CSS_GROUPS and nobody notices the bloat."""
+        css = (STYLES / "tokens.css").read_text()
+        for name in gen_tokens.entries(gen_tokens.load()["themes"]["light"], "score"):
+            self.assertNotIn(f"--{name}:", css)
+
+    def test_notes_never_leak_into_an_artefact(self):
+        """`_note` keys document the JSON for whoever reads it; emitting one would
+        produce a `--_note:` declaration."""
+        for path in (STYLES / "tokens.css", ROOT / "backend" / "tokens.py",
+                     ROOT / "frontend" / "src" / "lib" / "tokens.ts"):
+            self.assertNotIn("_note", path.read_text(), f"{path.name} leaked a _note key")
 
 
 class ParityTest(unittest.TestCase):

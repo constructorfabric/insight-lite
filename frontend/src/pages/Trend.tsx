@@ -15,6 +15,7 @@ import { type ChartData } from "../components/charts/TimeChart";
 import { FilledLine, LinesChart, StackChart } from "../components/charts/shapes";
 import { useReportData, useReportQuery, setReportQuery } from "../hooks/useReportData";
 import Loading from "../components/Loading";
+import { token } from "../lib/tokens";
 
 type TrendData = {
   meta: { org: string; allTime: boolean; windowStart: string; lookbackDays: number; generatedText: string };
@@ -145,7 +146,7 @@ export default function Trend() {
               <h3 className="trend-h">
                 PR throughput{" "}
                 <span className="trend-leg">
-                  <i style={{ background: "#2f80ed" }} />opened <i style={{ background: "#10b981" }} />merged
+                  <i style={{ background: token["c-pr"] }} />opened <i style={{ background: token["c-feature"] }} />merged
                 </span>
               </h3>
               <div className="areawrap">{t.throughputChart && <LinesChart chart={t.throughputChart} />}</div>

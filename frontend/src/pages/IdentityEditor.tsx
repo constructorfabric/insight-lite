@@ -13,6 +13,7 @@
 //
 // SSR-safe: no top-level window/document access — only inside effects / handlers.
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { token } from "../lib/tokens";
 
 type Person = {
   name: string;
@@ -91,7 +92,7 @@ export default function IdentityEditor() {
   }, []);
 
   // ---- derived helpers (mirror the legacy pure functions) -------------------
-  const coColor = (co: string) => coColors.current[co] || "#8b949e";
+  const coColor = (co: string) => coColors.current[co] || token["company-empty"];
   const isBot = (p: Person) => p.is_bot === true;
   const initials = (p: { name?: string; login?: string }) =>
     ((p.name || p.login || "?") + "").trim().slice(0, 2).toUpperCase() || "?";

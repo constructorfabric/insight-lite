@@ -39,7 +39,7 @@ select{min-width:150px;background-image:none}
 .empty{color:var(--mut);font-size:12px;padding:6px 8px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{border:0;border-radius:0;padding:6px 12px}
-.seg button.on{background:var(--acc);color:#fff}
+.seg button.on{background:var(--acc);color:var(--on-solid)}
 .chain{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:8px 0 4px}
 .chain .pill{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);
   background:var(--panel2);color:var(--mut)}

@@ -14,6 +14,7 @@ import FilterBar from "../components/FilterBar";
 import { GhLink, BarList, MiniStats, Chips, type BarRowProps } from "../widgets";
 import { useReportData } from "../hooks/useReportData";
 import Loading from "../components/Loading";
+import { token } from "../lib/tokens";
 
 // ---- types (mirror render.traffic_json's payload) --------------------------
 type ContributorRow = { login: string; isMember: boolean; value: number; bar: number; email: string };
@@ -210,7 +211,7 @@ export default function Traffic() {
       />
 
       {data.dataQuality.apiRateLimited && (
-        <div className="card" style={{ borderColor: "var(--bad)", background: "#fff5f5" }}>
+        <div className="card" style={{ borderColor: "var(--bad)", background: token["bad-soft"] }}>
           <p style={{ margin: 0, color: "var(--bad)", fontWeight: 600 }}>
             ⚠ GitHub API rate limit hit during collection — this report is PARTIAL.
             {data.dataQuality.apiReset && ` Quota resets at ${data.dataQuality.apiReset}.`} Re-run collection

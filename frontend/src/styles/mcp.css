@@ -19,6 +19,6 @@ h2{font-size:16px;margin:28px 0 10px}
 table.mcp{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;overflow:hidden;font-size:13px}
 table.mcp th,table.mcp td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
-table.mcp thead th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);background:var(--panel2,#eef1f5)}
+table.mcp thead th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);background:var(--panel2)}
 table.mcp tbody tr:last-child td{border-bottom:none}
 table.mcp td:nth-child(1){white-space:nowrap} table.mcp td code{font-size:12px;white-space:normal}

@@ -41,7 +41,7 @@ main.wrap{padding:24px 28px 56px}
 .pchip{border:none;background:transparent;color:var(--ink2);border-radius:999px;padding:6px 14px;
   font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:none}
 .pchip:hover{background:var(--panel2);color:var(--ink)}
-.pchip.active{background:var(--acc);color:#fff;box-shadow:0 2px 8px rgba(91,91,240,.35)}
+.pchip.active{background:var(--acc);color:var(--on-solid);box-shadow:0 2px 8px rgba(91,91,240,.35)}
 
 /* viz-type selector (#wp-viz) — a wrapping row of pchip buttons with a glyph +
    label; incompatible types (see SHAPE_VIZ gating in the script) are disabled. */

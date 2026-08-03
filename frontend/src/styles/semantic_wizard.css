@@ -13,9 +13,6 @@
      class-scoped (higher specificity than base) so it's kept verbatim; the
      several invalid `font:… inherit` shorthands inside them are dropped by the
      parser identically on both paths, so their other (valid) props still apply. */
-:root{--acc-soft:#edecfe;
-  --c-bug:#ef4444;--c-feature:#10b981;--c-task:#8b5cf6;--c-epic:#5b5bf0;
-  --c-spec:#f59e0b;--c-docs:#06b6d4;--c-test:#2f80ed;--c-other:#9aa3b2}
 *{box-sizing:border-box}
 body{margin:0}
 main.wrap{padding:22px 34px 130px}
@@ -28,7 +25,7 @@ main.wrap{padding:22px 34px 130px}
 .step .nm{font-size:12.5px;font-weight:600;color:var(--ink2)}
 .step.done .idx{background:var(--good-bg);color:var(--good)}
 .step.active{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-soft)}
-.step.active .idx{background:var(--acc);color:#fff} .step.active .nm{color:var(--ink)}
+.step.active .idx{background:var(--acc);color:var(--on-solid)} .step.active .nm{color:var(--ink)}
 .wz-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:26px 28px 30px}
 .eyebrow{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);margin:0 0 8px}
 h1.wz{font-size:25px;font-weight:800;letter-spacing:-.03em;margin:0 0 8px}
@@ -91,7 +88,7 @@ h2.wz{font-size:19px;font-weight:800;letter-spacing:-.02em;margin:0}
 .bk{border:1px solid var(--line2);background:var(--panel);border-radius:999px;padding:6px 12px;
   font:600 12.5px/1 inherit;cursor:pointer;color:var(--ink2);display:inline-flex;align-items:center;gap:7px}
 .bk .dot{width:9px;height:9px;border-radius:50%}
-.bk.sel{background:var(--acc);border-color:var(--acc);color:#fff}
+.bk.sel{background:var(--acc);border-color:var(--acc);color:var(--on-solid)}
 .bk.sug{border-style:dashed;border-color:var(--acc)}
 .bk.none{color:var(--mut)}
 .tray-h{font-size:12px;font-weight:700;color:var(--warn);margin:2px 0 7px}
@@ -126,7 +123,7 @@ h2.wz{font-size:19px;font-weight:800;letter-spacing:-.02em;margin:0}
 @media(max-width:900px){.footbar{left:0}}
 .foot-cov{display:flex;align-items:center;gap:11px;flex:1;min-width:0}
 .foot-cov .bar{flex:1;max-width:240px;height:8px;border-radius:6px;background:var(--panel2);overflow:hidden}
-.foot-cov .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),#8b5cf6);transition:width .4s}
+.foot-cov .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--app));transition:width .4s}
 .foot-cov .lab{font-size:12.5px;color:var(--mut);white-space:nowrap} .foot-cov .lab b{color:var(--ink);font-weight:800}
 .btn.ghost{border-color:transparent;background:transparent;box-shadow:none;color:var(--ink2)}
 .st-msg{font-size:12.5px;color:var(--mut)}

@@ -10,7 +10,6 @@
    are intentionally omitted — base.css provides them, exactly as the legacy page
    computed. Every other selector is class/id-scoped (higher specificity than
    base's element rules) so it wins regardless of order and is kept verbatim. */
-:root{--acc-soft:#edecfe;--c-other:#9aa3b2}
 *{box-sizing:border-box}
 body{margin:0;font-size:15px;line-height:1.5}
 main.wrap{padding:20px 34px 90px}
@@ -60,7 +59,7 @@ h2{font-size:17px;font-weight:800;letter-spacing:-.01em;margin:0 0 3px}
 .search input{border:none;background:transparent;outline:none;color:var(--ink);font:inherit;font-size:13.5px;width:100%}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .seg button{border:none;background:var(--panel);color:var(--mut);padding:8px 12px;font:600 12.5px inherit;cursor:pointer}
-.seg button.on{background:var(--acc);color:#fff} .seg-label{font-size:12px;color:var(--mut);font-weight:600}
+.seg button.on{background:var(--acc);color:var(--on-solid)} .seg-label{font-size:12px;color:var(--mut);font-weight:600}
 .rhead{display:flex;align-items:center;gap:12px;padding:2px 14px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
 .rhead .cbsp{width:16px;flex:none} .rhead .rn{flex:1} .rhead .rc{width:64px;text-align:right}
 .rhead .hp{width:150px;padding-left:12px} .rhead .hp.el{width:150px}

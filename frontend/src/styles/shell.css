@@ -9,28 +9,28 @@
      render at different sizes/row-pitch per page. 14.5px/1.55 = the report body
      (the primary experience), so report views are unchanged. */
   .sidebar{position:sticky;top:0;flex:0 0 236px;width:236px;height:100vh;overflow-y:auto;font-size:14.5px;line-height:1.55;
-    padding:20px 14px;border-right:1px solid var(--line);background:var(--bg,#f5f6f9);z-index:40;
+    padding:20px 14px;border-right:1px solid var(--line);background:var(--bg);z-index:40;
     display:flex;flex-direction:column}
   .sidebar .brand{display:flex;align-items:center;gap:11px;font-size:15px;font-weight:800;
     line-height:1.15;margin:0 6px 18px;letter-spacing:-.02em}
   .sidebar .brand span{display:block;font-size:11px;font-weight:600;color:var(--mut);margin-top:2px}
   .sidebar .brand .logo{flex:none;width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
-    background:linear-gradient(135deg,var(--acc,#5b5bf0),#8b5cf6);box-shadow:0 4px 12px rgba(91,91,240,.35)}
-  .sidebar .brand .logo svg{width:18px;height:18px;stroke:#fff;stroke-width:2.2;fill:none;
+    background:linear-gradient(135deg,var(--acc),var(--app));box-shadow:0 4px 12px rgba(91,91,240,.35)}
+  .sidebar .brand .logo svg{width:18px;height:18px;stroke:var(--on-solid);stroke-width:2.2;fill:none;
     stroke-linecap:round;stroke-linejoin:round}
   .navgroup{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--mut);padding:2px 11px 6px}
   .sidenav .navgroup{padding-top:0}
   .tabs{display:flex;flex-direction:column;gap:2px}
   .tabs .tab,.sidenav a{display:flex;align-items:center;gap:11px;text-align:left;text-decoration:none;
-    border:none;background:transparent;color:var(--ink2,#475467);border-radius:10px;padding:8px 11px;
+    border:none;background:transparent;color:var(--ink2);border-radius:10px;padding:8px 11px;
     font:600 13.5px/1.4 inherit;white-space:nowrap;cursor:pointer}
   .tabs .tab svg,.sidenav a svg{flex:none;width:18px;height:18px;stroke:currentColor;stroke-width:1.9;
     fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
-  .tabs .tab:hover,.sidenav a:hover{background:var(--panel2,#eaeef2);color:var(--ink)}
-  .tabs .tab.active,.sidenav a.active{background:var(--panel,#fff);color:var(--acc-ink,#4a45d6);
+  .tabs .tab:hover,.sidenav a:hover{background:var(--panel2);color:var(--ink)}
+  .tabs .tab.active,.sidenav a.active{background:var(--panel);color:var(--acc-ink);
     box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08));font-weight:700}
-  .tabs .tab.active svg,.sidenav a.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
+  .tabs .tab.active svg,.sidenav a.active svg{opacity:1;stroke:var(--acc)}
   .sidenav{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);
     display:flex;flex-direction:column;gap:2px}
   .sidenav a{font-size:13px}
@@ -41,8 +41,8 @@
       background:var(--panel);border-bottom:1px solid var(--line);padding:9px 14px}
     .navburger{display:inline-flex;align-items:center;justify-content:center;flex:none;
       width:40px;height:36px;border:1px solid var(--line);border-radius:9px;
-      background:var(--bg,#fff);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
-    .navburger:active{background:var(--panel2,#eaeef2)}
+      background:var(--bg);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
+    .navburger:active{background:var(--panel2)}
     .navbar-title{font-weight:800;font-size:14px;letter-spacing:-.01em;line-height:1.1}
     .navbar-title span{display:block;font-size:10px;font-weight:600;color:var(--mut)}
     .sidebar{position:fixed;top:0;left:0;height:100vh;width:250px;max-width:82vw;flex:none;

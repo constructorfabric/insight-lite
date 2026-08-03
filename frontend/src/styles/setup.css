@@ -24,11 +24,11 @@ h1{font-size:24px;margin:0 0 4px} .lead{color:var(--mut);margin:0 0 24px}
 .step h2{font-size:16px;margin:0 0 4px} .step.done{border-color:var(--good)}
 .snum{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--panel2);
   color:var(--mut);text-align:center;font-size:12px;font-weight:700;line-height:22px;margin-right:8px}
-.step.done .snum{background:var(--good);color:#fff}
+.step.done .snum{background:var(--good);color:var(--on-solid)}
 .hint{color:var(--mut);font-size:13px;margin:4px 0 12px}
 label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
 input{width:100%}
 .row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .msg{font-size:13px} .msg.ok{color:var(--good)} .msg.err{color:var(--bad)}
-pre{background:#0d1117;color:#c9d1d9;border-radius:8px;padding:12px;overflow:auto;font-size:12px;max-height:220px}
+pre{background:var(--code-bg);color:var(--code-fg);border-radius:8px;padding:12px;overflow:auto;font-size:12px;max-height:220px}
 .step{border-radius:var(--r-sm);box-shadow:var(--sh)} .step.done{border-color:var(--good)}

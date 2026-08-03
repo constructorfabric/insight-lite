@@ -9,7 +9,6 @@
    deal — neither side reset it — but the browser's default 8px shifted this whole
    route (sidebar included) right+down vs every other page, so `margin:0` now lives
    in the shared BASE_CSS (applies to React + legacy alike). */
-:root{--acc-bg:#eeeefe;--warn-bg:#fbf3e2;--dup:#5b5bf0}
 *{box-sizing:border-box}
 .wrap{padding:22px 26px 90px}
 @media(max-width:900px){ .wrap{padding:16px} }
@@ -30,7 +29,7 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
 .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
 .chip{border:1px solid var(--line2);background:var(--panel);color:var(--ink2);font-weight:600;font-size:12.5px;
   padding:6px 12px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:7px;box-shadow:none}
-.chip:hover{border-color:var(--acc)} .chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.chip:hover{border-color:var(--acc)} .chip.on{background:var(--acc);border-color:var(--acc);color:var(--on-solid)}
 .chip .n{font-variant-numeric:tabular-nums;background:color-mix(in srgb,var(--ink) 8%,transparent);
   border-radius:999px;padding:0 7px;font-size:11px} .chip.on .n{background:rgba(255,255,255,.25)}
 .chip.warn:not(.on){color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line2))}
@@ -47,7 +46,7 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
 .cbox{width:17px;height:17px;border:1.5px solid var(--line2);border-radius:5px;cursor:pointer;
   display:grid;place-items:center;background:var(--panel)}
 .cbox.on{background:var(--acc);border-color:var(--acc)}
-.cbox.on::after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;transform:rotate(-45deg) translateY(-1px)}
+.cbox.on::after{content:"";width:9px;height:5px;border:2px solid var(--on-solid);border-top:0;border-right:0;transform:rotate(-45deg) translateY(-1px)}
 .who{min-width:0} .who .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .who .nm{font-weight:700} .who .lg{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut)}
 .who .meta{font-size:12px;color:var(--ink2);margin-top:2px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
@@ -71,7 +70,7 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
 .ghint b{color:var(--ink)} .ghint button{padding:3px 9px;font-size:11px;box-shadow:none}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden}
 .seg button{border:0;border-radius:0;background:var(--panel);color:var(--ink2);padding:7px 16px;box-shadow:none}
-.seg button.on{background:var(--acc);color:#fff}
+.seg button.on{background:var(--acc);color:var(--on-solid)}
 .emails{display:flex;flex-direction:column;gap:5px}
 .erow{display:flex;align-items:center;gap:8px;font-size:13px;background:var(--panel2);border-radius:8px;padding:6px 9px}
 .erow .x{color:var(--mut);cursor:pointer;font-weight:700} .erow .x:hover{color:var(--bad)}
@@ -91,7 +90,7 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
   border-radius:13px;box-shadow:var(--sh-lift);display:flex;align-items:center;gap:12px;padding:10px 15px;font-size:13px;font-weight:600}
 .bulk.hidden{display:none}
 .bulk select{background:transparent;color:var(--bg);border:1px solid color-mix(in srgb,var(--bg) 35%,transparent);
-  border-radius:8px;padding:6px 9px;box-shadow:none} .bulk select option{color:#111}
+  border-radius:8px;padding:6px 9px;box-shadow:none} .bulk select option{color:var(--option-fg)}
 .bulk .bb{border:1px solid color-mix(in srgb,var(--bg) 35%,transparent);background:transparent;color:var(--bg);
   border-radius:8px;padding:6px 11px;box-shadow:none} .bulk .bb:hover{background:color-mix(in srgb,var(--bg) 15%,transparent)}
 .bulk .clear{color:color-mix(in srgb,var(--bg) 70%,transparent);cursor:pointer}

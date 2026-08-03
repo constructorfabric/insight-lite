@@ -11,11 +11,76 @@
   --mut:#8a93a3;   /* muted text — labels, meta */
   --acc:#5b5bf0;   /* primary action */
   --acc-ink:#4a45d6;   /* link / pressed action */
+  --on-solid:#ffffff;   /* text/icons on any saturated fill (--acc, --good, --bad) */
   --good:#0f9d58;   /* success */
   --good-bg:#e7f6ee;   /* success surface */
   --warn:#b7791f;   /* warning */
   --bad:#e5484d;   /* danger */
   --bad-bg:#fdeaea;   /* danger surface */
+  --bad-soft:#fff5f5;   /* the failed-to-load card's fill (set from TS) */
+  --acc-soft:#edecfe;   /* accent surface — chips, selected rows */
+  --acc-bg:#eeeefe;   /* accent surface, identity page's one-off shade */
+  --warn-bg:#fbf3e2;   /* warning surface, identity page */
+  --dup:#5b5bf0;   /* duplicate-identity marker (same hue as --acc) */
+  --star:#f5a623;   /* rating star, calibrate page */
+  --violet:#8b5cf6;   /* computed-metric accent */
+  --violet-bg:#f0ebfe;   /* computed-metric surface */
+  --code-bg:#0d1117;   /* code block fill */
+  --code-fg:#c9d1d9;   /* code block text */
+  --chg-design:#8250df;   /* changelog 'design' category (was a second --app) */
+  --chg-design-bg:rgba(130,80,223,.14);   /* its pill fill */
+  --swatch-empty:#888888;   /* a work-type with no colour set yet */
+  --company-empty:#8b949e;   /* a company with no colour pinned or derived */
+  /* chart */
+  --plat:#5b5bf0;   /* platform effort */
+  --app:#8b5cf6;   /* application effort */
+  --c-commit:#5b5bf0;
+  --c-loc:#8b5cf6;
+  --c-pr:#2f80ed;
+  --c-spec:#f59e0b;
+  --c-bug:#ef4444;
+  --c-epic:#8b5cf6;
+  --c-story:#10b981;
+  --c-feature:#10b981;
+  --c-people:#06b6d4;
+  --c-other:#9aa3b2;   /* uncategorised / 'Other' */
+  /* category */
+  --cat-bug:#ef4444;
+  --cat-feature:#10b981;
+  --cat-task:#8b5cf6;
+  --cat-epic:#5b5bf0;
+  --cat-spec:#f59e0b;
+  --cat-docs:#06b6d4;
+  --cat-test:#2f80ed;
+  --cat-other:#9aa3b2;
+  /* status */
+  --pill-good-bg:#dafbe1;   /* org member, verified identity */
+  --pill-good-fg:#116329;
+  --pill-attn-bg:#fff8c5;   /* external, name-matched identity */
+  --pill-attn-fg:#7d4e00;
+  --pill-bad-bg:#ffebe9;   /* unresolved identity */
+  --pill-bad-fg:#cf222e;
+  --exact-bg:#eafff0;   /* 'exact' evidence badge */
+  --exact-fg:#1a7f37;
+  --heur-bg:#fff8e6;   /* 'heuristic' evidence badge */
+  --heur-fg:#9a6700;
+  --exp-bg:#f59e0b22;   /* 'experimental' badge — amber at 13% / 33% */
+  --exp-line:#f59e0b55;
+  --exp-fg:#c77700;
+  --good-line:#a0d8b0;   /* healthy card / status border */
+  --warn-line:#e8d8a0;   /* at-risk card / status border */
+  --bad-line:#e6a0a0;   /* failed status border */
+  --run-line:#a9c7ea;   /* job in progress */
+  --run-bg:#f0f6fc;
+  --tag-ext-line:#d4b75c;   /* 'external' tag border */
+  --tag-legacy-line:#c4a7e7;   /* 'legacy' tag border */
+  --period-line:#aacbf0;   /* active period tag border */
+  --row-hover:#f7f8fc;   /* table row hover */
+  --row-alt:#f4f5f7;   /* grouped table, even first cell */
+  --row-alt-hover:#e9f2fc;
+  --tooltip-bg:#1f2328;   /* tooltip and log surfaces — dark, so text on it is --on-solid */
+  --chat-tool-bg:#f6f8fa;   /* tool-call block in the chat log */
+  --option-fg:#111111;   /* native <option> text, which ignores most inherited colour */
   /* radius */
   --r:16px;   /* card */
   --r-sm:12px;   /* inner card, control */

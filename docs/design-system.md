@@ -27,10 +27,11 @@ adopting that kit is a known number rather than a guess.
 | 2 | `frontend/src/styles/tokens.css`, [`backend/tokens.py`](../backend/tokens.py) | the same, per path | **Generated** from #1 — do not edit |
 | 2a | [`base.css`](../frontend/src/styles/base.css), [`shell.py`](../backend/shell.py) `_FONTS_CSS` | the `@font-face` pair only | **Live** — the one thing the paths must *not* share (`font-display` block vs swap) |
 | 3 | [`backend/shell.py:152`](../backend/shell.py) `SHELL_CSS`, `CHART_CSS` | sidebar/chrome + chart surfaces | **Live** |
-| 4 | 21 stylesheets in [`frontend/src/styles/`](../frontend/src/styles) | per-page component layout | **Live** |
-| 5 | 7 of those add page-local `:root` blocks | `--acc-soft`, `--acc-bg`, `--warn-bg`, `--dup`, `--star`, `--plat`, `--app`, `--violet`, `--code-bg`, `--c-*` | **Live** — see below, including two name collisions |
-| 6 | 51 distinct hex literals in CSS (137 occurrences) | one-off colours | **Live** — the main blocker for a dark theme |
-| 7 | 17 distinct hex literals in `.ts`/`.tsx` | chart colours passed as recharts props | **Live** |
+| 4 | 21 stylesheets in [`frontend/src/styles/`](../frontend/src/styles) | per-page component layout | **Live** — layout only; they hold no colour values now |
+| 5 | ~~7 page-local `:root` blocks~~ | `--acc-soft`, `--acc-bg`, `--warn-bg`, `--dup`, `--star`, `--plat`, `--app`, `--violet`, `--code-bg`, `--c-*` | **Gone** — all moved into `design/tokens.json` |
+| 6 | ~~51 distinct hex literals in CSS~~ | one-off colours | **Gone** — 0 remain outside the generated `tokens.css` |
+| 7 | ~~11 colour literals in `.ts`/`.tsx`~~ | inline styles, score bands, palettes | **Gone** — now `frontend/src/lib/tokens.ts` |
+| 7a | **68 distinct colour literals in `backend/*.py`** | `_ELEM_PALETTE`, `_PILLAR_COLORS`, `_WORKTYPE_COLORS`, `_BAND_COLORS`, chart series colours, element defaults | **Live — not yet done, see below** |
 | 8 | ~~`backend/server.py` `SETUP_HTML`~~ | a whole pre-React page, own `:root` with an older GitHub-ish palette | **Removed** — it was dead; `/setup` is `render_spa_page("setup", …)` and its styles live in [`setup.css`](../frontend/src/styles/setup.css) |
 | 9 | ~~`backend/calibrate.py` `_HTML`~~ | own `:root` + a full page | **Removed** — it was dead code, never referenced; `/calibrate` is served by `render_spa_page` ([`server.py:2375`](../backend/server.py)) |
 
@@ -47,6 +48,31 @@ history rather than a live symbol.
 
 Still outstanding from the same era: the unused `send_html_file_with_nav` method on
 the request handler.
+
+### The third palette: `backend/*.py`
+
+The first version of this audit surveyed CSS and TypeScript and missed the largest
+single group of colour literals in the repository. `backend/render.py` and
+`backend/collect.py` hold **68 distinct** colours that the server computes and sends
+to the client in payloads — a chart series' `color`, an element's default colour, a
+score band, a work-type hue:
+
+| Python | Duplicates |
+|---|---|
+| `_ELEM_PALETTE` ([render.py:823](../backend/render.py)) | exactly `palettes.category_swatches` — the same eight colours in the same order |
+| `_PILLAR_COLORS` ([render.py:913](../backend/render.py)) | exactly `palettes.pillar_colors` |
+| `_WORKTYPE_COLORS`, `_BAND_COLORS` | overlap the `chart/*` hues |
+| `collect.py:75` element defaults | `--plat` and `--app` |
+
+These are not styling — they are data values in an API response, which is why they
+live in Python and why CSS custom properties cannot reach them. But they are the same
+design decisions, so they belong in the same source. The generator already emits
+Python; it emits a CSS *string*, not values. Making `backend/tokens.py` also export a
+`VALUES` dict would close this, and would let `PersonScore`'s legend swatches stop
+mirroring server-sent colours by hand (see the comment in `Trend.tsx`).
+
+Until that happens, `design/tokens.json` says so in its own `palettes._note`, and the
+duplication is documented rather than silent.
 
 ### The page-local token additions
 
@@ -314,15 +340,41 @@ cannot reach a JS prop — and it lands with step 4, when the `--c-*` series mov
    **Done** — and it went further than planned: the element base is shared too, so the
    only hand-duplicated CSS left between the paths is the `@font-face` pair that must
    differ. Verified: both paths' rendered CSS is rule-for-rule unchanged.
-4. **Lift** the page-local `:root` additions and the 61 CSS hex literals into the
-   JSON, separating the `--c-*` chart series from the action palette while doing it
-   (this is what unblocks both the dark theme and the `#8b5cf6` role collision), and
-   emit `frontend/src/lib/tokens.ts` for the 17 hex literals in TS/TSX.
+4. ~~**Lift** the page-local `:root` additions and the CSS/TS hex literals into the
+   JSON~~ **Done for the frontend.** 81 tokens in the generated set; **zero** colour
+   literals left in `frontend/src/styles/*.css` or in `.ts`/`.tsx` outside the
+   generated modules. The two name collisions were resolved by naming rather than by
+   picking a winner: the wizard's palette became `--cat-*` (a separate
+   work-category set, consumed by name from `SemanticWizard.tsx`) and the changelog's
+   second `--app` became `--chg-design`. Verified by the pixel gate — 48 routes, 0
+   pixels changed.
+4b. **Not done:** the 68 backend literals above. Needs `backend/tokens.py` to export
+   values, not just a CSS string.
 5. **Then** the visual decisions become one-file edits: fix `--mut` and the status
    colours to pass AA; collapse the radius set; add the dark palette.
 
 Steps 1–4 carry no design decision and no visual change. They are worth doing
 whether or not the Fabric kit is adopted.
+
+### How step 4 was verified
+
+`frontend/visual/` is a Playwright + pixelmatch harness over 48 route/state
+screenshots at a 0.1% threshold. The sequence was: capture a baseline before touching
+anything, then re-capture and diff after each batch. It earned its keep immediately —
+the first attempt at stripping `var(--token, #fallback)` fallbacks assumed every
+token was global, and `/views` came back **8.87% changed**, because `--code-bg`,
+`--code-fg`, `--c-bug` and `--acc-soft` were defined in *other* pages' stylesheets. On
+`/views` the fallback was the live value, and removing it turned the dark code block
+transparent. 24 fallbacks were genuinely dead and went; 15 of those had a value that
+already disagreed with the real token (`--panel2`'s fallback said `#eaeef2`, the token
+says `#eef1f5`), which is what stale copies look like.
+
+Re-run it with a server on demo data:
+
+```bash
+python3 backend/reportctl.py demo-seed && python3 backend/reportctl.py serve --port 8099
+cd frontend && node visual/capture.mjs --base http://127.0.0.1:8099 --out visual/candidate && node visual/diff.mjs
+```
 
 ### Fixes that do not need any of the above
 

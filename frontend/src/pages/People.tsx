@@ -16,6 +16,7 @@ import { GhLink, BarList, MiniStats, type BarRowProps } from "../widgets";
 import { useReportData, useReportQuery } from "../hooks/useReportData";
 import { fmtLoc, fmtNum, fmtPct } from "../lib/format";
 import Loading from "../components/Loading";
+import { token } from "../lib/tokens";
 
 type CategoryRow = { login: string; email: string; value: number; pct: number };
 type Category = {
@@ -394,7 +395,7 @@ export default function People() {
       />
 
       {data.dataQuality.apiRateLimited && (
-        <div className="card" style={{ borderColor: "var(--bad)", background: "#fff5f5" }}>
+        <div className="card" style={{ borderColor: "var(--bad)", background: token["bad-soft"] }}>
           <p style={{ margin: 0, color: "var(--bad)", fontWeight: 600 }}>
             ⚠ GitHub API rate limit hit during collection — this report is PARTIAL.
             {data.dataQuality.apiReset && ` Quota resets at ${data.dataQuality.apiReset}.`} Re-run collection

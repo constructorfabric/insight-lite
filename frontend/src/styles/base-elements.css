@@ -31,7 +31,7 @@
     box-shadow:var(--sh);transition:border-color .12s,background .12s,box-shadow .12s}
   button:hover,.btn:hover,a.btn:hover{border-color:var(--line2);box-shadow:var(--sh-lift)}
   button.primary,.btn.primary,a.btn.primary,input[type=submit]{background:var(--acc);
-    border-color:var(--acc);color:#fff;box-shadow:0 4px 12px rgba(91,91,240,.28)}
+    border-color:var(--acc);color:var(--on-solid);box-shadow:0 4px 12px rgba(91,91,240,.28)}
   button.primary:hover,.btn.primary:hover{background:var(--acc-ink);border-color:var(--acc-ink)}
   button:disabled,.btn:disabled{opacity:.5;cursor:default;box-shadow:none}
   /* Form controls */

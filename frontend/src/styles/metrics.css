@@ -5,9 +5,6 @@
    are overridden by base.css and are dead. What survives (and is needed here):
    the EXTRA design tokens base.css doesn't define, plus the page-block selectors
    (.bar/.group/.m/… + h1/.sub/main.wrap, which base/shell don't conflict on). */
-:root{
-  --acc-soft:#edecfe;--violet:#8b5cf6;--violet-bg:#f0ebfe;--code-bg:#0d1117;--code-fg:#c9d1d9;
-}
 /* Resets the standalone legacy template carried in its own <style> that
    base.css does NOT provide (report.css does the same for the report views):
    `body{margin:0}` (else the browser's default 8px body margin shifts the whole
@@ -27,7 +24,7 @@ h1{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
 .search svg{width:17px;height:17px;stroke:var(--mut);fill:none;stroke-width:2;flex:none}
 .seg{display:inline-flex;border:1px solid var(--line2,var(--line));border-radius:10px;overflow:hidden;box-shadow:var(--sh)}
 .seg button{border:none;background:var(--panel);color:var(--ink2,var(--mut));padding:9px 13px;font:600 12.5px/1 inherit;cursor:pointer}
-.seg button.on{background:var(--acc);color:#fff}
+.seg button.on{background:var(--acc);color:var(--on-solid)}
 .expandbtn{border:1px solid var(--line2,var(--line));background:var(--panel);color:var(--ink2,var(--mut));
   border-radius:10px;padding:9px 13px;font:600 12.5px/1 inherit;cursor:pointer;box-shadow:var(--sh)}
 .navchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
