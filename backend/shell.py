@@ -209,9 +209,26 @@ SHELL_CSS = """
   /* Manage sits at the bottom of the rail, the way it sat at the bottom of the
      single column — it is tooling, not a view of the data. */
   .sb-rail .rz-bottom{margin-top:auto}
-  .rz{position:relative;display:flex;align-items:center;justify-content:center;
+  /* The anchor is 44px while the rail is shut and the FULL 208px while it is open, so
+     the label you can see is the thing you click.
+     It used to stay 44px always. The labels were decoration — pointer-events:none — and
+     moving the mouse towards the word you wanted took the pointer out of the 44px column,
+     which shut the rail before you got there. People aim at what they can read.
+     Widening only WHILE OPEN is what keeps that from costing anything: a shut rail is
+     still 44px, so approaching the pane from the content side never opens the rail over
+     the row you were reaching for. And because these anchors are children of .sb-rail,
+     the pointer sitting on one keeps :hover on the rail — the open state sustains itself
+     rather than fighting the thing that opened it.
+     `justify-content:flex-start` with 12.5px of padding puts the 19px glyph exactly where
+     `center` put it in a 44px box, so nothing moves between the two states. */
+  .rz{position:relative;display:flex;align-items:center;justify-content:flex-start;
+    padding-left:12.5px;box-sizing:border-box;
     width:44px;height:40px;flex:none;color:var(--ink2,#475467);
-    text-decoration:none;cursor:pointer}
+    text-decoration:none;cursor:pointer;
+    transition:width 0s .1s}
+  /* Timed to the fill (see .sb-rail::before): the hit area may never be wider than the
+     panel is visible, or a shut rail would swallow clicks meant for the pane. */
+  .sb-rail:hover .rz,.sb-rail:focus-within .rz{width:208px;transition:width 0s .18s}
   /* The hover/active BACKGROUND is a pseudo-element, not the anchor's own, because
      the two have to be different sizes: the anchor stays 44px so the pointer never
      strays over the pane, while the highlight has to grow with the open rail and wrap
@@ -258,6 +275,7 @@ SHELL_CSS = """
      Leaving and returning re-enables it. Two classes beat the one-class rules above,
      which is what makes this an override rather than a fight. */
   .sb-rail.rail-dismissed:hover::before{opacity:0;transition-delay:0s}
+  .sb-rail.rail-dismissed:hover .rz{width:44px;transition:width 0s}
   .sb-rail.rail-dismissed:hover .rz::before{width:44px;transition:width 0s}
   .sb-rail.rail-dismissed:hover .rz-l{opacity:0;transform:translate(-6px,-50%);
     transition-delay:0s}
