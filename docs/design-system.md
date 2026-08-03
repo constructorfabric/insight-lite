@@ -31,7 +31,7 @@ adopting that kit is a known number rather than a guess.
 | 5 | ~~7 page-local `:root` blocks~~ | `--acc-soft`, `--acc-bg`, `--warn-bg`, `--dup`, `--star`, `--plat`, `--app`, `--violet`, `--code-bg`, `--c-*` | **Gone** — all moved into `design/tokens.json` |
 | 6 | ~~51 distinct hex literals in CSS~~ | one-off colours | **Gone** — 0 remain outside the generated `tokens.css` |
 | 7 | ~~11 colour literals in `.ts`/`.tsx`~~ | inline styles, score bands, palettes | **Gone** — now `frontend/src/lib/tokens.ts` |
-| 7a | **68 distinct colour literals in `backend/*.py`** | `_ELEM_PALETTE`, `_PILLAR_COLORS`, `_WORKTYPE_COLORS`, `_BAND_COLORS`, chart series colours, element defaults | **Live — not yet done, see below** |
+| 7a | ~~68 distinct colour literals in `backend/*.py`~~ | `_ELEM_PALETTE`, `_PILLAR_COLORS`, `_WORKTYPE_COLORS`, `_BAND_COLORS`, chart series colours, element defaults | **Gone** — they read `backend/tokens.py`'s `VALUES` and palettes, generated from the same source |
 | 8 | ~~`backend/server.py` `SETUP_HTML`~~ | a whole pre-React page, own `:root` with an older GitHub-ish palette | **Removed** — it was dead; `/setup` is `render_spa_page("setup", …)` and its styles live in [`setup.css`](../frontend/src/styles/setup.css) |
 | 9 | ~~`backend/calibrate.py` `_HTML`~~ | own `:root` + a full page | **Removed** — it was dead code, never referenced; `/calibrate` is served by `render_spa_page` ([`server.py:2375`](../backend/server.py)) |
 
@@ -49,30 +49,45 @@ history rather than a live symbol.
 Still outstanding from the same era: the unused `send_html_file_with_nav` method on
 the request handler.
 
-### The third palette: `backend/*.py`
+### Why the backend has colours at all
 
-The first version of this audit surveyed CSS and TypeScript and missed the largest
-single group of colour literals in the repository. `backend/render.py` and
-`backend/collect.py` hold **68 distinct** colours that the server computes and sends
-to the client in payloads — a chart series' `color`, an element's default colour, a
-score band, a work-type hue:
+This is the part that surprises people reading the code, so it is worth stating
+plainly: the server attaches a colour **to the data**, not to the page.
 
-| Python | Duplicates |
-|---|---|
-| `_ELEM_PALETTE` ([render.py:823](../backend/render.py)) | exactly `palettes.category_swatches` — the same eight colours in the same order |
-| `_PILLAR_COLORS` ([render.py:913](../backend/render.py)) | exactly `palettes.pillar_colors` |
-| `_WORKTYPE_COLORS`, `_BAND_COLORS` | overlap the `chart/*` hues |
-| `collect.py:75` element defaults | `--plat` and `--app` |
+A stylesheet can say what colour a *class* is. It cannot say what colour *Acme Corp*
+is, because the set of companies comes out of the database at request time — and the
+same is true of product elements, work types, board stages and score bands. So the
+payload for a chart carries `{"name": "Acme Corp", "vals": [...], "color": "#8250df"}`
+and the client draws what it is told.
 
-These are not styling — they are data values in an API response, which is why they
-live in Python and why CSS custom properties cannot reach them. But they are the same
-design decisions, so they belong in the same source. The generator already emits
-Python; it emits a CSS *string*, not values. Making `backend/tokens.py` also export a
-`VALUES` dict would close this, and would let `PersonScore`'s legend swatches stop
-mirroring server-sent colours by hand (see the comment in `Trend.tsx`).
+Company colours are the clearest case, and the reason they are computed rather than
+listed: `store.company_color_map` derives each one from the company **name**, so a
+company keeps its colour when ranks change, when another company is added, and between
+one report and the next. That behaviour is pinned by
+[`tests/test_company_colors.py`](../tests/test_company_colors.py), which exists because
+the first version handed colours out in descending-commit order — two companies
+swapping places swapped colours, in a chart people read week over week.
 
-Until that happens, `design/tokens.json` says so in its own `palettes._note`, and the
-duplication is documented rather than silent.
+What the backend emits, all of it now from `design/tokens.json` via
+[`backend/tokens.py`](../backend/tokens.py):
+
+| Palette | Assigned by | Drives |
+|---|---|---|
+| `COMPANY_PALETTE` + `company-empty` | name hash, or a pin from Manage → Config | company series in contribution and trend charts |
+| `CATEGORY_SWATCHES` | index | product elements, user-defined work types |
+| `ELEMENT_DEFAULTS` | fixed | the built-in `platform` / `app` elements |
+| `WORKTYPE_COLORS` | key | conventional-commit type rollup (feat/fix/docs/…) |
+| `FLOW_STAGE_COLORS` | key | board stages (backlog → released) |
+| `BAND_COLORS`, `PILLAR_COLORS`, `score-*` | key / threshold | developer-score bands, pillars, cell shading |
+| `SERIES_COLORS` | key | named series — Opened, Merged, Median TTM, Contributors, rework |
+
+Before this, those were 68 literals in `render.py`, `store.py`, `collect.py` and
+`semantic_metrics.py`. Three of them — `_ELEM_PALETTE`, `store._PAL`, `store._ppal` —
+were the *same eight-colour list copied three times*; counting the design source and
+`lib/tokens.ts`, that one palette existed five times across three languages.
+`_PILLAR_COLORS` was a byte-identical twin of the TS `PCOLOR` map, and `Trend.tsx`'s
+legend swatches were hand-matched to the series colours `render.py` emits — two files
+that had to change together with nothing saying so.
 
 ### The page-local token additions
 
@@ -329,6 +344,15 @@ cannot reach a JS prop — and it lands with step 4, when the `--c-*` series mov
 - **Contrast** — every body-text pair declared in the JSON against WCAG 2.2 AA, with
   today's eight failures pinned at their measured ratios so a *new* one fails the build
   and a fixed one is a deleted line.
+- **No stray colours** — no colour literal in any stylesheet, component, or backend
+  module outside the generated files. Read its docstring before trusting it: two
+  earlier versions of the backend half were vacuous and looked perfectly fine. A regex
+  stripping Python comments (`#[^\n]*`) also eats `"#abcdef"` inside a string, which is
+  the thing being searched for; and skipping docstrings by "the previous token ended a
+  statement" also skips the second line of an implicitly-concatenated string. It is
+  `ast`-based now, and each language's guard has been checked to fail on an injected
+  colour — including inside an f-string and across a concatenation — and to stay quiet
+  for comments and docstrings.
 
 ### Order of work
 
@@ -348,8 +372,11 @@ cannot reach a JS prop — and it lands with step 4, when the `--c-*` series mov
    work-category set, consumed by name from `SemanticWizard.tsx`) and the changelog's
    second `--app` became `--chg-design`. Verified by the pixel gate — 48 routes, 0
    pixels changed.
-4b. **Not done:** the 68 backend literals above. Needs `backend/tokens.py` to export
-   values, not just a CSS string.
+4b. ~~The 68 backend literals~~ **Done.** `backend/tokens.py` now also exports `VALUES`
+   and eight palettes, and `render.py` / `store.py` / `collect.py` /
+   `semantic_metrics.py` read from them. Also removed on the way: 54 lines of dead
+   page rendering in `views_catalog.py` (a fifth copy of the `/views` CSS) and 14
+   stale `var(--token,#hex)` fallbacks in `shell.SHELL_CSS`.
 5. **Then** the visual decisions become one-file edits: fix `--mut` and the status
    colours to pass AA; collapse the radius set; add the dark palette.
 
