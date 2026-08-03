@@ -20,6 +20,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import render
+import tokens
 
 
 def _flow(**over):
@@ -136,7 +137,10 @@ class FlowJsonTest(unittest.TestCase):
         alice, bob = out["flow"]["people"]
         self.assertEqual(alice["login"], "alice")
         self.assertEqual(alice["friction"], "0.4")     # str(round(x,2)) — matches Jinja's raw {{ }}
-        self.assertEqual(alice["frictionColor"], "#10b981")   # < 0.5 -> green
+        # From the token source, not a literal: the friction bands ARE the score bands
+        # (render.py picks them from tokens.VALUES), and pinning the hex here would put
+        # a second copy of the palette in the tests.
+        self.assertEqual(alice["frictionColor"], tokens.VALUES["score-good"])  # < 0.5
         self.assertEqual(alice["ttmMed"], "18h")
         self.assertEqual(alice["ttfrMed"], "3h")
         # bob has no friction score -> None/None, matching the template's "—" branch
@@ -154,7 +158,9 @@ class FlowJsonTest(unittest.TestCase):
              "extra_reqs": 0, "cr_rounds": 0, "cr_prs": 0, "ttm_med": None, "ttfr_med": None},
         ])}, _meta())
         colors = [p["frictionColor"] for p in out["flow"]["people"]]
-        self.assertEqual(colors, ["#10b981", "#f59e0b", "#ef4444"])
+        self.assertEqual(colors, [tokens.VALUES["score-good"],
+                                  tokens.VALUES["score-mid"],
+                                  tokens.VALUES["score-bad"]])
 
     def test_cfd_carries_the_series_the_client_stacks(self):
         # DATA, not a spec: the client draws with Recharts, so what crosses is the

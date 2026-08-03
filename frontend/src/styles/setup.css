@@ -18,17 +18,17 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;font-size:15px;line-height:1.55}
-.wrap{max-width:720px;margin:0 auto;padding:32px 20px 80px}
-h1{font-size:24px;margin:0 0 4px} .lead{color:var(--mut);margin:0 0 24px}
-.step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 20px;margin:0 0 16px}
-.step h2{font-size:16px;margin:0 0 4px} .step.done{border-color:var(--good)}
+.wrap{max-width:720px;margin:0 auto;padding:var(--space-8) var(--space-5) 80px}
+h1{font-size:24px;margin:0 0 var(--space-1)} .lead{color:var(--mut);margin:0 0 var(--space-6)}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--space-5) var(--space-5);margin:0 0 var(--space-4)}
+.step h2{font-size:16px;margin:0 0 var(--space-1)} .step.done{border-color:var(--good)}
 .snum{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--panel2);
-  color:var(--mut);text-align:center;font-size:12px;font-weight:700;line-height:22px;margin-right:8px}
+  color:var(--mut);text-align:center;font-size:12px;font-weight:700;line-height:22px;margin-right:var(--space-2)}
 .step.done .snum{background:var(--good);color:var(--on-solid)}
-.hint{color:var(--mut);font-size:13px;margin:4px 0 12px}
-label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+.hint{color:var(--mut);font-size:13px;margin:var(--space-1) 0 var(--space-3)}
+label{display:block;font-size:13px;font-weight:600;margin:10px 0 var(--space-1)}
 input{width:100%}
 .row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .msg{font-size:13px} .msg.ok{color:var(--good)} .msg.err{color:var(--bad)}
-pre{background:var(--code-bg);color:var(--code-fg);border-radius:var(--r-md);padding:12px;overflow:auto;font-size:12px;max-height:220px}
-.step{border-radius:var(--r-lg);box-shadow:var(--sh)} .step.done{border-color:var(--good)}
+pre{background:var(--code-bg);color:var(--code-fg);border-radius:var(--r-md);padding:var(--space-3);overflow:auto;font-size:12px;max-height:220px}
+.step{border-radius:var(--r-lg)} .step.done{border-color:var(--good)}

@@ -53,22 +53,22 @@ TOKENS_CSS = """
     --c-commit:#5b5bf0;
     --c-loc:#8b5cf6;
     --c-pr:#2f80ed;
-    --c-spec:#f59e0b;
+    --c-spec:#ce8508;
     --c-bug:#ef4444;
     --c-epic:#8b5cf6;
-    --c-story:#10b981;
-    --c-feature:#10b981;
-    --c-people:#06b6d4;
+    --c-story:#0fa976;
+    --c-feature:#0fa976;
+    --c-people:#05a3be;
     --c-other:#9aa3b2;   /* uncategorised / 'Other' */
     --app-fg:#814df5;   /* --app as TEXT (.tag.legacy, chart legend label) */
     --c-bug-fg:#e11313;   /* --c-bug as TEXT (the 'required' marker, a gap cell) */
     /* category */
     --cat-bug:#ef4444;
-    --cat-feature:#10b981;
+    --cat-feature:#0fa976;
     --cat-task:#8b5cf6;
     --cat-epic:#5b5bf0;
-    --cat-spec:#f59e0b;
-    --cat-docs:#06b6d4;
+    --cat-spec:#ce8508;
+    --cat-docs:#05a3be;
     --cat-test:#2f80ed;
     --cat-other:#9aa3b2;
     /* status */
@@ -82,8 +82,8 @@ TOKENS_CSS = """
     --exact-fg:#1a7f37;
     --heur-bg:#fff8e6;   /* 'heuristic' evidence badge */
     --heur-fg:#9a6700;
-    --exp-bg:#f59e0b22;   /* 'experimental' badge — amber at 13% / 33% */
-    --exp-line:#f59e0b55;
+    --exp-bg:#ce850822;   /* 'experimental' badge — amber at 13% / 33% */
+    --exp-line:#ce850855;
     --exp-fg:#9a5c00;   /* Darkened 2026-08-03 from #c77700, which was 3.13:1 on the badge fill. --exp-bg is amber at 13% alpha, compositing to #fef2de over a card, so the fill is far lighter than its hex suggests. */
     --good-line:#a0d8b0;   /* healthy card / status border */
     --warn-line:#e8d8a0;   /* at-risk card / status border */
@@ -99,6 +99,14 @@ TOKENS_CSS = """
     --tooltip-bg:#1f2328;   /* tooltip and log surfaces — dark even in the light theme, so its text is --tooltip-fg, not --on-solid */
     --chat-tool-bg:#f6f8fa;   /* tool-call block in the chat log */
     --option-fg:#111111;   /* native <option> text, which ignores most inherited colour */
+    /* space */
+    --space-1:4px;
+    --space-2:8px;
+    --space-3:12px;
+    --space-4:16px;
+    --space-5:20px;
+    --space-6:24px;
+    --space-8:32px;
     /* radius */
     --r-xs:4px;   /* legend swatch, thin bar */
     --r-sm:6px;   /* inline code, small chip. WAS 12px until 2026-08-03 — every var(--r-sm) was remapped to --r-lg in the same commit. */
@@ -107,8 +115,7 @@ TOKENS_CSS = """
     --r-xl:16px;   /* card. Was --r. */
     --r-pill:999px;   /* fully-rounded chip, badge, tag */
     /* shadow */
-    --sh:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);   /* resting card / button */
-    --sh-lift:0 10px 30px rgba(16,24,40,.10);   /* hover / floating */
+    --elev:0 8px 24px rgba(16,24,40,.28);   /* floating, focused or hover-lifted surface */
   }
 
   /* The OS preference, honoured before any JS runs. */
@@ -158,8 +165,8 @@ TOKENS_CSS = """
       --exact-fg:#23aa49;
       --heur-bg:#352c1b;
       --heur-fg:#c98600;
-      --exp-bg:#f59e0b26;
-      --exp-line:#f59e0b66;
+      --exp-bg:#ce850826;
+      --exp-line:#ce850866;
       --exp-fg:#d98200;
       --good-line:#465b52;
       --warn-line:#5e5b4c;
@@ -176,8 +183,7 @@ TOKENS_CSS = """
       --chat-tool-bg:#1b1f27;
       --option-fg:#e7eaf0;
       /* shadow */
-      --sh:0 1px 2px rgba(0,0,0,.40),0 1px 3px rgba(0,0,0,.30);
-      --sh-lift:0 10px 30px rgba(0,0,0,.55);
+      --elev:0 8px 24px rgba(0,0,0,.62);
     }
   }
 
@@ -227,8 +233,8 @@ TOKENS_CSS = """
     --exact-fg:#23aa49;
     --heur-bg:#352c1b;
     --heur-fg:#c98600;
-    --exp-bg:#f59e0b26;
-    --exp-line:#f59e0b66;
+    --exp-bg:#ce850826;
+    --exp-line:#ce850866;
     --exp-fg:#d98200;
     --good-line:#465b52;
     --warn-line:#5e5b4c;
@@ -245,8 +251,7 @@ TOKENS_CSS = """
     --chat-tool-bg:#1b1f27;
     --option-fg:#e7eaf0;
     /* shadow */
-    --sh:0 1px 2px rgba(0,0,0,.40),0 1px 3px rgba(0,0,0,.30);
-    --sh-lift:0 10px 30px rgba(0,0,0,.55);
+    --elev:0 8px 24px rgba(0,0,0,.62);
   }
 """
 
@@ -267,29 +272,23 @@ ELEMENTS_CSS = """
        change (each React route is a full page load). No-op where scrollbars are
        overlay (macOS trackpad) or where the page already scrolls. */
     html{overflow-y:scroll}
-    /* margin:0 belongs here, not per page: most pages reset it in their own CSS but
-       /identity and /views never did (their legacy templates didn't either), so the
-       browser's default 8px shifted the WHOLE page — sidebar included — right and
-       down on those routes. Shared = both the React shell and the legacy pages get
-       the reset, so pixel-parity holds while the routes stop disagreeing. */
-    body{margin:0;background:var(--bg);color:var(--ink);
-      font-family:'Jakarta','Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    /* margin:0 belongs here, not per page: most pages reset it in their own CSS but /identity and /views never did (their legacy templates didn't either), so the browser's default var(--space-2) shifted the WHOLE page — sidebar included — right and down on those routes. Shared = both the React shell and the legacy pages get the reset, so pixel-parity holds while the routes stop disagreeing. */ body{margin:0;background:var(--bg);color:var(--ink);
+      font-family:'Inter','Jakarta',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
       -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
     h1,h2,h3{letter-spacing:-.02em}
     h1{font-weight:800} h2,h3{font-weight:700}
     .num{font-variant-numeric:tabular-nums;letter-spacing:-.02em}
     a{color:var(--acc-ink)}
-    /* Buttons — pill-ish, Jakarta, indigo primary. Matches the report chrome. */
+    /* Buttons — indigo primary, on the kit's control radius. Matches the report chrome. */
     button,.btn,a.btn,input[type=submit]{border:1px solid var(--line2);background:var(--panel);
-      color:var(--ink);border-radius:var(--r-md);padding:8px 14px;font:600 13.5px/1.4 inherit;cursor:pointer;
-      box-shadow:var(--sh);transition:border-color .12s,background .12s,box-shadow .12s}
-    button:hover,.btn:hover,a.btn:hover{border-color:var(--line2);box-shadow:var(--sh-lift)}
+      color:var(--ink);border-radius:var(--r-md);padding:var(--space-2) var(--space-4);font:600 13.5px/1.4 inherit;cursor:pointer;transition:border-color .12s,background .12s,box-shadow .12s}
+    button:hover,.btn:hover,a.btn:hover{border-color:var(--line2);box-shadow:var(--elev)}
     button.primary,.btn.primary,a.btn.primary,input[type=submit]{background:var(--acc);
       border-color:var(--acc);color:var(--on-solid);box-shadow:0 4px 12px rgba(91,91,240,.28)}
     button.primary:hover,.btn.primary:hover{background:var(--acc-ink);border-color:var(--acc-ink)}
     button:disabled,.btn:disabled{opacity:.5;cursor:default;box-shadow:none}
     /* Form controls */
-    input,select,textarea{border:1px solid var(--line2);border-radius:var(--r-md);padding:8px 11px;
+    input,select,textarea{border:1px solid var(--line2);border-radius:var(--r-md);padding:var(--space-2) 11px;
       font:inherit;font-size:14px;background:var(--panel);color:var(--ink)}
     input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);
       box-shadow:0 0 0 3px rgba(91,91,240,.14)}
@@ -337,21 +336,21 @@ VALUES = {
     "c-commit": "#5b5bf0",
     "c-loc": "#8b5cf6",
     "c-pr": "#2f80ed",
-    "c-spec": "#f59e0b",
+    "c-spec": "#ce8508",
     "c-bug": "#ef4444",
     "c-epic": "#8b5cf6",
-    "c-story": "#10b981",
-    "c-feature": "#10b981",
-    "c-people": "#06b6d4",
+    "c-story": "#0fa976",
+    "c-feature": "#0fa976",
+    "c-people": "#05a3be",
     "c-other": "#9aa3b2",
     "app-fg": "#814df5",
     "c-bug-fg": "#e11313",
     "cat-bug": "#ef4444",
-    "cat-feature": "#10b981",
+    "cat-feature": "#0fa976",
     "cat-task": "#8b5cf6",
     "cat-epic": "#5b5bf0",
-    "cat-spec": "#f59e0b",
-    "cat-docs": "#06b6d4",
+    "cat-spec": "#ce8508",
+    "cat-docs": "#05a3be",
     "cat-test": "#2f80ed",
     "cat-other": "#9aa3b2",
     "pill-good-bg": "#dafbe1",
@@ -364,8 +363,8 @@ VALUES = {
     "exact-fg": "#1a7f37",
     "heur-bg": "#fff8e6",
     "heur-fg": "#9a6700",
-    "exp-bg": "#f59e0b22",
-    "exp-line": "#f59e0b55",
+    "exp-bg": "#ce850822",
+    "exp-line": "#ce850855",
     "exp-fg": "#9a5c00",
     "good-line": "#a0d8b0",
     "warn-line": "#e8d8a0",
@@ -381,25 +380,31 @@ VALUES = {
     "tooltip-bg": "#1f2328",
     "chat-tool-bg": "#f6f8fa",
     "option-fg": "#111111",
-    "score-good": "#10b981",
-    "score-mid": "#f59e0b",
+    "score-good": "#0fa976",
+    "score-mid": "#ce8508",
     "score-bad": "#ef4444",
+    "space-1": "4px",
+    "space-2": "8px",
+    "space-3": "12px",
+    "space-4": "16px",
+    "space-5": "20px",
+    "space-6": "24px",
+    "space-8": "32px",
     "r-xs": "4px",
     "r-sm": "6px",
     "r-md": "8px",
     "r-lg": "12px",
     "r-xl": "16px",
     "r-pill": "999px",
-    "sh": "0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)",
-    "sh-lift": "0 10px 30px rgba(16,24,40,.10)",
+    "elev": "0 8px 24px rgba(16,24,40,.28)",
 }
 
 CATEGORY_SWATCHES = [
     "#5b5bf0",
     "#8b5cf6",
-    "#f59e0b",
-    "#06b6d4",
-    "#10b981",
+    "#ce8508",
+    "#05a3be",
+    "#0fa976",
     "#ef4444",
     "#2f80ed",
     "#d946ef",
@@ -407,41 +412,42 @@ CATEGORY_SWATCHES = [
 
 # Company series colours, assigned by a name-derived hash (store.company_color_map) so
 # a company keeps its colour as ranks change. The teal was #0a7ea4, which sat 58 units
-# from the blue in RGB — close enough that two adjacent series read as one colour;
-# #14b8a6 is 95 from its nearest neighbour.
+# from the blue in RGB — close enough that two adjacent series read as one colour; it
+# became #14b8a6, 95 from its nearest neighbour, and then #12a796 when the palette was
+# darkened for legibility on white.
 COMPANY_PALETTE = [
     "#0969da",
     "#8250df",
     "#1a7f37",
     "#bf8700",
     "#cf222e",
-    "#14b8a6",
+    "#12a796",
     "#d946ef",
     "#6e7781",
 ]
 
 PILLAR_COLORS = {
     "engagement": "#5b5bf0",
-    "delivery": "#06b6d4",
-    "craft": "#10b981",
-    "flow": "#f59e0b",
+    "delivery": "#05a3be",
+    "craft": "#0fa976",
+    "flow": "#ce8508",
 }
 
 BAND_COLORS = {
-    "Strong": "#10b981",
+    "Strong": "#0fa976",
     "Solid": "#2f80ed",
-    "Developing": "#f59e0b",
+    "Developing": "#ce8508",
     "Building": "#ef4444",
 }
 
 WORKTYPE_COLORS = {
     "feat": "#5b5bf0",
     "fix": "#ef4444",
-    "docs": "#06b6d4",
-    "test": "#10b981",
+    "docs": "#05a3be",
+    "test": "#0fa976",
     "refactor": "#8b5cf6",
     "chore": "#9aa3b2",
-    "perf": "#f59e0b",
+    "perf": "#ce8508",
     "build": "#2f80ed",
     "ci": "#d946ef",
     "style": "#a3a3a3",
@@ -451,11 +457,11 @@ WORKTYPE_COLORS = {
 
 FLOW_STAGE_COLORS = {
     "backlog": "#9aa3b2",
-    "ready": "#06b6d4",
+    "ready": "#05a3be",
     "in_progress": "#8b5cf6",
-    "review": "#f59e0b",
+    "review": "#ce8508",
     "qa": "#2f80ed",
-    "done": "#10b981",
+    "done": "#0fa976",
     "released": "#5b5bf0",
 }
 
@@ -469,20 +475,19 @@ ELEMENT_DEFAULTS = {
 # hand-matched literals. These are PAYLOAD colours: the server picks them without
 # knowing the client's theme, so each has to work on both. `total` was #1f2328 —
 # near-black, chosen for a white page, and 1.10:1 on the dark surface, i.e. invisible.
-# It is now a neutral that clears 3:1 both ways (4.19 light / 4.16 dark). Several hues
-# here still fall below 3:1 on WHITE (#f59e0b 2.15, #10b981 2.54); that predates the
-# dark theme and repainting the chart palette is a design decision, not a fix — see
-# docs/design-system.md.
+# It is now a neutral that clears 3:1 both ways (4.19 light / 4.16 dark). Every value
+# here now clears 3:1 on both page colours; see _chart_contrast_note above for the
+# four that did not.
 SERIES_COLORS = {
     "total": "#787c84",
     "opened": "#2f80ed",
-    "merged": "#10b981",
-    "ttm": "#f59e0b",
+    "merged": "#0fa976",
+    "ttm": "#ce8508",
     "contributors": "#8b5cf6",
     "commits": "#5b5bf0",
     "specs": "#8b5cf6",
     "prs": "#2f80ed",
-    "issues": "#f59e0b",
-    "rework": "#f59e0b",
+    "issues": "#ce8508",
+    "rework": "#ce8508",
     "first_pass": "#2f80ed",
 }

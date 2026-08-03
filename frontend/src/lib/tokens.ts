@@ -41,21 +41,21 @@ export const token = {
   "c-commit": "#5b5bf0",
   "c-loc": "#8b5cf6",
   "c-pr": "#2f80ed",
-  "c-spec": "#f59e0b",
+  "c-spec": "#ce8508",
   "c-bug": "#ef4444",
   "c-epic": "#8b5cf6",
-  "c-story": "#10b981",
-  "c-feature": "#10b981",
-  "c-people": "#06b6d4",
+  "c-story": "#0fa976",
+  "c-feature": "#0fa976",
+  "c-people": "#05a3be",
   "c-other": "#9aa3b2",
   "app-fg": "#814df5",
   "c-bug-fg": "#e11313",
   "cat-bug": "#ef4444",
-  "cat-feature": "#10b981",
+  "cat-feature": "#0fa976",
   "cat-task": "#8b5cf6",
   "cat-epic": "#5b5bf0",
-  "cat-spec": "#f59e0b",
-  "cat-docs": "#06b6d4",
+  "cat-spec": "#ce8508",
+  "cat-docs": "#05a3be",
   "cat-test": "#2f80ed",
   "cat-other": "#9aa3b2",
   "pill-good-bg": "#dafbe1",
@@ -68,8 +68,8 @@ export const token = {
   "exact-fg": "#1a7f37",
   "heur-bg": "#fff8e6",
   "heur-fg": "#9a6700",
-  "exp-bg": "#f59e0b22",
-  "exp-line": "#f59e0b55",
+  "exp-bg": "#ce850822",
+  "exp-line": "#ce850855",
   "exp-fg": "#9a5c00",
   "good-line": "#a0d8b0",
   "warn-line": "#e8d8a0",
@@ -85,17 +85,23 @@ export const token = {
   "tooltip-bg": "#1f2328",
   "chat-tool-bg": "#f6f8fa",
   "option-fg": "#111111",
-  "score-good": "#10b981",
-  "score-mid": "#f59e0b",
+  "score-good": "#0fa976",
+  "score-mid": "#ce8508",
   "score-bad": "#ef4444",
+  "space-1": "4px",
+  "space-2": "8px",
+  "space-3": "12px",
+  "space-4": "16px",
+  "space-5": "20px",
+  "space-6": "24px",
+  "space-8": "32px",
   "r-xs": "4px",
   "r-sm": "6px",
   "r-md": "8px",
   "r-lg": "12px",
   "r-xl": "16px",
   "r-pill": "999px",
-  "sh": "0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)",
-  "sh-lift": "0 10px 30px rgba(16,24,40,.10)",
+  "elev": "0 8px 24px rgba(16,24,40,.28)",
 } as const;
 
 export type TokenName = keyof typeof token;
@@ -110,48 +116,48 @@ export function css(name: TokenName): string {
 export const CATEGORY_SWATCHES: readonly string[] = [
   "#5b5bf0",
   "#8b5cf6",
-  "#f59e0b",
-  "#06b6d4",
-  "#10b981",
+  "#ce8508",
+  "#05a3be",
+  "#0fa976",
   "#ef4444",
   "#2f80ed",
   "#d946ef",
 ];
 
-// Company series colours, assigned by a name-derived hash (store.company_color_map) so a company keeps its colour as ranks change. The teal was #0a7ea4, which sat 58 units from the blue in RGB — close enough that two adjacent series read as one colour; #14b8a6 is 95 from its nearest neighbour.
+// Company series colours, assigned by a name-derived hash (store.company_color_map) so a company keeps its colour as ranks change. The teal was #0a7ea4, which sat 58 units from the blue in RGB — close enough that two adjacent series read as one colour; it became #14b8a6, 95 from its nearest neighbour, and then #12a796 when the palette was darkened for legibility on white.
 export const COMPANY_PALETTE: readonly string[] = [
   "#0969da",
   "#8250df",
   "#1a7f37",
   "#bf8700",
   "#cf222e",
-  "#14b8a6",
+  "#12a796",
   "#d946ef",
   "#6e7781",
 ];
 
 export const PILLAR_COLORS: Readonly<Record<string, string>> = {
   engagement: "#5b5bf0",
-  delivery: "#06b6d4",
-  craft: "#10b981",
-  flow: "#f59e0b",
+  delivery: "#05a3be",
+  craft: "#0fa976",
+  flow: "#ce8508",
 };
 
 export const BAND_COLORS: Readonly<Record<string, string>> = {
-  Strong: "#10b981",
+  Strong: "#0fa976",
   Solid: "#2f80ed",
-  Developing: "#f59e0b",
+  Developing: "#ce8508",
   Building: "#ef4444",
 };
 
 export const WORKTYPE_COLORS: Readonly<Record<string, string>> = {
   feat: "#5b5bf0",
   fix: "#ef4444",
-  docs: "#06b6d4",
-  test: "#10b981",
+  docs: "#05a3be",
+  test: "#0fa976",
   refactor: "#8b5cf6",
   chore: "#9aa3b2",
-  perf: "#f59e0b",
+  perf: "#ce8508",
   build: "#2f80ed",
   ci: "#d946ef",
   style: "#a3a3a3",
@@ -161,11 +167,11 @@ export const WORKTYPE_COLORS: Readonly<Record<string, string>> = {
 
 export const FLOW_STAGE_COLORS: Readonly<Record<string, string>> = {
   backlog: "#9aa3b2",
-  ready: "#06b6d4",
+  ready: "#05a3be",
   in_progress: "#8b5cf6",
-  review: "#f59e0b",
+  review: "#ce8508",
   qa: "#2f80ed",
-  done: "#10b981",
+  done: "#0fa976",
   released: "#5b5bf0",
 };
 
@@ -174,17 +180,17 @@ export const ELEMENT_DEFAULTS: Readonly<Record<string, string>> = {
   app: "#8b5cf6",
 };
 
-// One-off named series in specific charts. The frontend legend swatches in Trend.tsx read `opened`/`merged` from here, so both sides share one entry instead of two hand-matched literals. These are PAYLOAD colours: the server picks them without knowing the client's theme, so each has to work on both. `total` was #1f2328 — near-black, chosen for a white page, and 1.10:1 on the dark surface, i.e. invisible. It is now a neutral that clears 3:1 both ways (4.19 light / 4.16 dark). Several hues here still fall below 3:1 on WHITE (#f59e0b 2.15, #10b981 2.54); that predates the dark theme and repainting the chart palette is a design decision, not a fix — see docs/design-system.md.
+// One-off named series in specific charts. The frontend legend swatches in Trend.tsx read `opened`/`merged` from here, so both sides share one entry instead of two hand-matched literals. These are PAYLOAD colours: the server picks them without knowing the client's theme, so each has to work on both. `total` was #1f2328 — near-black, chosen for a white page, and 1.10:1 on the dark surface, i.e. invisible. It is now a neutral that clears 3:1 both ways (4.19 light / 4.16 dark). Every value here now clears 3:1 on both page colours; see _chart_contrast_note above for the four that did not.
 export const SERIES_COLORS: Readonly<Record<string, string>> = {
   total: "#787c84",
   opened: "#2f80ed",
-  merged: "#10b981",
-  ttm: "#f59e0b",
+  merged: "#0fa976",
+  ttm: "#ce8508",
   contributors: "#8b5cf6",
   commits: "#5b5bf0",
   specs: "#8b5cf6",
   prs: "#2f80ed",
-  issues: "#f59e0b",
-  rework: "#f59e0b",
+  issues: "#ce8508",
+  rework: "#ce8508",
   first_pass: "#2f80ed",
 };

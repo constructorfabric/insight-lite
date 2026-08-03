@@ -24,7 +24,7 @@ const inputStyle: React.CSSProperties = {
   borderRadius: "6px", background: "var(--panel)", color: "var(--ink)",
 };
 const tokenStyle: React.CSSProperties = {
-  flex: 1, fontFamily: "ui-monospace,Menlo,monospace", fontSize: "13px", padding: "7px 9px",
+  flex: 1, fontFamily: "'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace", fontSize: "13px", padding: "7px 9px",
   border: "1px solid var(--line)", borderRadius: "6px", background: "var(--panel2)",
   color: "var(--ink)", overflowX: "auto", whiteSpace: "nowrap",
 };

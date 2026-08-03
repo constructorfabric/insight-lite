@@ -39,22 +39,22 @@
   --c-commit:#5b5bf0;
   --c-loc:#8b5cf6;
   --c-pr:#2f80ed;
-  --c-spec:#f59e0b;
+  --c-spec:#ce8508;
   --c-bug:#ef4444;
   --c-epic:#8b5cf6;
-  --c-story:#10b981;
-  --c-feature:#10b981;
-  --c-people:#06b6d4;
+  --c-story:#0fa976;
+  --c-feature:#0fa976;
+  --c-people:#05a3be;
   --c-other:#9aa3b2;   /* uncategorised / 'Other' */
   --app-fg:#814df5;   /* --app as TEXT (.tag.legacy, chart legend label) */
   --c-bug-fg:#e11313;   /* --c-bug as TEXT (the 'required' marker, a gap cell) */
   /* category */
   --cat-bug:#ef4444;
-  --cat-feature:#10b981;
+  --cat-feature:#0fa976;
   --cat-task:#8b5cf6;
   --cat-epic:#5b5bf0;
-  --cat-spec:#f59e0b;
-  --cat-docs:#06b6d4;
+  --cat-spec:#ce8508;
+  --cat-docs:#05a3be;
   --cat-test:#2f80ed;
   --cat-other:#9aa3b2;
   /* status */
@@ -68,8 +68,8 @@
   --exact-fg:#1a7f37;
   --heur-bg:#fff8e6;   /* 'heuristic' evidence badge */
   --heur-fg:#9a6700;
-  --exp-bg:#f59e0b22;   /* 'experimental' badge — amber at 13% / 33% */
-  --exp-line:#f59e0b55;
+  --exp-bg:#ce850822;   /* 'experimental' badge — amber at 13% / 33% */
+  --exp-line:#ce850855;
   --exp-fg:#9a5c00;   /* Darkened 2026-08-03 from #c77700, which was 3.13:1 on the badge fill. --exp-bg is amber at 13% alpha, compositing to #fef2de over a card, so the fill is far lighter than its hex suggests. */
   --good-line:#a0d8b0;   /* healthy card / status border */
   --warn-line:#e8d8a0;   /* at-risk card / status border */
@@ -85,6 +85,14 @@
   --tooltip-bg:#1f2328;   /* tooltip and log surfaces — dark even in the light theme, so its text is --tooltip-fg, not --on-solid */
   --chat-tool-bg:#f6f8fa;   /* tool-call block in the chat log */
   --option-fg:#111111;   /* native <option> text, which ignores most inherited colour */
+  /* space */
+  --space-1:4px;
+  --space-2:8px;
+  --space-3:12px;
+  --space-4:16px;
+  --space-5:20px;
+  --space-6:24px;
+  --space-8:32px;
   /* radius */
   --r-xs:4px;   /* legend swatch, thin bar */
   --r-sm:6px;   /* inline code, small chip. WAS 12px until 2026-08-03 — every var(--r-sm) was remapped to --r-lg in the same commit. */
@@ -93,8 +101,7 @@
   --r-xl:16px;   /* card. Was --r. */
   --r-pill:999px;   /* fully-rounded chip, badge, tag */
   /* shadow */
-  --sh:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);   /* resting card / button */
-  --sh-lift:0 10px 30px rgba(16,24,40,.10);   /* hover / floating */
+  --elev:0 8px 24px rgba(16,24,40,.28);   /* floating, focused or hover-lifted surface */
 }
 
 /* The OS preference, honoured before any JS runs. */
@@ -144,8 +151,8 @@
     --exact-fg:#23aa49;
     --heur-bg:#352c1b;
     --heur-fg:#c98600;
-    --exp-bg:#f59e0b26;
-    --exp-line:#f59e0b66;
+    --exp-bg:#ce850826;
+    --exp-line:#ce850866;
     --exp-fg:#d98200;
     --good-line:#465b52;
     --warn-line:#5e5b4c;
@@ -162,8 +169,7 @@
     --chat-tool-bg:#1b1f27;
     --option-fg:#e7eaf0;
     /* shadow */
-    --sh:0 1px 2px rgba(0,0,0,.40),0 1px 3px rgba(0,0,0,.30);
-    --sh-lift:0 10px 30px rgba(0,0,0,.55);
+    --elev:0 8px 24px rgba(0,0,0,.62);
   }
 }
 
@@ -213,8 +219,8 @@
   --exact-fg:#23aa49;
   --heur-bg:#352c1b;
   --heur-fg:#c98600;
-  --exp-bg:#f59e0b26;
-  --exp-line:#f59e0b66;
+  --exp-bg:#ce850826;
+  --exp-line:#ce850866;
   --exp-fg:#d98200;
   --good-line:#465b52;
   --warn-line:#5e5b4c;
@@ -231,6 +237,5 @@
   --chat-tool-bg:#1b1f27;
   --option-fg:#e7eaf0;
   /* shadow */
-  --sh:0 1px 2px rgba(0,0,0,.40),0 1px 3px rgba(0,0,0,.30);
-  --sh-lift:0 10px 30px rgba(0,0,0,.55);
+  --elev:0 8px 24px rgba(0,0,0,.62);
 }

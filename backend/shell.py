@@ -156,10 +156,10 @@ SHELL_CSS = """
   .nav-backdrop{display:none}
   .app{display:flex;align-items:flex-start}
   .sidebar{position:sticky;top:0;flex:0 0 236px;width:236px;height:100vh;overflow-y:auto;font-size:14.5px;line-height:1.55;
-    padding:20px 14px;border-right:1px solid var(--line);background:var(--bg);z-index:40;
+    padding:var(--space-5) var(--space-4);border-right:1px solid var(--line);background:var(--bg);z-index:40;
     display:flex;flex-direction:column}
   .sidebar .brand{font-size:15px;font-weight:800;
-    line-height:1.15;margin:0 6px 18px;letter-spacing:-.02em}
+    line-height:1.15;margin:0 6px var(--space-5);letter-spacing:-.02em}
   .sidebar .brand span{display:block;font-size:11px;font-weight:600;color:var(--mut);margin-top:2px}
   /* Rail + pane, the shape the big Insight's portal shell has. 56 + 180 = the 236px
      the single column already occupied, so the content area loses nothing.
@@ -168,7 +168,7 @@ SHELL_CSS = """
      item and the pane always shows whichever zone the CURRENT page belongs to. Same
      look, no client state, and the Python and React renderers emit the same markup —
      which is what keeps React mounting over it from moving anything. */
-  .sb-cols{display:flex;flex:1 1 auto;min-height:0;gap:8px}
+  .sb-cols{display:flex;flex:1 1 auto;min-height:0;gap:var(--space-2)}
   /* The rail keeps a fixed 44px SLOT in the flow and its hover expansion is pure
      DECORATION: the widened panel and the labels are painted by a pseudo-element and
      an absolutely-positioned span, both pointer-events:none, while the clickable
@@ -207,7 +207,7 @@ SHELL_CSS = """
   .sb-rail:hover::before,.sb-rail:focus-within::before{opacity:1;transition:opacity 0s .18s}
   .sb-rail-inner{display:flex;flex-direction:column;gap:3px;width:44px;height:100%}
   .sb-pane{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0;
-    padding-left:8px;border-left:1px solid var(--line)}
+    padding-left:var(--space-2);border-left:1px solid var(--line)}
   /* Manage sits at the bottom of the rail, the way it sat at the bottom of the
      single column — it is tooling, not a view of the data. */
   .sb-rail .rz-bottom{margin-top:auto}
@@ -255,11 +255,7 @@ SHELL_CSS = """
   .rz.active svg{opacity:1;stroke:var(--acc)}
   /* The theme toggle is a <button> in a rail of <a>s: same box, no button chrome. */
   /* The theme toggle is a <button> in a rail of <a>s: same box, no button chrome.
-     NO margin-top:auto here — .rz-bottom (Manage) already has one, and a second
-     auto margin makes flexbox split the free space BETWEEN them, which parks the
-     button at the floor with a hole above it. Following Manage in the flow puts it
-     directly under Manage, which is where a rail-footer control belongs. */
-  .rz-theme{border:none;background:none;font:inherit;cursor:pointer}
+     NO margin-top:auto here — .rz-bottom (Manage) already has one, and a second auto margin makes flexbox split the free space BETWEEN them, which parks the button at the floor with a hole above it. Following Manage in the flow puts it directly under Manage, which is where a rail-footer control belongs. */ .rz-theme{border:none;background:none;font:inherit;cursor:pointer}
   /* Always in the DOM so a screen reader gets it; clipped out of sight when the rail
      is closed, and never a pointer target. */
   /* The labels are the only thing that actually moves: a short slide in from under the
@@ -291,7 +287,7 @@ SHELL_CSS = """
   .navgroup{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--mut);padding:2px 11px 6px}
   .sb-pane .tab{display:flex;align-items:center;gap:10px;text-align:left;text-decoration:none;
-    border:none;background:transparent;color:var(--ink2);border-radius:var(--r-md);padding:8px 10px;
+    border:none;background:transparent;color:var(--ink2);border-radius:var(--r-md);padding:var(--space-2) 10px;
     font:600 13px/1.4 inherit;cursor:pointer;min-width:0}
   /* The label is its own span so it can ellipsis: as a bare text node it was a flex
      child that overflow:hidden simply CUT, mid-glyph. Labels are short by policy (see
@@ -306,8 +302,8 @@ SHELL_CSS = """
   .wrap{flex:1 1 auto;min-width:0}
   @media(max-width:900px){
     .app{display:block}
-    .navbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:60;
-      background:var(--panel);border-bottom:1px solid var(--line);padding:9px 14px}
+    .navbar{display:flex;align-items:center;gap:var(--space-3);position:sticky;top:0;z-index:60;
+      background:var(--panel);border-bottom:1px solid var(--line);padding:9px var(--space-4)}
     .navburger{display:inline-flex;align-items:center;justify-content:center;flex:none;
       width:40px;height:36px;border:1px solid var(--line);border-radius:var(--r-md);
       background:var(--bg);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}

@@ -24,6 +24,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import render
+import tokens
 
 
 class KpiTilesJsonTest(unittest.TestCase):
@@ -167,7 +168,7 @@ class ScoreJsonTest(unittest.TestCase):
         }
         out = render._score_json(score)
         self.assertEqual(out["n"], 2)
-        self.assertEqual(out["bands"][0], {"band": "Strong", "n": 1, "color": "#10b981"})
+        self.assertEqual(out["bands"][0], {"band": "Strong", "n": 1, "color": tokens.BAND_COLORS["Strong"]})
         # craft/flow excluded: not in active_pillars, and flow is None anyway
         self.assertEqual(out["top"][0]["contributions"], {"engagement": 40, "delivery": 40})
         self.assertEqual(out["teamMedians"]["commits"], "12")

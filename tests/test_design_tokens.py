@@ -92,10 +92,17 @@ class GeneratorTest(unittest.TestCase):
 
     def test_notes_never_leak_into_an_artefact(self):
         """`_note` keys document the JSON for whoever reads it; emitting one would
-        produce a `--_note:` declaration."""
+        produce a `--_note:` declaration or a `"_note":` entry.
+
+        Matched as a DECLARATION, not as a substring: a note is allowed to mention
+        another note by name, and the first version of this test failed the moment one
+        did — flagging prose as a leaked key."""
         for path in (STYLES / "tokens.css", ROOT / "backend" / "tokens.py",
                      ROOT / "frontend" / "src" / "lib" / "tokens.ts"):
-            self.assertNotIn("_note", path.read_text(), f"{path.name} leaked a _note key")
+            text = path.read_text()
+            for pattern in (r"--_[a-z_]*\s*:", r'"_[a-z_]*"\s*:', r"^\s*_[a-z_]+\s*:"):
+                self.assertIsNone(re.search(pattern, text, re.M),
+                                  f"{path.name} emitted a documentation key as a token")
 
 
 class ParityTest(unittest.TestCase):

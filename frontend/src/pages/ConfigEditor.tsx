@@ -955,7 +955,7 @@ export default function ConfigEditor() {
                       force();
                     }}
                     style={{
-                      width: "100%", minHeight: 180, fontFamily: "ui-monospace, monospace",
+                      width: "100%", minHeight: 180, fontFamily: "'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
                       fontSize: 12.5, lineHeight: 1.5, padding: 10,
                       border: "1px solid var(--line2)", borderRadius: "var(--r-sm)",
                       background: "var(--panel)", color: "var(--ink)", resize: "vertical",

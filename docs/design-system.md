@@ -132,13 +132,13 @@ judgeable by eye. A value-level diff needs the Fabric token JSON or the Figma fi
 | Colour token names | 19 `color/*` semantic | 0 `--color-*`; own 18-name set (`--bg`, `--acc`, `--ink`…) | full rename |
 | Token definitions | one source | 2 live copies + 1 shadowed + 1 dead | consolidate |
 | Hardcoded colours | none implied | 61 distinct in CSS, 17 in TS/TSX | large delta |
-| Typeface (UI) | Inter | Plus Jakarta Sans; Inter is only a fallback | swap |
-| Typeface (mono) | JetBrains Mono 11px | `ui-monospace,Menlo` system stack, 19 sites | missing |
+| Typeface (UI) | Inter | **Inter**, with Jakarta kept in the fallback chain | done |
+| Typeface (mono) | JetBrains Mono 11px | named first in the stack; **the woff2 is not shipped**, so it applies only where installed | partial |
 | Type scale | 9 named styles | 23 distinct px sizes, incl. 10.5/11.5/12.5/13.5/14.5 | large delta |
-| Spacing grid | 7 tokens on a 4px grid | 0 spacing tokens; literals incl. 34px, 38px, 11px | missing |
-| Radii | 4 tokens (6/8/12/16) | 16 distinct values | partial |
-| Elevation | 1 style; cards use borders only | 2 shadows, on cards *and* every button | conflict |
-| Dark theme | full second specimen | absent — no `prefers-color-scheme`, `data-theme` or `color-scheme` anywhere | biggest item |
+| Spacing grid | 7 tokens on a 4px grid | the 7 tokens exist; layout spacing migrated, micro-spacing (<14px) deliberately literal | partial |
+| Radii | 4 tokens (6/8/12/16) | one six-step scale (the kit's 4 + `r-xs`, `r-pill`) | done |
+| Elevation | 1 style; cards use borders only | **one** `--elev`; 33 resting shadows removed | done |
+| Dark theme | full second specimen | derived second palette + a system/light/dark toggle | done |
 | shadcn primitives | 13 mappings | none — no tailwind, radix, shadcn or next-themes | not started |
 | Icon source | Material Symbols | `lucide-react` + hand-inlined SVG paths | swap |
 | Formatting contract | 10 rules | 3 match, 3 conflict, 1 n/a, 3 unverified | partial |
