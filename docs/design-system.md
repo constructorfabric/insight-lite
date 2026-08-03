@@ -31,7 +31,7 @@ adopting that kit is a known number rather than a guess.
 | 5 | 5 of those add page-local `:root` blocks | `--acc-soft`, `--acc-bg`, `--warn-bg`, `--dup`, `--star`, `--plat`, `--app`, `--c-*` | **Live** — see below |
 | 6 | 61 distinct hex literals in CSS (152 occurrences) | one-off colours | **Live** — the main blocker for a dark theme |
 | 7 | 17 distinct hex literals in `.ts`/`.tsx` | chart colours passed as recharts props | **Live** |
-| 8 | [`backend/server.py:507`](../backend/server.py) `SETUP_HTML` | a whole pre-React page, own `:root` with an older GitHub-ish palette | **Dead** — nothing references it; `/setup` is `render_spa_page("setup", …)` and its styles were ported to [`setup.css`](../frontend/src/styles/setup.css) |
+| 8 | ~~`backend/server.py` `SETUP_HTML`~~ | a whole pre-React page, own `:root` with an older GitHub-ish palette | **Removed** — it was dead; `/setup` is `render_spa_page("setup", …)` and its styles live in [`setup.css`](../frontend/src/styles/setup.css) |
 | 9 | ~~`backend/calibrate.py` `_HTML`~~ | own `:root` + a full page | **Removed** — it was dead code, never referenced; `/calibrate` is served by `render_spa_page` ([`server.py:2375`](../backend/server.py)) |
 
 Rows 1–2a used to be one row each of hand-copied CSS: `base.css` carried the token
@@ -39,11 +39,14 @@ block and the element base for the React path, and `shell.BASE_CSS` carried a
 hand-kept copy of both for the Python path, reconciled by eye. They are now generated
 from one source, and a test asserts the two paths cannot disagree.
 
-Source #8 is the same shape as #9: a complete page left behind by the React
-migration. `/setup` is served by `render_spa_page`, and `setup.css`'s own header
-comment records that it is a port of that page's style block. Nothing reads
-`SETUP_HTML`. The unused `send_html_file_with_nav` method on the request handler is
-another leftover from the same era.
+Sources #8 and #9 were the same shape: complete pages left behind by the React
+migration, each carrying its own competing `:root`. Both are gone. The reasoning that
+lived in their comments was not thrown away — `setup.css` and `SetupWizard.tsx` still
+record what was ported and which rules were deliberately omitted, now pointing at git
+history rather than a live symbol.
+
+Still outstanding from the same era: the unused `send_html_file_with_nav` method on
+the request handler.
 
 ### The page-local token additions
 
@@ -289,9 +292,9 @@ cannot reach a JS prop — and it lands with step 4, when the `--c-*` series mov
 ### Order of work
 
 1. ~~**Delete** the dead `_HTML` block in `calibrate.py`.~~ **Done** — 166 → 34 lines.
-2. **Delete** `SETUP_HTML` and the unused `send_html_file_with_nav` in `server.py` —
-   dead pre-React leftovers, the same case as #9. Removes the last apparent competing
-   palette.
+2. ~~**Delete** `SETUP_HTML` in `server.py`~~ **Done** — 152 lines, the last apparent
+   competing palette. The unused `send_html_file_with_nav` on the request handler is
+   the remaining leftover from the same era.
 3. ~~**Introduce** `design/tokens.json` + generator, emitting exactly today's values.~~
    **Done** — and it went further than planned: the element base is shared too, so the
    only hand-duplicated CSS left between the paths is the `@font-face` pair that must

@@ -1,5 +1,8 @@
-/* Page CSS for the React /setup first-run wizard. Ported from server.SETUP_HTML's
-   style block. That page appends shell.BASE_CSS after its page rules (then a .step
+/* Page CSS for the React /setup first-run wizard. Ported from the style block of the
+   pre-React server.SETUP_HTML page (since deleted as dead code — see
+   `git log -- backend/server.py`). What follows records why this file contains only
+   what it contains, so the omissions are not mistaken for gaps.
+   That page appended shell.BASE_CSS after its page rules (then a .step
    override), so base.css WINS every tie: its palette overrides the template's
    :root (all tokens exist in base), its body wins bg/color/font-family, and its
    input/.btn/code/a rules win over the template's. So here we add ONLY what base
