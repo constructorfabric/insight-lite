@@ -95,13 +95,20 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
-          # `latest` tracks main; every build is also addressable by commit SHA so a
-          # deployment can pin one, and a v* tag publishes its own semver tags.
+          # ONLY the commit SHA here. `latest` and the semver tags are what users pull,
+          # so they are written once, by the manifest merge, as a real multi-arch list —
+          # never by this job as amd64 alone.
+          #
+          # That is not tidiness. When this job published `latest` too, a push that
+          # cancelled the in-flight run (concurrency: cancel-in-progress) left `latest`
+          # pointing at an amd64-only manifest, and an ARM user pulling it got "no
+          # matching manifest". Now an interrupted run leaves the PREVIOUS good `latest`
+          # alone, which is the failure everyone would choose.
+          #
+          # sha-<commit> is amd64-first on purpose: production is x86_64 and
+          # scripts/deploy.sh pins it, so it must not wait for the other architecture.
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
           labels: |
             org.opencontainers.image.title=Insight Lite
             org.opencontainers.image.description=Self-hosted engineering-productivity and delivery analytics for a GitHub organisation
@@ -272,6 +279,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
+          # `latest` tracks main; the SHA tag is re-pointed at the multi-arch list it
+          # was published under as amd64 alone; a v* tag brings its semver tags.
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long

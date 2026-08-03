@@ -187,10 +187,11 @@ docker compose up --build
 
 The image is `ghcr.io/constructorfabric/insight-lite:latest`, built for amd64 and arm64
 — so it runs on a Raspberry Pi or any other ARM box as natively as on a server — and
-published only from commits whose test suite passed. Every build is also tagged with its
-commit SHA if you would rather pin one; a SHA tag appears as soon as amd64 is built, so a
-deployment need not wait on the other architecture, and gains arm64 a couple of minutes
-later.
+published only from commits whose test suite passed — `latest` is only ever written once
+both architectures exist, so it never resolves to just one of them. Every build is also
+tagged with its commit SHA if you would rather pin one; a SHA tag appears as soon as
+amd64 is built, so a deployment need not wait on the other architecture, and gains arm64
+a couple of minutes later.
 
 Open <http://localhost:8080>. The setup wizard asks for a GitHub token and your org,
 stores both in the database, and offers to run the first collection. Nothing to prepare
