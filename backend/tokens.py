@@ -14,6 +14,7 @@ deliberately absent from both: that is the one rule the paths must not share
 # Generated from design/tokens.json.
 TOKENS_CSS = """
   :root{
+    color-scheme:light;
     /* color */
     --bg:#f5f6f9;   /* page background */
     --panel:#ffffff;   /* card / panel surface */
@@ -25,7 +26,8 @@ TOKENS_CSS = """
     --mut:#656e80;   /* muted text — labels, meta. Darkened 2026-08-03 from #8a93a3, which was 2.73:1 on --panel2 — below AA even for large text — across 223 uses. */
     --acc:#5b5bf0;   /* primary action */
     --acc-ink:#4a45d6;   /* link / pressed action */
-    --on-solid:#ffffff;   /* text/icons on any saturated fill (--acc, --good, --bad) */
+    --on-solid:#ffffff;   /* text/icons on a SATURATED fill (--acc, --good, --bad). In dark this flips to near-black, because a dark theme's fills are lighter than the page. */
+    --tooltip-fg:#ffffff;   /* text on --tooltip-bg. Split from --on-solid on 2026-08-03: both were white in light, but on a dark surface the two requirements are opposite. */
     --good:#0c7f47;   /* success. Darkened 2026-08-03 from #0f9d58 (3.14:1 on --good-bg). */
     --good-bg:#e7f6ee;   /* success surface */
     --warn:#a26b1b;   /* warning. Darkened 2026-08-03 from #b7791f (3.64:1 on --panel). */
@@ -36,12 +38,12 @@ TOKENS_CSS = """
     --acc-bg:#eeeefe;   /* accent surface, identity page's one-off shade */
     --warn-bg:#fbf3e2;   /* warning surface, identity page */
     --dup:#5b5bf0;   /* duplicate-identity marker (same hue as --acc) */
-    --star:#f5a623;   /* rating star, calibrate page */
-    --violet:#8b5cf6;   /* computed-metric accent */
+    --star:#c77f09;   /* rating star, calibrate page. Darkened 2026-08-03 from #f5a623 (2.03:1). The bar is 3:1, not 4.5: a star is a rating CONTROL, so WCAG 1.4.11 non-text contrast applies. */
+    --violet:#7a45f5;   /* computed-metric accent. Darkened 2026-08-03 from #8b5cf6 (3.63:1 on its own pill). */
     --violet-bg:#f0ebfe;   /* computed-metric surface */
     --code-bg:#0d1117;   /* code block fill */
     --code-fg:#c9d1d9;   /* code block text */
-    --chg-design:#8250df;   /* changelog 'design' category (was a second --app) */
+    --chg-design:#7d48de;   /* changelog 'design' category (was a second --app). Darkened 2026-08-03 from #8250df (4.17:1 on its own pill). */
     --chg-design-bg:rgba(130,80,223,.14);   /* its pill fill */
     --swatch-empty:#888888;   /* a work-type with no colour set yet */
     --company-empty:#8b949e;   /* a company with no colour pinned or derived */
@@ -58,6 +60,8 @@ TOKENS_CSS = """
     --c-feature:#10b981;
     --c-people:#06b6d4;
     --c-other:#9aa3b2;   /* uncategorised / 'Other' */
+    --app-fg:#814df5;   /* --app as TEXT (.tag.legacy, chart legend label) */
+    --c-bug-fg:#e11313;   /* --c-bug as TEXT (the 'required' marker, a gap cell) */
     /* category */
     --cat-bug:#ef4444;
     --cat-feature:#10b981;
@@ -92,7 +96,7 @@ TOKENS_CSS = """
     --row-hover:#f7f8fc;   /* table row hover */
     --row-alt:#f4f5f7;   /* grouped table, even first cell */
     --row-alt-hover:#e9f2fc;
-    --tooltip-bg:#1f2328;   /* tooltip and log surfaces — dark, so text on it is --on-solid */
+    --tooltip-bg:#1f2328;   /* tooltip and log surfaces — dark even in the light theme, so its text is --tooltip-fg, not --on-solid */
     --chat-tool-bg:#f6f8fa;   /* tool-call block in the chat log */
     --option-fg:#111111;   /* native <option> text, which ignores most inherited colour */
     /* radius */
@@ -105,6 +109,144 @@ TOKENS_CSS = """
     /* shadow */
     --sh:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);   /* resting card / button */
     --sh-lift:0 10px 30px rgba(16,24,40,.10);   /* hover / floating */
+  }
+
+  /* The OS preference, honoured before any JS runs. */
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      /* color */
+      --bg:#0f1117;
+      --panel:#171a21;
+      --panel2:#21252e;
+      --line:#262b35;
+      --line2:#333a46;
+      --ink:#6e8bc5;
+      --ink2:#7c8da5;
+      --mut:#838c9d;
+      --acc:#7e7ef3;
+      --acc-ink:#8380e3;
+      --on-solid:#0f1117;
+      --good:#10a65d;
+      --good-bg:#162f2a;
+      --warn:#be7e20;
+      --bad:#e9676b;
+      --bad-bg:#38252b;
+      --bad-soft:#302229;
+      --acc-soft:#2c2e4b;
+      --acc-bg:#272a43;
+      --warn-bg:#322a21;
+      --dup:#7e7ef3;
+      --star:#f5a623;
+      --violet:#a47ff8;
+      --violet-bg:#2f2a48;
+      --code-bg:#0b0d12;
+      --chg-design:#a885e9;
+      --chg-design-bg:rgba(157,118,230,.20);
+      --swatch-empty:#8b8b8b;
+      /* chart */
+      --app-fg:#9c73f7;
+      --c-bug-fg:#f15555;
+      /* status */
+      --pill-good-bg:#183227;
+      --pill-good-fg:#1daa46;
+      --pill-attn-bg:#362b1b;
+      --pill-attn-fg:#d08200;
+      --pill-bad-bg:#3c262e;
+      --pill-bad-fg:#e76c74;
+      --exact-bg:#193227;
+      --exact-fg:#23aa49;
+      --heur-bg:#352c1b;
+      --heur-fg:#c98600;
+      --exp-bg:#f59e0b26;
+      --exp-line:#f59e0b66;
+      --exp-fg:#d98200;
+      --good-line:#465b52;
+      --warn-line:#5e5b4c;
+      --bad-line:#5d484c;
+      --run-line:#495565;
+      --run-bg:#2b323d;
+      --tag-ext-line:#574f35;
+      --tag-legacy-line:#524a64;
+      --period-line:#495667;
+      --row-hover:#1c2028;
+      --row-alt:#1b1f27;
+      --row-alt-hover:#222834;
+      --tooltip-bg:#2d333d;
+      --chat-tool-bg:#1b1f27;
+      --option-fg:#e7eaf0;
+      /* shadow */
+      --sh:0 1px 2px rgba(0,0,0,.40),0 1px 3px rgba(0,0,0,.30);
+      --sh-lift:0 10px 30px rgba(0,0,0,.55);
+    }
+  }
+
+  /* An explicit choice, which must beat the OS in either direction. */
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    /* color */
+    --bg:#0f1117;
+    --panel:#171a21;
+    --panel2:#21252e;
+    --line:#262b35;
+    --line2:#333a46;
+    --ink:#6e8bc5;
+    --ink2:#7c8da5;
+    --mut:#838c9d;
+    --acc:#7e7ef3;
+    --acc-ink:#8380e3;
+    --on-solid:#0f1117;
+    --good:#10a65d;
+    --good-bg:#162f2a;
+    --warn:#be7e20;
+    --bad:#e9676b;
+    --bad-bg:#38252b;
+    --bad-soft:#302229;
+    --acc-soft:#2c2e4b;
+    --acc-bg:#272a43;
+    --warn-bg:#322a21;
+    --dup:#7e7ef3;
+    --star:#f5a623;
+    --violet:#a47ff8;
+    --violet-bg:#2f2a48;
+    --code-bg:#0b0d12;
+    --chg-design:#a885e9;
+    --chg-design-bg:rgba(157,118,230,.20);
+    --swatch-empty:#8b8b8b;
+    /* chart */
+    --app-fg:#9c73f7;
+    --c-bug-fg:#f15555;
+    /* status */
+    --pill-good-bg:#183227;
+    --pill-good-fg:#1daa46;
+    --pill-attn-bg:#362b1b;
+    --pill-attn-fg:#d08200;
+    --pill-bad-bg:#3c262e;
+    --pill-bad-fg:#e76c74;
+    --exact-bg:#193227;
+    --exact-fg:#23aa49;
+    --heur-bg:#352c1b;
+    --heur-fg:#c98600;
+    --exp-bg:#f59e0b26;
+    --exp-line:#f59e0b66;
+    --exp-fg:#d98200;
+    --good-line:#465b52;
+    --warn-line:#5e5b4c;
+    --bad-line:#5d484c;
+    --run-line:#495565;
+    --run-bg:#2b323d;
+    --tag-ext-line:#574f35;
+    --tag-legacy-line:#524a64;
+    --period-line:#495667;
+    --row-hover:#1c2028;
+    --row-alt:#1b1f27;
+    --row-alt-hover:#222834;
+    --tooltip-bg:#2d333d;
+    --chat-tool-bg:#1b1f27;
+    --option-fg:#e7eaf0;
+    /* shadow */
+    --sh:0 1px 2px rgba(0,0,0,.40),0 1px 3px rgba(0,0,0,.30);
+    --sh-lift:0 10px 30px rgba(0,0,0,.55);
   }
 """
 
@@ -170,6 +312,7 @@ VALUES = {
     "acc": "#5b5bf0",
     "acc-ink": "#4a45d6",
     "on-solid": "#ffffff",
+    "tooltip-fg": "#ffffff",
     "good": "#0c7f47",
     "good-bg": "#e7f6ee",
     "warn": "#a26b1b",
@@ -180,12 +323,12 @@ VALUES = {
     "acc-bg": "#eeeefe",
     "warn-bg": "#fbf3e2",
     "dup": "#5b5bf0",
-    "star": "#f5a623",
-    "violet": "#8b5cf6",
+    "star": "#c77f09",
+    "violet": "#7a45f5",
     "violet-bg": "#f0ebfe",
     "code-bg": "#0d1117",
     "code-fg": "#c9d1d9",
-    "chg-design": "#8250df",
+    "chg-design": "#7d48de",
     "chg-design-bg": "rgba(130,80,223,.14)",
     "swatch-empty": "#888888",
     "company-empty": "#8b949e",
@@ -201,6 +344,8 @@ VALUES = {
     "c-feature": "#10b981",
     "c-people": "#06b6d4",
     "c-other": "#9aa3b2",
+    "app-fg": "#814df5",
+    "c-bug-fg": "#e11313",
     "cat-bug": "#ef4444",
     "cat-feature": "#10b981",
     "cat-task": "#8b5cf6",
@@ -320,10 +465,16 @@ ELEMENT_DEFAULTS = {
 }
 
 # One-off named series in specific charts. The frontend legend swatches in Trend.tsx
-# mirror `opened`/`merged`, so both sides now read the same entry instead of two
-# hand-matched literals.
+# read `opened`/`merged` from here, so both sides share one entry instead of two
+# hand-matched literals. These are PAYLOAD colours: the server picks them without
+# knowing the client's theme, so each has to work on both. `total` was #1f2328 —
+# near-black, chosen for a white page, and 1.10:1 on the dark surface, i.e. invisible.
+# It is now a neutral that clears 3:1 both ways (4.19 light / 4.16 dark). Several hues
+# here still fall below 3:1 on WHITE (#f59e0b 2.15, #10b981 2.54); that predates the
+# dark theme and repainting the chart palette is a design decision, not a fix — see
+# docs/design-system.md.
 SERIES_COLORS = {
-    "total": "#1f2328",
+    "total": "#787c84",
     "opened": "#2f80ed",
     "merged": "#10b981",
     "ttm": "#f59e0b",

@@ -153,7 +153,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .split i{display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--on-solid);font-weight:600}
   .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:var(--r-pill);border:1px solid var(--line);color:var(--mut);margin-left:6px}
   .tag.ext{color:var(--warn);border-color:var(--tag-ext-line)}
-  .tag.legacy{color:var(--app);border-color:var(--tag-legacy-line)}
+  .tag.legacy{color:var(--app-fg);border-color:var(--tag-legacy-line)}
   /* The SUBJECT row: who this page is about, as opposed to the .topbar above it,
      which holds the two GLOBAL controls (period, repo slice) that travel with you from
      page to page. The person does not narrow what you see — it decides whose page this
@@ -564,7 +564,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-chain td.sp{white-space:nowrap;font-variant-numeric:tabular-nums}
   .dsc-chain td.sp b{font-weight:800}
   .dsc-chain td.sp .ar{color:var(--mut);margin-left:5px}
-  .dsc-chain tr.gap td.work,.dsc-chain tr.gap td.sp b{color:var(--c-bug)}
+  .dsc-chain tr.gap td.work,.dsc-chain tr.gap td.sp b{color:var(--c-bug-fg)}
   .dsc-chain tr.tot td{border-bottom:none;font-weight:800;padding-top:7px}
   .dsc-chain tr.tot td.sp b{font-size:15px}
   .dsc-leg{display:flex;flex-wrap:wrap;gap:12px;margin:2px 0 8px;font-size:11px;color:var(--mut)}
@@ -608,7 +608,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .wkaxis span{flex:1;text-align:center;overflow:hidden}
   [data-tip]{cursor:help}
   .row .nm[data-tip]:hover, td[data-tip]:hover{text-decoration:underline dotted var(--mut)}
-  #tip{position:fixed;z-index:9999;max-width:340px;background:var(--tooltip-bg);color:var(--on-solid);
+  #tip{position:fixed;z-index:9999;max-width:340px;background:var(--tooltip-bg);color:var(--tooltip-fg);
     padding:6px 9px;border-radius:var(--r-sm);font-size:12px;line-height:1.5;white-space:pre-line;
     box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none;display:none}
   .conc{font-size:12px;color:var(--mut);margin:2px 0 8px}
@@ -636,7 +636,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .mixbar i{display:block;height:100%}
   .foot{color:var(--mut);font-size:13px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
   .legend{font-size:13px;color:var(--mut);margin:8px 0}
-  .legend b.p{color:var(--plat)} .legend b.a{color:var(--app)}
+  .legend b.p{color:var(--plat)} .legend b.a{color:var(--app-fg)}
   a.gh{color:var(--acc);font-weight:600;text-decoration:none}
   a.gh:hover{text-decoration:underline}
   /* slim indeterminate top progress bar shown while any panel fetch is in flight —

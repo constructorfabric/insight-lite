@@ -253,6 +253,13 @@ SHELL_CSS = """
   .rz.active::before{background:var(--panel);
     box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08))}
   .rz.active svg{opacity:1;stroke:var(--acc)}
+  /* The theme toggle is a <button> in a rail of <a>s: same box, no button chrome. */
+  /* The theme toggle is a <button> in a rail of <a>s: same box, no button chrome.
+     NO margin-top:auto here — .rz-bottom (Manage) already has one, and a second
+     auto margin makes flexbox split the free space BETWEEN them, which parks the
+     button at the floor with a hole above it. Following Manage in the flow puts it
+     directly under Manage, which is where a rail-footer control belongs. */
+  .rz-theme{border:none;background:none;font:inherit;cursor:pointer}
   /* Always in the DOM so a screen reader gets it; clipped out of sight when the rail
      is closed, and never a pointer target. */
   /* The labels are the only thing that actually moves: a short slide in from under the
@@ -352,6 +359,27 @@ CHART_CSS = """
 # Shared drawer toggle. Inlined once inside sidebar_html so every page (report,
 # identity, portal) gets identical behaviour without touching its own JS block.
 _SIDEBAR_JS = """
+<script>(function(){
+  // Theme: system -> light -> dark -> system. "system" removes the attribute and lets
+  // the prefers-color-scheme rule decide, rather than storing a snapshot of what the OS
+  // happened to say at the time.
+  var KEY='insight-theme', root=document.documentElement;
+  function label(m){ return 'Theme: '+m; }
+  function apply(m,persist){
+    if(m==='system'){ root.removeAttribute('data-theme'); }
+    else { root.setAttribute('data-theme',m); }
+    if(persist){ try{ m==='system'?localStorage.removeItem(KEY):localStorage.setItem(KEY,m); }catch(e){} }
+    var b=document.querySelector('[data-theme-toggle]');
+    if(b){ b.setAttribute('aria-label',label(m)); b.title=label(m); }
+  }
+  var stored=null; try{ stored=localStorage.getItem(KEY); }catch(e){}
+  apply(stored==='dark'||stored==='light'?stored:'system',false);
+  var tb=document.querySelector('[data-theme-toggle]');
+  if(tb) tb.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme')||'system';
+    apply(cur==='system'?'light':cur==='light'?'dark':'system',true);
+  });
+})();</script>
 <script>(function(){
   var burger=document.querySelector('.navburger'),
       side=document.querySelector('.sidebar'),
@@ -463,6 +491,32 @@ def _carry_href(href: str, carry: dict | None) -> str:
     return f"{path}?{qs}&{extra}" if qs else f"{path}?{extra}"
 
 
+# The theme toggle, at the bottom of the rail. ONE definition of the markup: React's
+# Sidebar renders the same DOM, because mounting over a different tree would move the
+# sidebar on every page load. It cycles system -> light -> dark; the icon does NOT change
+# with state (a state-dependent icon would mean the server and React disagree on the
+# first paint), so the current mode is carried by title/aria-label, which JS updates.
+_THEME_ICON = ('<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+               ' stroke-width="1.8" aria-hidden="true">'
+               '<circle cx="12" cy="12" r="9"/>'
+               '<path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>')
+THEME_BTN = ('<button class="rz rz-theme" type="button" data-theme-toggle'
+             ' aria-label="Theme: system" title="Theme: system">'
+             + _THEME_ICON + '<span class="rz-l">Theme</span></button>')
+
+
+# Inlined in <head> BEFORE the stylesheet (see render.render_spa_page). It has to run
+# before the first paint: with the choice stored in localStorage rather than in the
+# markup, a dark preference would otherwise paint one light frame on every navigation —
+# and every route here is a full page load, so that is a flash on every click.
+#
+# No stored choice means no attribute, which leaves the @media (prefers-color-scheme)
+# rule in tokens.css in charge. That is the "system" state, not a third palette.
+THEME_BOOT = ("<script>(function(){try{var t=localStorage.getItem('insight-theme');"
+              "if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);"
+              "}catch(e){}})();</script>")
+
+
 def sidebar_html(active: str, carry: dict | None = None) -> str:
     """Full sidebar markup, rendered from NAV_ZONES. `active` = which page this is,
     matched against an item's `key`.
@@ -528,7 +582,7 @@ def sidebar_html(active: str, carry: dict | None = None) -> str:
         '<span>' + (caption or "Contribution &amp; Usage") + '</span></div></div>'
         '<div class="sb-cols">'
         '<nav class="sb-rail" aria-label="Sections">'
-        '<div class="sb-rail-inner">' + "".join(rail) + '</div></nav>'
+        '<div class="sb-rail-inner">' + "".join(rail) + THEME_BTN + '</div></nav>'
         '<nav class="sb-pane" aria-label="' + current["label"] + '">' + "".join(pane) + '</nav>'
         '</div>'
         '</aside>' + _SIDEBAR_JS)

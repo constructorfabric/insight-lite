@@ -543,4 +543,21 @@ export const routes = [
     path: CHATLOG_ROUTE,
     viewport: DEFAULT_VIEWPORT,
   },
+
+  // ── Dark theme ──────────────────────────────────────────────────────────────
+  // A representative sample rather than all 48: the dark palette is derived from the
+  // light one by rule (see design/tokens.json), so what needs guarding is that the
+  // rule reaches every KIND of surface — KPI cards and charts, a dense table, form
+  // controls and swatches, status pills, a code block. `theme` sets Playwright's
+  // colorScheme, which is what the @media (prefers-color-scheme:dark) rule answers,
+  // so these capture the no-JS-required path.
+  { id: "overview-dark", path: OVERVIEW_ROUTE, viewport: DEFAULT_VIEWPORT, theme: "dark",
+    setup: waitForCharts, threshold: CHART_THRESHOLD },
+  { id: "flow-dark", path: FLOW_ROUTE + FLOW_HASH, viewport: DEFAULT_VIEWPORT, theme: "dark" },
+  { id: "config-dark", path: CONFIG_ROUTE, viewport: DEFAULT_VIEWPORT, theme: "dark",
+    headers: { "X-Forwarded-Preferred-Username": "demo-dev" } },
+  { id: "identity-dark", path: IDENTITY_ROUTE, viewport: DEFAULT_VIEWPORT, theme: "dark",
+    headers: { "X-Forwarded-Preferred-Username": "demo-dev" } },
+  { id: "metrics-dark", path: METRICS_ROUTE, viewport: DEFAULT_VIEWPORT, theme: "dark" },
+  { id: "whats-new-dark", path: "/whats-new", viewport: DEFAULT_VIEWPORT, theme: "dark" },
 ];

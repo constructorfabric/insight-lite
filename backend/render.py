@@ -2667,6 +2667,9 @@ def render_spa_page(entry: str, active: str, title: str, *, report_chrome: bool 
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f'<title>{_e(title)} — Constructor Insight</title>'
+        # Before the stylesheet, deliberately: it applies a stored dark choice ahead of
+        # the first paint. After it, every navigation would flash one light frame.
+        + shell.THEME_BOOT +
         '<style>' + shell.BASE_CSS + shell.SHELL_CSS + shell.CHART_CSS + '</style>' +
         '</head><body>' + body + tags + body_scripts + '</body></html>')
 

@@ -44,7 +44,7 @@ main.wrap{padding:24px 28px 56px} h1{font-size:24px;margin:0 0 4px} h2{font-size
 .jobbar b{font-weight:700} .jobbar .jmsg{color:var(--mut)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 details.log{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);margin-top:10px} details.log summary{cursor:pointer;padding:12px 14px;font-weight:700}
-pre{margin:0;border-top:1px solid var(--line);background:var(--tooltip-bg);color:var(--on-solid);padding:12px;overflow:auto;max-height:340px;font-size:12px}
+pre{margin:0;border-top:1px solid var(--line);background:var(--tooltip-bg);color:var(--tooltip-fg);padding:12px;overflow:auto;max-height:340px;font-size:12px}
 @media(max-width:780px){.hero{display:block}.hero-actions{justify-content:flex-start;margin-top:12px}.status-strip,.ops,.quick-links{grid-template-columns:1fr}}
 .status-card,.op-card,.link-card{border-radius:var(--r-lg);box-shadow:var(--sh)}
 .status-card.good{border-color:var(--good)} .status-card.warn{border-color:var(--warn)} .status-card.bad{border-color:var(--bad)}

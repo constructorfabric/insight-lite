@@ -125,6 +125,57 @@ function carried(href: string, allow: string[] | undefined, q: Record<string, st
 // holding that one item — dropping the pane would change the sidebar's width by page,
 // and a layout that resizes as you navigate is worse than a one-row pane. The group
 // HEADING is what a single item does not earn.
+// The theme toggle. Its markup must match shell.THEME_BTN exactly — React mounts over
+// the server-rendered sidebar, and a different tree here would move the rail on every
+// page load.
+//
+// React owns the CLICK, not the inline script in shell._SIDEBAR_JS: that script's
+// listener is attached to the server's button, which this component replaces, taking the
+// listener with it. The script still runs first and still matters — it applies the stored
+// choice before paint and labels the button for the frame before this mounts, and it is
+// the only handler in the degraded case where the sidebar bundle is missing (see
+// render_spa_page).
+//
+// The icon is state-INDEPENDENT on purpose: a state-dependent one would differ between
+// the server's first paint and this render. The mode is carried by title/aria-label.
+type ThemeMode = "system" | "light" | "dark";
+const THEME_KEY = "insight-theme";
+const NEXT: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark", dark: "system" };
+
+function ThemeToggle() {
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    const attr = document.documentElement.getAttribute("data-theme");
+    return attr === "dark" || attr === "light" ? attr : "system";
+  });
+
+  function pick(next: ThemeMode) {
+    const root = document.documentElement;
+    if (next === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", next);
+    try {
+      if (next === "system") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, next);
+    } catch { /* Safari private mode throws on setItem; the theme still applies */ }
+    setMode(next);
+  }
+
+  const label = `Theme: ${mode}`;
+  return (
+    <button
+      className="rz rz-theme" type="button" data-theme-toggle
+      aria-label={label} title={label}
+      onClick={() => pick(NEXT[mode])}
+    >
+      <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           strokeWidth="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none" />
+      </svg>
+      <span className="rz-l">Theme</span>
+    </button>
+  );
+}
+
 export default function Sidebar(
   { zones, active, caption }: { zones: NavZone[]; active: string; caption?: string },
 ) {
@@ -196,6 +247,7 @@ export default function Sidebar(
               <span className="rz-l">{z.label}</span>
             </a>
           ))}
+          <ThemeToggle />
           </div>
         </nav>
         <nav className="sb-pane" aria-label={current.label}>

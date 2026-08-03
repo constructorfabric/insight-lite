@@ -15,7 +15,7 @@ import { BarRow, SplitBar, Scorecard, type Segment as SplitSeg, type ScorecardDa
 import { useReportData } from "../hooks/useReportData";
 import { fmtNum, fmtPct } from "../lib/format";
 import Loading from "../components/Loading";
-import { token } from "../lib/tokens";
+import { css } from "../lib/tokens";
 
 type OverviewData = {
   meta: { org: string; allTime: boolean; windowStart: string; lookbackDays: number; generatedText: string };
@@ -275,7 +275,7 @@ export default function Overview() {
       />
 
       {data.dataQuality.apiRateLimited && (
-        <div className="card" style={{ borderColor: "var(--bad)", background: token["bad-soft"] }}>
+        <div className="card" style={{ borderColor: "var(--bad)", background: css("bad-soft") }}>
           <p style={{ margin: 0, color: "var(--bad)", fontWeight: 600 }}>
             ⚠ GitHub API rate limit hit during collection — this report is PARTIAL.
             {data.dataQuality.apiReset && ` Quota resets at ${data.dataQuality.apiReset}.`} Re-run collection

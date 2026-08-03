@@ -11,7 +11,7 @@ import FilterBar from "../components/FilterBar";
 import DataTable, { type Column } from "../components/DataTable";
 import { useReportData } from "../hooks/useReportData";
 import Loading from "../components/Loading";
-import { token } from "../lib/tokens";
+import { css } from "../lib/tokens";
 
 // ---- types (mirror render.elements_json's payload) -------------------------
 // Row dicts pass through from store.aggregate()/build_model() plus the derived
@@ -83,7 +83,7 @@ export default function Elements() {
       />
 
       {data.dataQuality.apiRateLimited && (
-        <div className="card" style={{ borderColor: "var(--bad)", background: token["bad-soft"] }}>
+        <div className="card" style={{ borderColor: "var(--bad)", background: css("bad-soft") }}>
           <p style={{ margin: 0, color: "var(--bad)", fontWeight: 600 }}>
             ⚠ GitHub API rate limit hit during collection — this report is PARTIAL.
             {data.dataQuality.apiReset && ` Quota resets at ${data.dataQuality.apiReset}.`} Re-run collection

@@ -330,6 +330,61 @@ Still to come: `frontend/src/lib/tokens.ts` for the chart colours passed to rech
 JS values. That is the reason the source is JSON rather than CSS — custom properties
 cannot reach a JS prop — and it lands with step 4, when the `--c-*` series moves in.
 
+### Themes
+
+`design/tokens.json` holds two themes. `light` is complete; `dark` lists **only what
+differs** and everything absent inherits through the cascade — which is why `chart/*`,
+`category/*`, `score/*` and `radius/*` have no dark entries: series colours are chosen
+for mutual distinguishability, which does not change with the page colour, and radii are
+geometry. A test fails if a dark entry merely repeats its light value.
+
+The dark values are **derived, not picked**. Surfaces and the ink ramp are chosen; every
+chromatic token keeps its hue and saturation and has its lightness raised until it clears
+its declared `text_on` / `graphic_on` pairs against the dark surfaces.
+[`tools/derive_dark_theme.py`](../tools/derive_dark_theme.py) is that derivation, kept in
+the repo so the palette can be re-derived if the light one moves — it is not part of the
+build.
+
+One token had to be split. `--on-solid` meant both "text on a saturated fill" and "text
+on a dark surface"; both are white in the light theme, and in the dark theme they are
+opposite, because a dark theme's fills are *lighter* than the page. So `--on-solid` flips
+to near-black and the two tooltip/log surfaces got `--tooltip-fg`.
+
+Switching, in `frontend/src/styles/tokens.css`:
+
+| Selector | Answers |
+|---|---|
+| `:root` | the light theme, plus `color-scheme:light` so native controls follow |
+| `@media (prefers-color-scheme:dark) :root:not([data-theme="light"])` | the OS preference, with no JS having run |
+| `:root[data-theme="dark"]` | an explicit choice, which must beat a light OS |
+
+`shell.THEME_BOOT` is inlined in `<head>` **before** the stylesheet: the choice lives in
+`localStorage`, not in the markup, so a dark preference would otherwise paint one light
+frame — and since every route is a full page load, that is a flash on every click. No
+stored choice means no attribute, which leaves the media query in charge; that is the
+"system" state rather than a third palette.
+
+The toggle sits at the bottom of the sidebar rail and cycles system → light → dark. It
+exists **twice**, in `shell.THEME_BTN` and in `Sidebar.tsx`, emitting identical markup —
+the same reason the whole sidebar does (see *Two constraints*). React owns the click,
+because the inline script's listener is attached to the server's button, which React
+replaces. The script still matters: it applies the stored choice before paint, and it is
+the only handler in the degraded case where the sidebar bundle is missing. The icon is
+deliberately state-independent — a state-dependent one would differ between the server's
+first paint and React's first render.
+
+**What a server-rendered colour cannot do.** The backend puts colours in payloads without
+knowing the client's theme, so every palette value has to work on both. `series_colors.total`
+did not: it was `#1f2328`, near-black, chosen for a white page, and **1.10:1** on the dark
+surface — the Total line and its KPI value were invisible in dark mode. It is now a neutral
+that clears 3:1 both ways. Found by looking at the page, not by a test; the contrast test
+covers `text_on` pairs, and a chart series is neither.
+
+Still open, and deliberately not changed here: several chart hues fall below 3:1 on **white**
+— `#f59e0b` at 2.15, `#10b981` at 2.54, `#06b6d4` at 2.43. That predates the dark theme.
+Repainting the chart palette is a design decision affecting every chart in both themes, not
+a fix to slip into an accessibility pass.
+
 ### The tests that hold it together
 
 [`tests/test_design_tokens.py`](../tests/test_design_tokens.py):
@@ -377,8 +432,10 @@ cannot reach a JS prop — and it lands with step 4, when the `--c-*` series mov
    `semantic_metrics.py` read from them. Also removed on the way: 54 lines of dead
    page rendering in `views_catalog.py` (a fifth copy of the `/views` CSS) and 14
    stale `var(--token,#hex)` fallbacks in `shell.SHELL_CSS`.
-5. **Then** the visual decisions become one-file edits: fix `--mut` and the status
-   colours to pass AA; collapse the radius set; add the dark palette.
+5. ~~The visual decisions~~ **Done**, in two commits — the first deliberate visual
+   changes in the series. Contrast: ten tokens raised to their WCAG bar. Radius: 16
+   literal values onto a six-step scale. Dark theme: a second palette plus a
+   system/light/dark toggle. See *Themes* below.
 
 Steps 1–4 carry no design decision and no visual change. They are worth doing
 whether or not the Fabric kit is adopted.

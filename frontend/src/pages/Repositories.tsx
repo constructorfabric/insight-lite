@@ -15,7 +15,7 @@ import DataTable, { type Column } from "../components/DataTable";
 import { SplitBar, Legend, MiniStats, Chips, type Segment } from "../widgets";
 import { useReportData } from "../hooks/useReportData";
 import Loading from "../components/Loading";
-import { token } from "../lib/tokens";
+import { css } from "../lib/tokens";
 
 // ---- types (mirror render.repositories_json's payload) ---------------------
 type RepoRow = {
@@ -139,7 +139,7 @@ export default function Repositories() {
       />
 
       {data.dataQuality.apiRateLimited && (
-        <div className="card" style={{ borderColor: "var(--bad)", background: token["bad-soft"] }}>
+        <div className="card" style={{ borderColor: "var(--bad)", background: css("bad-soft") }}>
           <p style={{ margin: 0, color: "var(--bad)", fontWeight: 600 }}>
             ⚠ GitHub API rate limit hit during collection — this report is PARTIAL.
             {data.dataQuality.apiReset && ` Quota resets at ${data.dataQuality.apiReset}.`} Re-run collection

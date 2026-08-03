@@ -99,9 +99,40 @@ def root_block(theme: dict, selector: str = ":root") -> str:
     return "\n".join(lines)
 
 
+def themed_css(data: dict) -> str:
+    """Light in `:root`, dark as an override in three places.
+
+    The dark block lists only what DIFFERS, so anything absent inherits the light value
+    through the cascade — that is why chart/*, category/*, score/* and radius/* need no
+    dark entries at all.
+
+    Three selectors, in this order, because each answers a different question:
+      * the media query is the default — respect the OS without any JS having run;
+      * `:not([data-theme="light"])` lets an explicit light choice win over a dark OS;
+      * `[data-theme="dark"]` lets an explicit dark choice win over a light OS.
+    `color-scheme` comes along so native scrollbars, form controls and the caret follow
+    the theme; without it a dark page keeps white scrollbars."""
+    themes = data["themes"]
+    out = [root_block(themes["light"]).replace("{", "{\n  color-scheme:light;", 1)]
+    dark = themes.get("dark")
+    if dark:
+        body = root_block(dark, ':root[data-theme="dark"]')
+        media = root_block(dark, ':root:not([data-theme="light"])')
+        out += [
+            "",
+            "/* The OS preference, honoured before any JS runs. */",
+            "@media (prefers-color-scheme:dark){",
+            "\n".join("  " + ln for ln in media.replace("{", "{\n  color-scheme:dark;", 1).splitlines()),
+            "}",
+            "",
+            "/* An explicit choice, which must beat the OS in either direction. */",
+            body.replace("{", "{\n  color-scheme:dark;", 1),
+        ]
+    return "\n".join(out)
+
+
 def render_css(data: dict) -> str:
-    blocks = [root_block(theme) for theme in data["themes"].values()]
-    return f"/* {BANNER} */\n" + "\n".join(blocks) + "\n"
+    return f"/* {BANNER} */\n" + themed_css(data) + "\n"
 
 
 def _indent(css: str) -> str:
@@ -119,7 +150,11 @@ def _py_literal(name: str, css: str, doc: str) -> str:
 def render_py(data: dict) -> str:
     """The Python path's copy of both shared pieces, as two string constants that
     shell.py concatenates into BASE_CSS."""
-    tokens = "\n".join(root_block(theme) for theme in data["themes"].values())
+    # themed_css, NOT one root_block per theme: emitting the dark block as a bare
+    # `:root` would make it unconditional, so every server-rendered page would be dark
+    # regardless of the OS or the user's choice. The test that caught this is
+    # ParityTest.test_both_paths_apply_the_same_rules_apart_from_the_fonts.
+    tokens = themed_css(data)
     elements = ELEMENTS_SRC.read_text()
     return (
         f'"""{BANNER}\n\n'

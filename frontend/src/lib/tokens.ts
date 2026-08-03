@@ -16,6 +16,7 @@ export const token = {
   "acc": "#5b5bf0",
   "acc-ink": "#4a45d6",
   "on-solid": "#ffffff",
+  "tooltip-fg": "#ffffff",
   "good": "#0c7f47",
   "good-bg": "#e7f6ee",
   "warn": "#a26b1b",
@@ -26,12 +27,12 @@ export const token = {
   "acc-bg": "#eeeefe",
   "warn-bg": "#fbf3e2",
   "dup": "#5b5bf0",
-  "star": "#f5a623",
-  "violet": "#8b5cf6",
+  "star": "#c77f09",
+  "violet": "#7a45f5",
   "violet-bg": "#f0ebfe",
   "code-bg": "#0d1117",
   "code-fg": "#c9d1d9",
-  "chg-design": "#8250df",
+  "chg-design": "#7d48de",
   "chg-design-bg": "rgba(130,80,223,.14)",
   "swatch-empty": "#888888",
   "company-empty": "#8b949e",
@@ -47,6 +48,8 @@ export const token = {
   "c-feature": "#10b981",
   "c-people": "#06b6d4",
   "c-other": "#9aa3b2",
+  "app-fg": "#814df5",
+  "c-bug-fg": "#e11313",
   "cat-bug": "#ef4444",
   "cat-feature": "#10b981",
   "cat-task": "#8b5cf6",
@@ -171,9 +174,9 @@ export const ELEMENT_DEFAULTS: Readonly<Record<string, string>> = {
   app: "#8b5cf6",
 };
 
-// One-off named series in specific charts. The frontend legend swatches in Trend.tsx mirror `opened`/`merged`, so both sides now read the same entry instead of two hand-matched literals.
+// One-off named series in specific charts. The frontend legend swatches in Trend.tsx read `opened`/`merged` from here, so both sides share one entry instead of two hand-matched literals. These are PAYLOAD colours: the server picks them without knowing the client's theme, so each has to work on both. `total` was #1f2328 — near-black, chosen for a white page, and 1.10:1 on the dark surface, i.e. invisible. It is now a neutral that clears 3:1 both ways (4.19 light / 4.16 dark). Several hues here still fall below 3:1 on WHITE (#f59e0b 2.15, #10b981 2.54); that predates the dark theme and repainting the chart palette is a design decision, not a fix — see docs/design-system.md.
 export const SERIES_COLORS: Readonly<Record<string, string>> = {
-  total: "#1f2328",
+  total: "#787c84",
   opened: "#2f80ed",
   merged: "#10b981",
   ttm: "#f59e0b",

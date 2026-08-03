@@ -243,18 +243,27 @@ def _channels(hex_colour: str) -> list[int]:
 
 
 def flatten(colour: str, backdrop: str) -> str:
-    """An #rrggbbaa colour composited over an opaque backdrop.
+    """A translucent colour composited over an opaque backdrop.
 
-    Needed because a translucent fill is far lighter than its hex suggests, and
-    judging the text on it by the raw hex gives the wrong answer: --exp-bg is
-    #f59e0b22, amber at 13%, which over a white card is #fef2de."""
-    if len(colour.lstrip("#")) != 8:
-        return colour
-    fg = _channels(colour)
-    alpha = int(colour.lstrip("#")[6:8], 16) / 255
+    Needed because a translucent fill is far lighter than its hex suggests, and judging
+    the text on it by the raw value gives the wrong answer in the SAFE direction, which
+    is how --exp-fg's failure hid: --exp-bg is #f59e0b22, amber at 13%, which over a
+    white card is #fef2de.
+
+    Handles both spellings the source uses — #rrggbbaa and rgba() — because
+    --chg-design-bg is written the second way."""
     bg = _channels(backdrop)
-    return "#%02x%02x%02x" % tuple(
-        round(fg[i] * alpha + bg[i] * (1 - alpha)) for i in range(3))
+
+    def mix(fg: list[int], alpha: float) -> str:
+        return "#%02x%02x%02x" % tuple(
+            round(fg[i] * alpha + bg[i] * (1 - alpha)) for i in range(3))
+
+    if colour.startswith("rgba"):
+        parts = [float(x) for x in colour[colour.index("(") + 1:colour.index(")")].split(",")]
+        return mix([int(x) for x in parts[:3]], parts[3])
+    if len(colour.lstrip("#")) == 8:
+        return mix(_channels(colour), int(colour.lstrip("#")[6:8], 16) / 255)
+    return colour
 
 
 def _relative_luminance(hex_colour: str) -> float:
@@ -281,42 +290,74 @@ class ContrastTest(unittest.TestCase):
     # only with the measured ratio, and delete it when the colour is fixed.
     KNOWN_FAILURES: dict[tuple[str, str], float] = {}
 
-    # Groups that declare text pairs. `color` holds the semantic base, `status` the
-    # badge and pill surfaces.
-    PAIR_GROUPS = ("color", "status")
+    # Groups that declare pairs. `color` is the semantic base, `status` the badge and
+    # pill surfaces, `chart` the two fills that also have a text variant (--app-fg,
+    # --c-bug-fg — see the note beside them).
+    PAIR_GROUPS = ("color", "status", "chart")
 
-    def _pairs(self):
-        theme = gen_tokens.load()["themes"]["light"]
-        values = {name: spec["value"]
-                  for group in self.PAIR_GROUPS
-                  for name, spec in gen_tokens.entries(theme, group).items()}
-        panel = values["panel"]
+    # A rating star is a UI component, not body text, so WCAG 1.4.11 applies: 3:1.
+    REQUIREMENT = {"text_on": 4.5, "graphic_on": 3.0}
+
+    def _pairs(self, theme_name="light"):
+        """(fg, bg, ratio, required) for every declared pair, in either theme.
+
+        A token absent from the dark theme inherits its light value through the
+        cascade, so the dark lookup falls back the same way the browser does."""
+        themes = gen_tokens.load()["themes"]
+        def values(name):
+            return {n: s["value"] for g in self.PAIR_GROUPS
+                    for n, s in gen_tokens.entries(themes[name], g).items()}
+        light, active = values("light"), {}
+        if theme_name != "light":
+            active = values(theme_name)
+        resolved = {**light, **active}
+        panel = resolved["panel"]
         for group in self.PAIR_GROUPS:
-            for fg, spec in gen_tokens.entries(theme, group).items():
-                for bg in spec.get("text_on", []):
-                    yield fg, bg, contrast_ratio(flatten(spec["value"], panel),
-                                                 flatten(values[bg], panel))
+            for fg, spec in gen_tokens.entries(themes["light"], group).items():
+                for key, required in self.REQUIREMENT.items():
+                    for bg in spec.get(key, []):
+                        yield (fg, bg,
+                               contrast_ratio(flatten(resolved[fg], panel),
+                                              flatten(resolved[bg], panel)),
+                               required)
 
-    def test_no_new_pair_falls_below_aa(self):
-        for fg, bg, ratio in self._pairs():
-            with self.subTest(pair=f"{fg} on {bg}"):
-                if (fg, bg) in self.KNOWN_FAILURES:
-                    continue
-                self.assertGreaterEqual(
-                    round(ratio, 2), self.AA_NORMAL,
-                    f"--{fg} on --{bg} is {ratio:.2f}:1, below AA 4.5:1")
+    def test_every_declared_pair_meets_its_requirement(self):
+        for theme in gen_tokens.load()["themes"]:
+            for fg, bg, ratio, required in self._pairs(theme):
+                with self.subTest(theme=theme, pair=f"{fg} on {bg}"):
+                    if (fg, bg) in self.KNOWN_FAILURES:
+                        continue
+                    self.assertGreaterEqual(
+                        round(ratio, 2), required,
+                        f"[{theme}] --{fg} on --{bg} is {ratio:.2f}:1, below {required}:1")
 
     def test_the_known_failures_have_not_got_worse(self):
         """A pinned ratio that drops means someone darkened the surface or lightened the
-        text; one that rises above 4.5 means the debt is paid and the line should go."""
-        measured = {(fg, bg): round(r, 2) for fg, bg, r in self._pairs()}
+        text; one that rises above its bar means the debt is paid and the line should go."""
+        measured = {(fg, bg): (round(r, 2), req) for fg, bg, r, req in self._pairs()}
         for pair, pinned in self.KNOWN_FAILURES.items():
             with self.subTest(pair=f"{pair[0]} on {pair[1]}"):
                 self.assertIn(pair, measured, f"{pair} no longer exists — drop it")
-                now = measured[pair]
+                now, required = measured[pair]
                 self.assertGreaterEqual(now, pinned, f"{pair} regressed: {now} < {pinned}")
-                self.assertLess(now, self.AA_NORMAL,
-                                f"{pair} now passes AA at {now} — remove it from KNOWN_FAILURES")
+                self.assertLess(now, required,
+                                f"{pair} now passes at {now} — remove it from KNOWN_FAILURES")
+
+    def test_a_dark_theme_exists_and_only_overrides(self):
+        """Dark lists what DIFFERS; anything absent inherits light through the cascade.
+        A dark entry equal to its light value is dead weight and hides the intent."""
+        themes = gen_tokens.load()["themes"]
+        self.assertIn("dark", themes)
+        for group, items in themes["dark"].items():
+            if group.startswith("_"):
+                continue
+            light = gen_tokens.entries(themes["light"], group)
+            for name, spec in items.items():
+                if name.startswith("_"):
+                    continue
+                self.assertIn(name, light, f"dark defines --{name}, which light does not")
+                self.assertNotEqual(spec["value"], light[name]["value"],
+                                    f"dark --{name} repeats the light value; drop it")
 
     def test_text_on_a_filled_primary_button_passes(self):
         """The one pair not derived from `text_on`: white label on a filled --acc."""
