@@ -28,8 +28,8 @@ adopting that kit is a known number rather than a guess.
 | 2a | [`base.css`](../frontend/src/styles/base.css), [`shell.py`](../backend/shell.py) `_FONTS_CSS` | the `@font-face` pair only | **Live** — the one thing the paths must *not* share (`font-display` block vs swap) |
 | 3 | [`backend/shell.py:152`](../backend/shell.py) `SHELL_CSS`, `CHART_CSS` | sidebar/chrome + chart surfaces | **Live** |
 | 4 | 21 stylesheets in [`frontend/src/styles/`](../frontend/src/styles) | per-page component layout | **Live** |
-| 5 | 5 of those add page-local `:root` blocks | `--acc-soft`, `--acc-bg`, `--warn-bg`, `--dup`, `--star`, `--plat`, `--app`, `--c-*` | **Live** — see below |
-| 6 | 61 distinct hex literals in CSS (152 occurrences) | one-off colours | **Live** — the main blocker for a dark theme |
+| 5 | 7 of those add page-local `:root` blocks | `--acc-soft`, `--acc-bg`, `--warn-bg`, `--dup`, `--star`, `--plat`, `--app`, `--violet`, `--code-bg`, `--c-*` | **Live** — see below, including two name collisions |
+| 6 | 51 distinct hex literals in CSS (137 occurrences) | one-off colours | **Live** — the main blocker for a dark theme |
 | 7 | 17 distinct hex literals in `.ts`/`.tsx` | chart colours passed as recharts props | **Live** |
 | 8 | ~~`backend/server.py` `SETUP_HTML`~~ | a whole pre-React page, own `:root` with an older GitHub-ish palette | **Removed** — it was dead; `/setup` is `render_spa_page("setup", …)` and its styles live in [`setup.css`](../frontend/src/styles/setup.css) |
 | 9 | ~~`backend/calibrate.py` `_HTML`~~ | own `:root` + a full page | **Removed** — it was dead code, never referenced; `/calibrate` is served by `render_spa_page` ([`server.py:2375`](../backend/server.py)) |
@@ -50,16 +50,31 @@ the request handler.
 
 ### The page-local token additions
 
-Five stylesheets extend the palette in place:
+Seven stylesheets extend the palette in place:
 
 - [`config.css:13`](../frontend/src/styles/config.css) — `--acc-soft`, `--c-other`
 - [`identity.css:12`](../frontend/src/styles/identity.css) — `--acc-bg`, `--warn-bg`, `--dup`
 - [`calibrate.css:9`](../frontend/src/styles/calibrate.css) — `--star`
-- [`semantic_wizard.css:16`](../frontend/src/styles/semantic_wizard.css) — `--acc-soft`
-- [`report.css:34`](../frontend/src/styles/report.css) — `--plat`, `--app`, and the 11-colour `--c-*` chart series
+- [`metrics.css:8`](../frontend/src/styles/metrics.css) — `--acc-soft`, `--violet`, `--violet-bg`, `--code-bg`, `--code-fg`
+- [`whatsnew.css:20`](../frontend/src/styles/whatsnew.css) — `--app`
+- [`semantic_wizard.css:16`](../frontend/src/styles/semantic_wizard.css) — `--acc-soft` + an 8-colour `--c-*` set
+- [`report.css:34`](../frontend/src/styles/report.css) — `--plat`, `--app`, and an 11-colour `--c-*` chart series
 
-About 40 token names exist in total. `--acc-soft` is defined twice with the same
-value in two files, which is the failure mode this whole document is about.
+39 distinct token names exist in total, and two of them mean different things
+depending on which page you are on:
+
+| Token | Value | Where |
+|---|---|---|
+| `--app` | `#8b5cf6` | `report.css` |
+| `--app` | `#8250df` | `whatsnew.css` |
+| `--c-epic` | `#8b5cf6` | `report.css` |
+| `--c-epic` | `#5b5bf0` | `semantic_wizard.css` |
+
+Neither collides at runtime — each page loads only its own sheet — but a token whose
+value depends on the route is not a token, and consolidating the two sets in step 4
+has to resolve them rather than pick one silently. `--acc-soft` is defined three times
+with the same value, and the same purple appears under three names (`--app`,
+`--violet`, `--c-loc`), which is the failure mode this whole document is about.
 
 ## Audit against the Constructor Fabric kit
 
