@@ -257,6 +257,45 @@ CREATE TABLE IF NOT EXISTS work_item_status (
 CREATE INDEX IF NOT EXISTS idx_wis_item_date ON work_item_status(item_id, date);
 CREATE INDEX IF NOT EXISTS idx_wis_repo ON work_item_status(repo, number);
 CREATE INDEX IF NOT EXISTS idx_wis_date ON work_item_status(date);
+-- Derived from work_item_status, never a substitute for it. The snapshot table is a
+-- daily photograph of every tracked item, so nearly all of it is the same status written
+-- again: on the Constructor org 1,816 rows of 141,141 carry a change, and the two metrics
+-- that walk item sequences were reading all 141,141 to find them.
+--
+-- NOTHING IS DROPPED. Every snapshot ever taken stays in work_item_status; these two
+-- tables are a cache of the subset those readers need, rebuilt from it by
+-- store.refresh_work_item_key() and safe to delete at any time.
+--
+-- `work_item_key` holds each status CHANGE plus each item's LAST sighting. The last
+-- sighting is the half that is easy to miss: stage_dwell's "waiting now" lens counts
+-- items whose newest row IS the latest snapshot, which is precisely the items that have
+-- NOT changed recently — change rows alone would report almost nobody as waiting, and
+-- report it calmly.
+--
+-- `work_item_instant` holds the distinct snapshot instants, because "which days did we
+-- capture" and "what is the latest instant" are properties of the snapshot SET and
+-- cannot be derived from a row list that deliberately omits rows.
+--
+-- prev_status_raw carries the status the item held in its previous snapshot, which the
+-- rebuild computes anyway (a LAG window) — so the table doubles as the board's TRANSITION
+-- log, readable straight from SQL, and every row says which of the three kinds it is:
+--   prev_status_raw IS NULL          the item's first sighting
+--   prev_status_raw <> status_raw    a transition, prev -> status_raw
+--   prev_status_raw =  status_raw    a last sighting only, nothing moved
+CREATE TABLE IF NOT EXISTS work_item_key (
+    taken_at        TEXT NOT NULL,
+    updated_at      TEXT,
+    item_id         TEXT NOT NULL,
+    repo            TEXT,
+    number          INTEGER,
+    item_type       TEXT,
+    status_raw      TEXT,
+    title           TEXT,
+    -- last, so a database migrated with ALTER TABLE has the same layout as a fresh one
+    prev_status_raw TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wik_item ON work_item_key(item_id, taken_at);
+CREATE TABLE IF NOT EXISTS work_item_instant (taken_at TEXT PRIMARY KEY);
 -- ---- Projects v2 OTHER board fields (Priority, Iteration/Sprint, Estimate, custom
 -- single-select/number/text/date). Same no-history limitation as Status, so snapshot
 -- them alongside it. EAV so any field set works without a migration per new field. ---
@@ -687,6 +726,13 @@ def connect() -> sqlite3.Connection:
     # makes (see the index's comment in the schema above). The schema block created the
     # new one; drop the old rather than keep paying for it on every snapshot write.
     conn.execute("DROP INDEX IF EXISTS idx_wis_item")
+    # 2026-08: prev_status_raw joined work_item_key, making it the board's transition log.
+    # Emptying the cache is the whole migration — it is derived, and the next read of it
+    # rebuilds it with the new column filled in (see refresh_work_item_key).
+    kcols = {r[1] for r in conn.execute("PRAGMA table_info(work_item_key)")}
+    if kcols and "prev_status_raw" not in kcols:
+        conn.execute("ALTER TABLE work_item_key ADD COLUMN prev_status_raw TEXT")
+        conn.execute("DELETE FROM work_item_key")
     # 2026-07: metrics-assistant token/cost accounting on chat_msg usage events.
     ucols = {r[1] for r in conn.execute("PRAGMA table_info(usage_event)")}
     for col, typ in (("tokens_in", "INTEGER"), ("tokens_out", "INTEGER"),
@@ -737,6 +783,45 @@ def upsert_snapshot(conn: sqlite3.Connection, snap: dict) -> int:
     return conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
 
 
+def refresh_work_item_key(conn: sqlite3.Connection) -> int:
+    """Rebuild work_item_key / work_item_instant from work_item_status.
+
+    Called by write_work_item_status, which is the table's ONLY writer — so there is no
+    path that adds a snapshot without this running, and no cache that can drift behind
+    the data. Rebuilds wholesale rather than incrementally: it costs ~0.6s on 141k rows,
+    which is nothing inside a collection and is one fewer thing to get wrong than an
+    incremental update that has to reason about a re-run overwriting one instant.
+
+    Reading from the result is 0.001s against 0.052s for the source, which takes
+    /api/report/flow from 413ms to 116ms and the rewinds drill-down from 250ms to 15ms —
+    measured on a copy of production, with byte-identical responses either way.
+
+    A change row is the first sighting of an item or a status different from its previous
+    snapshot; `rn = 1` is the last sighting. Built WITHOUT a repo filter and filtered on
+    read: the one item in production whose repo changes mid-history makes the two differ
+    by a single first-sighting row, and neither metric moves, because dwell skips the
+    first observed run (its entry was never seen) and a rewind needs a predecessor."""
+    conn.execute("DELETE FROM work_item_key")
+    conn.execute(
+        "INSERT INTO work_item_key (taken_at, updated_at, item_id, repo, number, "
+        "item_type, status_raw, title, prev_status_raw) "
+        "WITH s AS ("
+        "  SELECT taken_at, updated_at, item_id, repo, number, item_type, status_raw,"
+        "         title,"
+        "         LAG(status_raw) OVER (PARTITION BY item_id ORDER BY taken_at) AS prev,"
+        "         ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY taken_at DESC) AS rn"
+        "  FROM work_item_status WHERE status_raw IS NOT NULL"
+        ") SELECT taken_at, updated_at, item_id, repo, number, item_type, status_raw,"
+        "         title, prev"
+        "  FROM s WHERE prev IS NULL OR prev <> status_raw OR rn = 1")
+    conn.execute("DELETE FROM work_item_instant")
+    conn.execute("INSERT INTO work_item_instant (taken_at) "
+                 "SELECT DISTINCT taken_at FROM work_item_status "
+                 "WHERE status_raw IS NOT NULL")
+    conn.commit()
+    return conn.execute("SELECT COUNT(*) FROM work_item_key").fetchone()[0]
+
+
 def write_work_item_status(conn: sqlite3.Connection, taken_at: str, rows: list[dict]) -> int:
     """Record ONE Projects v2 status snapshot taken at `taken_at` (UTC ISO instant).
     Keyed by the exact instant, so several snapshots per day accumulate; a re-run with
@@ -753,6 +838,11 @@ def write_work_item_status(conn: sqlite3.Connection, taken_at: str, rows: list[d
               r.get("repo"), r.get("number"), r.get("status_raw"), r.get("title"),
               r.get("updated_at")) for r in rows])
     conn.commit()
+    # This is the table's only writer, so rebuilding the derived cache HERE is what makes
+    # it impossible for the two to disagree — including on a re-run that overwrites one
+    # instant in place, which changes statuses without changing the row count or the
+    # newest timestamp and would defeat any cheap staleness marker.
+    refresh_work_item_key(conn)
     return len(rows)
 
 

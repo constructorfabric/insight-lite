@@ -493,32 +493,67 @@ _STAGE_NAME = {k: n for k, n, _c in _FLOW_STAGES}
 _DEV_STAGES = {"backlog", "ready", "in_progress"}   # "back to development" targets
 
 
+def _board_key(conn):
+    """The derived cache (store.work_item_key), built lazily if it is not there yet.
+
+    store.write_work_item_status rebuilds it on every snapshot write, so in a collected
+    database it is always current. The lazy build covers the two cases that predate that:
+    a database written by an older binary, and one whose cache was deleted — which is
+    always safe to do, since it is derived."""
+    if not conn.execute("SELECT COUNT(*) FROM work_item_key").fetchone()[0]:
+        if conn.execute("SELECT COUNT(*) FROM work_item_status "
+                        "WHERE status_raw IS NOT NULL LIMIT 1").fetchone()[0]:
+            import store
+            store.refresh_work_item_key(conn)
+
+
+def board_snapshot_instants(conn, repos=None) -> list:
+    """Every distinct snapshot instant, ascending — 99 rows against the table's 141k.
+
+    Kept separate from the row read because "which days did we capture" is a property of
+    the snapshot SET, so deriving it from a row list only works while that list is every
+    row — and board_snapshot_rows deliberately is not. Days on which nothing moved leave
+    no change row, and reading the days off the rows counted them as days we never
+    captured: n_dates came out at 17 of 19 on production, with no error anywhere."""
+    _board_key(conn)
+    if repos is None:
+        return [r[0] for r in conn.execute(
+            "SELECT taken_at FROM work_item_instant ORDER BY taken_at")]
+    # a scope narrows which items are visible, so its instants come from the rows
+    rf, rp = _repo_filter(repos)
+    return [r[0] for r in conn.execute(
+        "SELECT DISTINCT taken_at FROM work_item_status "
+        "WHERE status_raw IS NOT NULL" + rf + " ORDER BY taken_at", rp)]
+
+
 def board_snapshot_rows(conn, repos=None) -> list:
-    """One ordered read of work_item_status, for the readers that need whole SEQUENCES.
+    """The rows the sequence readers need: every status CHANGE, plus each item's LAST
+    sighting — 3,349 rows against 141,141 in the source.
 
-    board_rewind_scan and stage_dwell both walk every snapshot of every item in
-    (item_id, taken_at) order, differing only in which columns they name — so run
-    separately they paid for the same 141k-row read twice. Measured on the Constructor
-    org: 267ms + 199ms as two reads, 215ms as one. The column list here is the union of
-    what the two of them use.
+    board_rewind_scan and stage_dwell both walk item sequences in (item_id, taken_at)
+    order, and both only ever look at where a status changed and where an item currently
+    stands. work_item_status is a daily photograph, so almost all of it is the same status
+    written again; store.refresh_work_item_key materialises the interesting subset and
+    this reads that. NOTHING IS DROPPED — the snapshots all remain, and this cache is
+    rebuildable from them at any time.
 
-    Not shared with board_cfd, which does not need rows at all — it aggregates in SQL.
+    Narrowing the read in the QUERY instead, with window functions, was the first attempt
+    and it was slower than reading everything: 0.303s against 0.052s, because SQLite scans
+    the table either way and the partitioning is extra work. Materialising is what pays.
+    Measured on a copy of production, old server against new, byte-identical responses:
+    the read 0.052s -> 0.001s, /api/report/flow 413ms -> 116ms, and the rewinds
+    drill-down, which reads for itself, 250ms -> 15ms.
 
-    A caller that wants both passes the result to both; either function still reads for
-    itself when given nothing, so they stay usable on their own.
-
-    sqlite3.Row objects, NOT dicts. Both consumers only read fields, and at 141k rows
-    the difference is 108MB against 93MB held for as long as the caller keeps the list —
-    a per-request cost, multiplied by however many flow requests are in flight. `date`
-    is left out for the same reason: neither consumer reads it."""
+    sqlite3.Row objects, not dicts: both consumers only read fields."""
+    _board_key(conn)
     rf, rp = _repo_filter(repos)
     return conn.execute(
-        "SELECT taken_at, updated_at, item_id, repo, number, item_type, "
-        "status_raw, title FROM work_item_status "
-        "WHERE status_raw IS NOT NULL" + rf + " ORDER BY item_id, taken_at", rp).fetchall()
+        "SELECT taken_at, updated_at, item_id, repo, number, item_type, status_raw, title "
+        "FROM work_item_key WHERE 1=1" + rf + " ORDER BY item_id, taken_at", rp).fetchall()
 
 
-def board_rewind_scan(conn, repos=None, rows=None) -> dict:
+
+def board_rewind_scan(conn, repos=None, rows=None, instants=None) -> dict:
     """Every qa→dev move the snapshots can show, with no window applied.
 
     This is the expensive half of board_rewinds and NONE of it depends on the window:
@@ -532,11 +567,15 @@ def board_rewind_scan(conn, repos=None, rows=None) -> dict:
     request, ~400ms each, for two lists that differ only in a date comparison. Callers
     that want both pass the same scan to both board_rewinds() calls.
 
-    `rows` accepts a board_snapshot_rows() read to walk instead of doing its own."""
+    `rows` and `instants` accept a board_snapshot_rows() / board_snapshot_instants() read
+    instead of doing their own. has_history and the date range come from the instants,
+    which describe the snapshot SET — the row list omits days on which nothing moved."""
     resolved = _resolver(conn)
     if rows is None:
         rows = board_snapshot_rows(conn, repos)
-    snaps = sorted({r["taken_at"] for r in rows})   # distinct snapshot instants
+    if instants is None:
+        instants = board_snapshot_instants(conn, repos)
+    snaps = instants
 
     seq: dict = {}
     for r in rows:
@@ -682,7 +721,8 @@ def board_cfd(conn, repos=None, since=None, until=None) -> dict:
 _TERMINAL_STAGES = {"done", "released"}   # "waiting" in these is meaningless
 
 
-def stage_dwell(conn, repos=None, since=None, until=None, rows=None) -> dict:
+def stage_dwell(conn, repos=None, since=None, until=None, rows=None,
+                instants=None) -> dict:
     """Time items spend in each board stage — two lenses:
 
     • AGE (waiting now): as of the latest snapshot, how long each current item has sat
@@ -697,14 +737,22 @@ def stage_dwell(conn, repos=None, since=None, until=None, rows=None) -> dict:
     both are close estimates, not exact; dwell for older history (no updatedAt) falls
     back to snapshot resolution.
 
-    `rows` accepts a board_snapshot_rows() read to walk instead of doing its own."""
+    `rows` and `instants` accept a board_snapshot_rows() / board_snapshot_instants() read
+    instead of doing their own. The date range MUST come from the instants — the row list
+    omits days on which nothing moved, and counting those as days we did not capture put
+    n_dates at 17 of 19 on production, quietly, with no error anywhere. `ref` comes from
+    them for a weaker reason: max(taken_at) over the rows happens to agree, but only
+    because the cache keeps every item's LAST sighting, and this way it does not depend
+    on that. The "waiting now" lens below does depend on it — see store.work_item_key."""
     resolved = _resolver(conn)
     if rows is None:
         rows = board_snapshot_rows(conn, repos)
+    if instants is None:
+        instants = board_snapshot_instants(conn, repos)
     lo = since[:10] if since else None
     hi = until[:10] if until else None
-    days = sorted({r["taken_at"][:10] for r in rows})
-    ref = max((r["taken_at"] for r in rows), default=None)   # latest snapshot instant
+    days = sorted({t[:10] for t in instants})
+    ref = instants[-1] if instants else None                 # latest snapshot instant
 
     seq: dict = {}
     for r in rows:
@@ -1106,7 +1154,7 @@ def flow_kpis(conn, repos=None, since=None, until=None, rewind_scan=None) -> dic
 
 
 def flow_report(conn, repos=None, since=None, until=None, rewind_scan=None,
-                rows=None) -> dict:
+                rows=None, instants=None) -> dict:
     """The Flow tab dataset — retrospective delivery-flow health that EXPLAINS what
     "friction" means and adds the metrics the timeline stream makes possible.
 
@@ -1128,10 +1176,13 @@ def flow_report(conn, repos=None, since=None, until=None, rewind_scan=None,
     # scanned from, so nothing here reads the table a second time.
     if rows is None and rewind_scan is None:
         rows = board_snapshot_rows(conn, repos)
+    if instants is None:
+        instants = board_snapshot_instants(conn, repos)
     board = {"cfd": board_cfd(conn, repos, since, until),
-             "dwell": stage_dwell(conn, repos, since, until, rows),
+             "dwell": stage_dwell(conn, repos, since, until, rows, instants),
              "rewinds": board_rewinds(conn, repos, since, until,
-                                      rewind_scan or board_rewind_scan(conn, repos, rows))}
+                                      rewind_scan
+                                      or board_rewind_scan(conn, repos, rows, instants))}
     items = _flow_item_facts(conn, repos, since, until)
     if not items:
         return {"has_data": False, **board}
