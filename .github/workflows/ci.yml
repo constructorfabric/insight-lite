@@ -9,7 +9,12 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request: {}
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: "Also build linux/arm64 (needed by the tags users pull)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -64,10 +69,14 @@ jobs:
     permissions:
       contents: read
       packages: write               # only this job needs to write to the registry
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-qemu-action@v3
+      # No setup-qemu-action: this job builds amd64 on an amd64 runner, and arm64 is
+      # built natively by the `arm` job below. Emulating one arch from the other used
+      # to make this step 4x slower than the rest of the pipeline put together.
       - uses: docker/setup-buildx-action@v3
 
       # A pull request builds but never publishes. That still catches the failure mode
@@ -180,15 +189,16 @@ jobs:
           echo "MCP handshake: $(tr -d '\n' < /tmp/mcp.out | tail -c 160)"
           docker rm -f smoke-mcp >/dev/null
 
-      # Only now, and only for a real push: the multi-arch publish. arm64 is included
-      # because most people evaluating a self-hosted tool are on Apple Silicon, and
-      # emulating amd64 there makes the first impression a slow one.
-      - name: Build and push
+      # Only now, and only for a real push: publish amd64 under every tag. This is the
+      # step a deploy waits on — scripts/deploy.sh pins sha-<commit>, and production is
+      # amd64 — so it must not be held up by the other architecture.
+      - name: Build and push (amd64)
+        id: push
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -197,6 +207,96 @@ jobs:
           # keeps the package listing to real architectures instead of an
           # "unknown/unknown" provenance entry beside them
           provenance: false
+
+  # arm64, on an arm64 runner. Not for us — production is x86_64 — but for people
+  # running this on their own ARM hardware, a Raspberry Pi included, who pull `latest`
+  # rather than a commit sha. So it has to exist on the tags USERS consume, and does
+  # not have to exist on every sha-<commit>: that split is what lets a deploy go out
+  # without waiting for it.
+  #
+  # Native rather than emulated. Under QEMU this leg took ~16 of the pipeline's 21
+  # minutes, because the frontend's npm install and Vite build ran interpreted;
+  # ubuntu-24.04-arm is free for public repositories and runs it as fast as amd64.
+  arm:
+    name: Image (arm64)
+    needs: test
+    if: github.event_name != 'pull_request' && inputs.arm64 != false
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Pushed by DIGEST, with no tag of its own: the manifest job below is what makes
+      # it reachable, so a half-finished multi-arch publish never leaves an arm64-only
+      # image sitting under a tag somebody might pull.
+      - name: Build and push (arm64)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+          provenance: false
+
+  # Re-point the user-facing tags at a real multi-arch manifest. Until this runs they
+  # resolve to amd64 alone, which is correct-but-partial rather than broken: an ARM
+  # user pulling in that window gets "no matching manifest", not a wrong binary.
+  manifest:
+    name: Multi-arch manifest
+    needs: [build, arm]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - name: Merge the two architectures under each tag
+        run: |
+          set -euo pipefail
+          amd64='${{ needs.build.outputs.digest }}'
+          arm64='${{ needs.arm.outputs.digest }}'
+          [ -n "$amd64" ] && [ -n "$arm64" ] || { echo "::error::missing a digest: amd64=$amd64 arm64=$arm64"; exit 1; }
+          # `if`, not `[ … ] && …`: under `set -e` a blank line in the tag list would
+          # make the loop body's last command return 1 and kill the step.
+          args=""
+          while read -r tag; do
+            if [ -n "$tag" ]; then args="$args -t $tag"; fi
+          done <<< '${{ steps.meta.outputs.tags }}'
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $args \
+            "${IMAGE}@${amd64}" "${IMAGE}@${arm64}"
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            echo "== $tag"
+            docker buildx imagetools inspect "$tag" | grep -E "Platform|MediaType" | head -6
+          done
 
       - name: Summary
         if: github.event_name != 'pull_request'
