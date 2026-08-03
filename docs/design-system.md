@@ -7,11 +7,14 @@ kit, and the plan for keeping all of it in one place.
 
 ## Why this document exists
 
-The visual layer is spread across nine places in two languages. Some of that is
+The visual layer was spread across nine places in two languages. Some of that is
 deliberate — the portal renders through both a Python/Jinja path and a React path,
 and the chrome has to be byte-identical on both or navigating between routes shows a
-visible jump. Some of it is drift. This document records which is which, so a
+visible jump. Some of it was drift. This document records which is which, so a
 palette change is a one-file edit instead of an archaeology exercise.
+
+The shared base is now single-source (rows 1–2a below, and *Plan* further down). The
+page-level spread — rows 4–7 — is still real and is the next step.
 
 It also records the gap against the Constructor Fabric frontend kit, so the cost of
 adopting that kit is a known number rather than a guess.
@@ -20,27 +23,27 @@ adopting that kit is a known number rather than a guess.
 
 | # | Source | What it defines | Status |
 |---|---|---|---|
-| 1 | [`frontend/src/styles/base.css:13`](../frontend/src/styles/base.css) | `:root` tokens + element base (button, input, code, headings) | **Live** — React path, via the Vite `<link>` |
-| 2 | [`backend/shell.py:327`](../backend/shell.py) `BASE_CSS` | verbatim copy of #1 (its `:root` at line 332) | **Live** — inline `<style>` on every shelled page |
+| 1 | [`design/tokens.json`](../design/tokens.json) + [`base-elements.css`](../frontend/src/styles/base-elements.css) | every token value, and the element base | **Live, and the only hand-edited source** — see the plan below |
+| 2 | `frontend/src/styles/tokens.css`, [`backend/tokens.py`](../backend/tokens.py) | the same, per path | **Generated** from #1 — do not edit |
+| 2a | [`base.css`](../frontend/src/styles/base.css), [`shell.py`](../backend/shell.py) `_FONTS_CSS` | the `@font-face` pair only | **Live** — the one thing the paths must *not* share (`font-display` block vs swap) |
 | 3 | [`backend/shell.py:152`](../backend/shell.py) `SHELL_CSS`, `CHART_CSS` | sidebar/chrome + chart surfaces | **Live** |
 | 4 | 21 stylesheets in [`frontend/src/styles/`](../frontend/src/styles) | per-page component layout | **Live** |
 | 5 | 5 of those add page-local `:root` blocks | `--acc-soft`, `--acc-bg`, `--warn-bg`, `--dup`, `--star`, `--plat`, `--app`, `--c-*` | **Live** — see below |
 | 6 | 61 distinct hex literals in CSS (152 occurrences) | one-off colours | **Live** — the main blocker for a dark theme |
 | 7 | 17 distinct hex literals in `.ts`/`.tsx` | chart colours passed as recharts props | **Live** |
-| 8 | [`backend/server.py:512`](../backend/server.py) `SETUP_HTML` `<style>` | own `:root` with an older GitHub-ish palette | **Shadowed** — `shell.BASE_CSS` is concatenated *after* it at line 538, so BASE_CSS wins for every name both define |
-| 9 | [`backend/calibrate.py:40`](../backend/calibrate.py) `_HTML` | own `:root` + full page | **Dead** — `_HTML` is never referenced; `/calibrate` is served by `render_spa_page` ([`server.py:2375`](../backend/server.py)) |
+| 8 | [`backend/server.py:507`](../backend/server.py) `SETUP_HTML` | a whole pre-React page, own `:root` with an older GitHub-ish palette | **Dead** — nothing references it; `/setup` is `render_spa_page("setup", …)` and its styles were ported to [`setup.css`](../frontend/src/styles/setup.css) |
+| 9 | ~~`backend/calibrate.py` `_HTML`~~ | own `:root` + a full page | **Removed** — it was dead code, never referenced; `/calibrate` is served by `render_spa_page` ([`server.py:2375`](../backend/server.py)) |
 
-Sources #1 and #2 are an intentional duplicate. The comment at the top of
-`base.css` documents the one permitted divergence — `font-display:block` in the
-React copy versus `swap` in the Python copy, because on the React MPA every route is
-a full page load and `swap` flashed the fallback font on each navigation. Everything
-else in those two blocks must stay identical by hand today. That is the duplication
-the plan below removes.
+Rows 1–2a used to be one row each of hand-copied CSS: `base.css` carried the token
+block and the element base for the React path, and `shell.BASE_CSS` carried a
+hand-kept copy of both for the Python path, reconciled by eye. They are now generated
+from one source, and a test asserts the two paths cannot disagree.
 
-Source #8 is worth understanding rather than deleting blind: the local block is not
-dead, it styles the setup page's own components (`.step`, `.snum`, `.msg`). Only its
-`:root` values are overridden. Its `--line:#d0d7de` never applies — setup borders
-actually render as BASE_CSS's `#eceef2`.
+Source #8 is the same shape as #9: a complete page left behind by the React
+migration. `/setup` is served by `render_spa_page`, and `setup.css`'s own header
+comment records that it is a port of that page's style block. Nothing reads
+`SETUP_HTML`. The unused `send_html_file_with_nav` method on the request handler is
+another leftover from the same era.
 
 ### The page-local token additions
 
@@ -199,10 +202,19 @@ of the cost sits.
 
 ## Two constraints that shape any change here
 
-**Dual render paths.** Numbers render through both `render.py`'s Jinja filters and
-[`frontend/src/lib/format.ts`](../frontend/src/lib/format.ts), which is documented as
-needing to stay byte-identical. Every formatting change is two implementations plus
-the macros in `templates/panels/`.
+**The chrome is server-rendered, the content is React.** This is not two competing page
+renderers — the React migration (`docs/superpowers/specs/2026-07-22-react-frontend-migration-design.md`)
+finished, and every route now goes through `render_spa_page`. What Python still renders
+is the shell: `<head>`, the inline `<style>`, and the sidebar markup, deliberately, so
+navigation is correct before any JS runs and mounting React over it moves nothing. That
+is the whole reason the Python side needs the visual base *as a string*.
+
+Jinja survives in exactly one place: `templates/panels/01_helpers.j2`, rendered by
+`render_panel_macro` for the dashboard panels' server-side preview (two call sites in
+`dashboards.py`). It uses the `|num`/`|pct` filters, so the byte-identical requirement
+between `render.py`'s filters and
+[`frontend/src/lib/format.ts`](../frontend/src/lib/format.ts) is real but narrow — it
+binds those panels, not every number on every page.
 
 **The pixel gate.** `npm run visual:baseline` / `visual:candidate` / `visual:diff`
 compares screenshots with pixelmatch. Any token change means regenerating the
@@ -215,50 +227,79 @@ baseline, then take the visual change as one deliberate re-baseline.
 The goal is that a palette, radius, or type-scale change is one edit in one file, and
 that a second theme is possible at all.
 
-### Single source
+### Single source — how it is wired
 
-Add `design/tokens.json` as the only hand-edited definition of colour, spacing,
-radius, type-scale and elevation, with a light and a dark set. A small generator
-emits three artefacts, all committed, none hand-edited:
+Two hand-edited files hold the shared visual base. Nothing else is written by hand,
+and neither render path has a copy of its own.
 
-| Generated file | Consumed by | Replaces |
-|---|---|---|
-| `frontend/src/styles/tokens.css` | Vite, imported by every entry | the `:root` block in `base.css` |
-| `backend/tokens.py` (a `TOKENS_CSS` string) | `shell.py`, injected where `BASE_CSS` is today | the hand-copied `:root` in `BASE_CSS` |
-| `frontend/src/lib/tokens.ts` | recharts props, `KpiTile` | the 17 hex literals in `.ts`/`.tsx` |
+| Hand-edited | What it holds |
+|---|---|
+| [`design/tokens.json`](../design/tokens.json) | every token value — colour, radius, shadow — plus which colours are used as body text on which surfaces |
+| [`frontend/src/styles/base-elements.css`](../frontend/src/styles/base-elements.css) | the element base: `html`/`body` reset, headings, buttons, form controls, `code` |
 
-JSON-as-source rather than CSS-as-source specifically because of the third row:
-chart colours are passed to recharts as JS values, and CSS custom properties cannot
-reach them. One generator covers all three languages. It also matches the pattern
-already in use in `dzarlax/design-system` (`tokens/tokens.json` → `bin/gen-tokens.py`
-→ `dist/`), so the workflow is not new.
+[`tools/gen_tokens.py`](../tools/gen_tokens.py) turns those into two generated
+artefacts, both committed, neither to be edited:
 
-A lighter alternative, if the generator feels like too much machinery: make
-`tokens.css` the single hand-edited file and have `shell.py` read it from disk at
-import time. The Dockerfile's `COPY . .` ships `frontend/src`, so the file is present
-at runtime. This removes the #1/#2 duplication for free but leaves the TS chart
-colours unsolved.
+| Generated | Consumed by |
+|---|---|
+| `frontend/src/styles/tokens.css` | `base.css`, via `@import`; Vite inlines it into every entry's bundle |
+| `backend/tokens.py` — `TOKENS_CSS` + `ELEMENTS_CSS` | `shell.py`, which concatenates both into `BASE_CSS` |
 
-### Two tests to add with it
+    python3 tools/gen_tokens.py            # write the artefacts
+    python3 tools/gen_tokens.py --check    # exit 1 if they are stale
 
-- **Drift test** — regenerate into a temp dir and diff against the committed
-  artefacts; fail if they differ. This is the same guarantee the codebase already
-  asks for by hand in the `format.ts` and `BASE_CSS` comments, made mechanical.
-- **Contrast test** — assert every foreground/background token pair in the JSON meets
-  WCAG 2.2 AA for its intended use. The table above is what this test would have
-  caught years ago.
+**Why the Python side carries CSS at all.** It is not design-in-Python: `backend/tokens.py`
+holds no decisions, only generated text. The server-rendered pages inline their CSS
+into a `<style>` block rather than linking a stylesheet, because that is what makes the
+chrome correct before any JS runs (see `render_spa_page`) — so the Python path needs the
+CSS *as a string*. Two alternatives exist if that still grates: have `shell.py` read the
+two CSS files off disk at import time (the Dockerfile's `COPY . .` ships them, and this
+removes the generated Python entirely, at the cost of a runtime file read), or serve them
+as static `/assets/` files and `<link>` them (removes CSS from Python completely, but
+adds a blocking request per page, a cache-busting scheme, and a FOUC risk on the
+server-rendered chrome).
+
+**What stays deliberately un-shared.** The `@font-face` pair. `font-display` is `block`
+on the React path and `swap` on the Python path, and that divergence is load-bearing —
+so `@font-face` lives in `base.css` and `shell._FONTS_CSS` separately, and a test fails
+if either shared file introduces one.
+
+`themes` in the JSON is a map, so adding a `dark` key emits its block on both paths with
+no generator change. It has one entry today.
+
+Still to come: `frontend/src/lib/tokens.ts` for the chart colours passed to recharts as
+JS values. That is the reason the source is JSON rather than CSS — custom properties
+cannot reach a JS prop — and it lands with step 4, when the `--c-*` series moves in.
+
+### The tests that hold it together
+
+[`tests/test_design_tokens.py`](../tests/test_design_tokens.py):
+
+- **Drift** — `gen_tokens.py --check`; fails if a generated file was hand-edited or the
+  generator was not re-run.
+- **Parity** — the two paths' assembled CSS is rule-for-rule identical apart from
+  `@font-face`, and `shell.py` defines no tokens of its own. This is the reconciliation
+  the `base.css` comment used to ask a human to do by eye.
+- **Import order** — a rule added above the `@import`s in `base.css` would make CSS
+  silently drop the tokens and the element base. Verified to fail when violated.
+- **Contrast** — every body-text pair declared in the JSON against WCAG 2.2 AA, with
+  today's eight failures pinned at their measured ratios so a *new* one fails the build
+  and a fixed one is a deleted line.
 
 ### Order of work
 
-1. **Delete** the dead `_HTML` block in `calibrate.py`. No behaviour change.
-2. **Fold** the setup page's shadowed `:root` into its component rules, so
-   `SETUP_HTML` no longer appears to define a palette it does not define.
-3. **Introduce** `design/tokens.json` + generator, emitting exactly today's values.
-   Nothing changes visually; the pixel baseline still passes. This is the step that
-   makes everything after it cheap.
+1. ~~**Delete** the dead `_HTML` block in `calibrate.py`.~~ **Done** — 166 → 34 lines.
+2. **Delete** `SETUP_HTML` and the unused `send_html_file_with_nav` in `server.py` —
+   dead pre-React leftovers, the same case as #9. Removes the last apparent competing
+   palette.
+3. ~~**Introduce** `design/tokens.json` + generator, emitting exactly today's values.~~
+   **Done** — and it went further than planned: the element base is shared too, so the
+   only hand-duplicated CSS left between the paths is the `@font-face` pair that must
+   differ. Verified: both paths' rendered CSS is rule-for-rule unchanged.
 4. **Lift** the page-local `:root` additions and the 61 CSS hex literals into the
    JSON, separating the `--c-*` chart series from the action palette while doing it
-   (this is what unblocks both the dark theme and the `#8b5cf6` role collision).
+   (this is what unblocks both the dark theme and the `#8b5cf6` role collision), and
+   emit `frontend/src/lib/tokens.ts` for the 17 hex literals in TS/TSX.
 5. **Then** the visual decisions become one-file edits: fix `--mut` and the status
    colours to pass AA; collapse the radius set; add the dark palette.
 
