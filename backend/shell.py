@@ -340,6 +340,8 @@ _FONTS_CSS = """
     font-display:swap;src:url(/assets/jakarta.woff2) format('woff2')}
   @font-face{font-family:'Inter';font-style:normal;font-weight:100 900;
     font-display:swap;src:url(/assets/inter.woff2) format('woff2')}
+  @font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:100 800;
+    font-display:swap;src:url(/assets/jetbrains-mono.woff2) format('woff2')}
 """
 
 BASE_CSS = _FONTS_CSS + tokens.TOKENS_CSS + tokens.ELEMENTS_CSS

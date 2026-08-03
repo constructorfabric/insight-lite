@@ -691,6 +691,16 @@ def _nav_view(path: str, default: str, allowed: tuple) -> str:
     return v if v in allowed else default
 
 
+
+# The three faces the portal serves, each a variable latin subset. The request path drops
+# the "-latin" so the URL does not promise a subset that could later widen; the file name
+# keeps it so the checkout says what is actually in there.
+_FONT_FILES = {
+    "/assets/jakarta.woff2": "jakarta-latin.woff2",
+    "/assets/inter.woff2": "inter-latin.woff2",
+    "/assets/jetbrains-mono.woff2": "jetbrains-mono-latin.woff2",
+}
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -2560,8 +2570,8 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
             self.send_json({"ok": True, "data": data})
-        elif path in ("/assets/jakarta.woff2", "/assets/inter.woff2"):
-            fp = ROOT / "assets" / ("jakarta-latin.woff2" if "jakarta" in path else "inter-latin.woff2")
+        elif path in _FONT_FILES:
+            fp = ROOT / "assets" / _FONT_FILES[path]
             if not fp.exists():
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return

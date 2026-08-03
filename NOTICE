@@ -13,3 +13,31 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+
+--------------------------------------------------------------------------------
+Third-party fonts
+--------------------------------------------------------------------------------
+
+This repository redistributes three typefaces as WOFF2 subsets under assets/.
+Each is licensed under the SIL Open Font License, Version 1.1, which permits
+redistribution provided the copyright and licence notice travel with the font.
+That notice was missing for the first two until JetBrains Mono was added; all
+three are recorded here.
+
+  assets/inter-latin.woff2
+      Inter — Copyright (c) 2016 The Inter Project Authors
+      https://github.com/rsms/inter — SIL OFL 1.1
+
+  assets/jakarta-latin.woff2
+      Plus Jakarta Sans — Copyright (c) 2020 The Plus Jakarta Sans Project Authors
+      https://github.com/tokotype/PlusJakartaSans — SIL OFL 1.1
+
+  assets/jetbrains-mono-latin.woff2
+      JetBrains Mono — Copyright (c) 2020 The JetBrains Mono Project Authors
+      https://github.com/JetBrains/JetBrainsMono — SIL OFL 1.1
+
+Each file is the `latin` subset of the variable font, as served by Google Fonts,
+and is baked into the deploy artefact rather than linked from a CDN at runtime.
+The licence text is at https://openfontlicense.org/.
+

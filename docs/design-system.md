@@ -133,7 +133,7 @@ judgeable by eye. A value-level diff needs the Fabric token JSON or the Figma fi
 | Token definitions | one source | 2 live copies + 1 shadowed + 1 dead | consolidate |
 | Hardcoded colours | none implied | 61 distinct in CSS, 17 in TS/TSX | large delta |
 | Typeface (UI) | Inter | **Inter**, with Jakarta kept in the fallback chain | done |
-| Typeface (mono) | JetBrains Mono 11px | named first in the stack; **the woff2 is not shipped**, so it applies only where installed | partial |
+| Typeface (mono) | JetBrains Mono 11px | **JetBrains Mono**, shipped as a 40 KB latin variable subset and served same-origin | done |
 | Type scale | 9 named styles | 23 distinct px sizes, incl. 10.5/11.5/12.5/13.5/14.5 | large delta |
 | Spacing grid | 7 tokens on a 4px grid | the 7 tokens exist; layout spacing migrated, micro-spacing (<14px) deliberately literal | partial |
 | Radii | 4 tokens (6/8/12/16) | one six-step scale (the kit's 4 + `r-xs`, `r-pill`) | done |
@@ -329,6 +329,28 @@ no generator change. It has one entry today.
 Still to come: `frontend/src/lib/tokens.ts` for the chart colours passed to recharts as
 JS values. That is the reason the source is JSON rather than CSS — custom properties
 cannot reach a JS prop — and it lands with step 4, when the `--c-*` series moves in.
+
+### Fonts
+
+Three variable latin subsets under `assets/`, served same-origin by a table in
+`server.py` and baked into the image — never linked from a CDN at runtime:
+
+| Face | Role | File |
+|---|---|---|
+| Inter | product UI | `inter-latin.woff2`, 48 KB, weight 100–900 |
+| JetBrains Mono | technical metadata — metric names, code blocks, view params | `jetbrains-mono-latin.woff2`, 40 KB, weight 100–800 |
+| Plus Jakarta Sans | fallback only | `jakarta-latin.woff2`, 27 KB |
+
+Jakarta was the UI face until 2026-08-03 and stays at the end of the chain so a page
+cached mid-deploy degrades to it rather than to Arial.
+
+All three are SIL OFL 1.1, which requires the copyright notice to travel with the font.
+None of them was attributed until JetBrains Mono was added; [`NOTICE`](../NOTICE) now
+records all three.
+
+The `@font-face` rules are the one thing the two render paths deliberately do not share
+— `font-display:block` on the React path, `swap` on the Python one — so each face is
+declared twice, and a test asserts neither shared file introduces a `@font-face`.
 
 ### Themes
 
