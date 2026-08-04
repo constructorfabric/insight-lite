@@ -503,8 +503,17 @@ def _board_key(conn):
     store.write_work_item_status rebuilds it on every snapshot write, so in a collected
     database it is always current. The lazy build covers the two cases that predate that:
     a database written by an older binary, and one whose cache was deleted — which is
-    always safe to do, since it is derived."""
-    if not conn.execute("SELECT COUNT(*) FROM work_item_key").fetchone()[0]:
+    always safe to do, since it is derived.
+
+    "Deleted" includes deleting only ONE of the two tables, which is why both are checked.
+    The rebuild always fills them together, so they are never legitimately out of step —
+    but a half-cleared cache is exactly the state a hand-run DELETE leaves, and checking
+    work_item_key alone walked straight past it. Unscoped board_snapshot_instants() reads
+    work_item_instant directly, so an empty one silently produced n_dates=0 and no age for
+    the current items."""
+    have_keys = conn.execute("SELECT COUNT(*) FROM work_item_key").fetchone()[0]
+    have_instants = conn.execute("SELECT COUNT(*) FROM work_item_instant").fetchone()[0]
+    if not have_keys or not have_instants:
         if conn.execute("SELECT COUNT(*) FROM work_item_status "
                         "WHERE status_raw IS NOT NULL LIMIT 1").fetchone()[0]:
             import store

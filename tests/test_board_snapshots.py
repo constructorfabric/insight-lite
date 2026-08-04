@@ -290,6 +290,22 @@ class DerivedKeyTableTest(BoardSnapshotFixture):
             "ORDER BY taken_at DESC LIMIT 1").fetchone()[0], "QA",
             "and the one transaction still leaves the cache current")
 
+    def test_half_a_cache_is_still_a_missing_cache(self):
+        """Deleting the derived cache is documented as always safe. That has to hold when
+        only one of its two tables goes: the guard checked work_item_key alone, so an
+        emptied work_item_instant went unnoticed and unscoped board_snapshot_instants read
+        straight from it — n_dates came back 0 with no error anywhere."""
+        self.conn.execute("DELETE FROM work_item_instant")
+        self.conn.commit()
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(len(sm.board_snapshot_instants(self.conn, None)), 4,
+                             "rebuilt because the instants were gone, not the keys")
+        # and the same the other way round, which the original guard did catch
+        self.conn.execute("DELETE FROM work_item_key")
+        self.conn.commit()
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(len(sm.board_snapshot_rows(self.conn, None)), 6)
+
     def test_the_lazy_rebuild_still_commits_on_its_own(self):
         """refresh_work_item_key defaults to committing, because _board_key calls it with
         no write of its own to bundle with. A second connection is the proof: an uncommitted
