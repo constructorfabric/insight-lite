@@ -510,7 +510,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   /* Developer score (experimental). A plain CONTAINER, not a card — the hero and the
      ingredients card each carry their own border, and wrapping them in a third one
      reads as a box inside a box. */
-  .dsc{margin-top:var(--space-5)}
+  .dsc{margin-top:var(--space-5);max-width:940px}
   .dsc .mut{color:var(--mut);font-weight:500}
   .dsc-exp{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--exp-fg);
     background:var(--exp-bg);border:1px solid var(--exp-line);border-radius:var(--r-pill);padding:1px 7px}
@@ -537,7 +537,11 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-drv .dr[data-drill]{color:var(--acc);cursor:pointer;font-weight:600;
     text-decoration:underline dotted color-mix(in srgb,var(--acc) 45%,transparent);text-underline-offset:2px}
   .dsc-drv .dr[data-drill]:hover{text-decoration-color:var(--acc)}
-  .dsc-ctx{margin-top:var(--space-2);font-size:11.5px;color:var(--mut);display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+  /* Card footer: two short paragraphs, stacked. Not a flex row — one of them is a
+     sentence with a chip in it, and flexing that broke it mid-line. */
+  .dsc-foot{margin:var(--space-3) 0 var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:11.5px;color:var(--mut)}
+  .dsc-foot p{margin:5px 0 0}
+  .dsc-foot .dsc-whyrank{margin:0;font-size:11.5px}
   .dsc-chip{font-size:11px;font-weight:700;color:var(--acc);background:var(--acc-soft);border-radius:var(--r-pill);padding:2px 9px}
   .dsc-board{margin-top:var(--space-4);border-top:1px solid var(--line);padding-top:var(--space-3)}
   .dsc-board-h{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);margin-bottom:6px}
@@ -561,8 +565,9 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-hero-n .of{color:var(--mut);padding-bottom:5px;font-size:13px}
   .dsc-hero-n .dsc-pill{margin-left:auto}
   .dsc-scale{margin-top:var(--space-4)}
-  .dsc-scale-t{display:flex;height:6px;border-radius:var(--r-pill);overflow:hidden}
-  .dsc-scale-t i{display:block}
+  .dsc-scale-t{position:relative;display:block;height:6px;border-radius:var(--r-pill);background:var(--line2);overflow:hidden}
+  .dsc-scale-t i{position:absolute;top:0;bottom:0;left:0;border-radius:var(--r-pill)}
+  .dsc-scale-t u{position:absolute;top:0;bottom:0;width:2px;background:var(--panel)}
   .dsc-scale-m{position:relative;display:block;height:0}
   /* The ring around the marker is the PAGE showing through, so it has to be the surface
      the hero actually sits on. */
@@ -573,39 +578,51 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-hero-f b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 
   /* One pill shape for a band, wherever it appears — the total and each pillar. */
-  .dsc-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid currentColor;border-radius:var(--r-pill);padding:2px 9px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
-  .dsc-pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+  /* Neutral surface, dark text, and the band's colour carried by the DOT only. Colouring
+     the text and the border as well put four saturated pills on one small panel, which
+     read as an alarm rather than as a rating. */
+  .dsc-pill{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border-radius:var(--r-pill);padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;color:var(--ink2)}
+  .dsc-pill i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 
   .dsc-card{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-4) var(--space-5) var(--space-2)}
   .dsc-card-h h3{margin:0 0 4px;font-size:15px}
   .dsc-card-h p{margin:0 0 var(--space-3);color:var(--mut);font-size:12px;max-width:70ch}
 
-  /* Score ingredients. Weight, percentile and points each own a column and the total
-     row states the sum, so the arithmetic reads before any prose does. Numbers are
-     right-aligned and tabular — a column of figures is never flush left. */
-  .dsc-ing{width:100%;border-collapse:collapse;font-size:12px}
-  .dsc-ing th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:0 var(--space-2) var(--space-1) 0;border-bottom:1px solid var(--line)}
-  .dsc-ing th:first-child{text-align:left}
-  .dsc-ing td{padding:6px var(--space-2) 6px 0;border-bottom:1px solid var(--line);vertical-align:middle;text-align:right;font-variant-numeric:tabular-nums}
-  .dsc-ing td.pil{text-align:left;font-variant-numeric:normal;white-space:nowrap}
-  .dsc-ing td.pil .w{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-  .dsc-ing td.pil .nm{font-weight:700}
-  .dsc-ing td.pc,.dsc-ing td.pt{font-weight:700;width:78px}
-  .dsc-ing td.ex{text-align:left;width:88px}
-  .dsc-ing tr.off{opacity:.55}
-  /* A pillar row and its drill row are ONE unit: the rule goes under the pair, not
-     between a row and its own detail. */
-  .dsc-ing tr.drill>td{border-bottom:1px solid var(--line);padding:0 0 var(--space-2)}
-  .dsc-ing tr:has(+tr.drill)>td{border-bottom:none;padding-bottom:2px}
-  .dsc-ing tr.gap td.pt{color:var(--c-bug-fg)}
-  .dsc-ing tr.tot td{border-bottom:none;font-weight:800;padding-top:8px;text-align:left}
-  .dsc-ing tr.tot td.pt{text-align:right}
+  /* Score ingredients. Three things to SEE per row — an icon, the pillar with its share,
+     and a rating pill. Points sit quietly on the right and the percentile moved into the
+     drill: a bare "39" says nothing at a glance, and the pill already said it. The earlier
+     version put five columns of small grey type in one row, which is how a table meant to
+     be read at a glance turned into something you have to study. */
+  .dsc-ing{width:100%;border-collapse:collapse}
+  .dsc-ing td{padding:var(--space-4) var(--space-2);border-bottom:1px solid var(--line);vertical-align:middle}
   .dsc-ing tr.can{cursor:pointer}
   .dsc-ing tr.can:hover td{background:var(--row-hover)}
-  .dsc-ing td.cv{width:22px;text-align:center;color:var(--mut)}
-  .dsc-ing td.bd{width:118px;text-align:left}
-  .dsc-drill-in{background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4) var(--space-3)}
-  .dsc-drill-h{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:var(--space-2)}
+  .dsc-ing tr.off{opacity:.55}
+  /* NOT .ico — report.css already owns that for the KPI tiles, whose icons sit on a
+     saturated fill and are stroked --on-solid, i.e. white on our light chip. */
+  .dsc-ing td.pico{width:40px;padding-right:0}
+  .dsc-ing td.pico span{display:grid;place-items:center;width:30px;height:30px;border-radius:var(--r-md);background:var(--panel2)}
+  .dsc-ing td.pil{text-align:left}
+  .dsc-ing td.pil .w{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+  .dsc-ing td.pil .nm{font-weight:700;font-size:15px}
+  .dsc-ing td.pil .mut{font-size:13px}
+  .dsc-ing td.bd{width:150px;text-align:left}
+  .dsc-ing td.pt{width:74px;text-align:right;font-variant-numeric:tabular-nums;color:var(--mut)}
+  .dsc-ing td.pt b{font-size:15px;font-weight:700;color:var(--ink)}
+  .dsc-ing td.pt .u{font-size:11px}
+  .dsc-ing td.cv{width:26px;color:var(--mut)}
+  .dsc-ing td.cv svg{display:block;margin:0 auto}
+  /* A pillar row and its drill row are ONE unit: the rule goes under the pair. */
+  .dsc-ing tr.drill>td{border-bottom:1px solid var(--line);padding:0 var(--space-2) var(--space-3)}
+  .dsc-ing tr:has(+tr.drill)>td{border-bottom:none;padding-bottom:var(--space-2)}
+  .dsc-ing tr.gap td.pt b{color:var(--c-bug-fg)}
+  /* The arithmetic, as one quiet line rather than a fifth column and a total row. */
+  .dsc-sum{margin:var(--space-3) 0 0;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
+  .dsc-sum b{color:var(--ink);font-size:14px}
+
+  .dsc-drill-in{background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4)}
+  .dsc-drill-h{display:block;text-align:left;font-size:12px;color:var(--ink2);margin-bottom:var(--space-3)}
+  .dsc-drill-h b{font-weight:700;color:var(--ink)}
 
   /* Factor drill. One axis for the whole table: multiples of the team median on a log
      scale with the median at the centre, so two factors in different units stay

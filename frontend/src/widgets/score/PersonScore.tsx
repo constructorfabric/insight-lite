@@ -12,6 +12,7 @@
 // components/SegBar, whose DOM is `<span class="segbar">` with a per-segment
 // data-tip). Swapping in SegBar here would change the class + data-tip
 // structure and break parity, so it is kept verbatim as `.comp`.
+import { Activity, ChevronDown, ChevronRight, Timer, Waves, Wrench } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { fmtNum, jr } from "../../lib/format";
@@ -71,6 +72,12 @@ const PLABELS: Record<string, [string, string]> = {
   flow: ["Flow", "forward-flow through stages"],
 };
 const PCOLOR = PILLAR_COLORS;
+// An icon per pillar. In the reference layout these do most of the glanceable work — the
+// eye lands on a shape before it reads a word — and they are what a row of small grey
+// text cannot do.
+const PICON: Record<string, typeof Activity> = {
+  engagement: Activity, delivery: Timer, craft: Wrench, flow: Waves,
+};
 const PILLAR_ORDER = ["engagement", "delivery", "craft", "flow"];
 function nodataMetric(pillar: string): string {
   if (pillar === "flow") return "no flow data";
@@ -183,10 +190,8 @@ function Ingredients({ row, active, weights, tm, wsum, signals }: {
   const order = PILLAR_ORDER.slice().sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
   const parts = order.filter((k) => active.includes(k)).map((k) => row.contributions[k] ?? 0);
   return (
+    <>
     <table className="dsc-ing">
-      <thead>
-        <tr><th>Pillar</th><th>Percentile</th><th>Rating</th><th>Points</th><th /></tr>
-      </thead>
       <tbody>
         {order.map((key) => {
           const on = active.includes(key);
@@ -195,29 +200,30 @@ function Ingredients({ row, active, weights, tm, wsum, signals }: {
           const sigs = signals.filter((s) => s.pillar === key);
           const canOpen = on && sigs.length > 0;
           const isOpen = open === key;
+          const Icon = PICON[key];
           return (
             <Fragment key={key}>
               <tr
                 className={`${!on ? "off" : ""}${on && v === null ? " gap" : ""}${canOpen ? " can" : ""}`.trim() || undefined}
                 onClick={canOpen ? () => setOpen(isOpen ? null : key) : undefined}
               >
+                <td className="pico"><span style={{ color: PCOLOR[key] }}><Icon size={17} /></span></td>
                 <td className="pil">
                   <span className="w" style={{ color: PCOLOR[key] }}>
                     {on ? `${Math.round((100 * weights[key]) / wsum)}% of score` : "not scored"}
                   </span>
                   <span className="nm">{PLABELS[key][0]}</span>
-                  <span className="mut"> · {sigs.length} contributing factor{sigs.length === 1 ? "" : "s"}</span>
+                  <span className="mut"> · {sigs.length} factor{sigs.length === 1 ? "" : "s"}</span>
                 </td>
-                <td className="pc">{on ? (v ?? 0) : "—"}</td>
                 <td className="bd">
                   {/* A pillar the whole team lacks is a collection gap, not this person's
                       shortfall, and one THEY lack is a real zero. Neither gets a band. */}
                   {pb
-                    ? <span className="dsc-pill" style={{ color: tcol(pb.tone) }}><i />{pb.band}</span>
+                    ? <span className="dsc-pill"><i style={{ background: tcol(pb.tone) }} />{pb.band}</span>
                     : <span className="mut">{on ? nodataMetric(key) : "team data gap"}</span>}
                 </td>
-                <td className="pt">{on ? row.contributions[key] ?? 0 : "—"}</td>
-                <td className="cv">{canOpen ? (isOpen ? "\u2227" : "\u203a") : ""}</td>
+                <td className="pt">{on ? <><b>{row.contributions[key] ?? 0}</b> <span className="u">pts</span></> : "—"}</td>
+                <td className="cv">{canOpen && (isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}</td>
               </tr>
               {canOpen && isOpen && (
                 // Its own full-width row: inside a cell the factor table inherits that
@@ -226,7 +232,8 @@ function Ingredients({ row, active, weights, tm, wsum, signals }: {
                   <td colSpan={5}>
                     <div className="dsc-drill-in">
                       <span className="dsc-drill-h">
-                        What drives {PLABELS[key][0]} — {PLABELS[key][1]}
+                        {PLABELS[key][0]} sits at the <b>{v ?? 0}th percentile</b> of the team.
+                        What that is made of:
                       </span>
                       <FactorRows row={row} tm={tm} signals={sigs} />
                     </div>
@@ -236,15 +243,10 @@ function Ingredients({ row, active, weights, tm, wsum, signals }: {
             </Fragment>
           );
         })}
-        <tr className="tot">
-          <td>Total <span className="mut">— {parts.join(" + ")}</span></td>
-          <td />
-          <td />
-          <td className="pt"><b>{row.score}</b></td>
-          <td />
-        </tr>
       </tbody>
     </table>
+    <p className="dsc-sum">{parts.join(" + ")} = <b>{row.score}</b></p>
+    </>
   );
 }
 
@@ -256,9 +258,6 @@ function Ingredients({ row, active, weights, tm, wsum, signals }: {
 // and this file already carries the scar of a button that shipped inert.
 function Hero({ row, n, scale }: { row: ScoreRow; n: number; scale: BandStop[] }) {
   const stops = scale.length ? scale : [{ min: 0, band: row.band, tone: row.tone }];
-  const segs = stops.map((s, i) => ({
-    ...s, width: (i + 1 < stops.length ? stops[i + 1].min : 100) - s.min,
-  }));
   return (
     <div className="dsc-hero">
       <div className="dsc-hero-h">
@@ -268,13 +267,15 @@ function Hero({ row, n, scale }: { row: ScoreRow; n: number; scale: BandStop[] }
       <div className="dsc-hero-n">
         <b>{row.score}</b>
         <span className="of">of 100</span>
-        <span className="dsc-pill" style={{ color: tcol(row.tone) }}><i />{row.band}</span>
+        <span className="dsc-pill"><i style={{ background: tcol(row.tone) }} />{row.band}</span>
       </div>
       <div className="dsc-scale">
+        {/* Filled to the score in the band's colour, the rest left neutral. Painting all
+            four bands across the whole bar made a traffic light out of a scale, and put
+            three saturated colours on screen to say one thing. */}
         <span className="dsc-scale-t">
-          {segs.map((s) => (
-            <i key={s.min} style={{ width: `${s.width}%`, background: tcol(s.tone) }} />
-          ))}
+          <i style={{ width: `${row.score}%`, background: tcol(row.tone) }} />
+          {stops.slice(1).map((s) => <u key={s.min} style={{ left: `${s.min}%` }} />)}
         </span>
         <span className="dsc-scale-m"><b style={{ left: `${row.score}%`, background: tcol(row.tone) }} /></span>
         <span className="dsc-scale-k">
@@ -285,7 +286,7 @@ function Hero({ row, n, scale }: { row: ScoreRow; n: number; scale: BandStop[] }
       </div>
       <div className="dsc-hero-f">
         <span>Rank <b>{row.rank}</b> of <b>{n}</b> scored</span>
-        <span>Team median <b>50</b> by construction</span>
+        <span>Median of the {n} is <b>50</b></span>
       </div>
     </div>
   );
@@ -355,18 +356,19 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
             <div className="dsc-card">
               <div className="dsc-card-h">
                 <h3>Score ingredients</h3>
-                <p>
-                  The four pillars the score is made of, each a percentile against the{" "}
-                  {score.n_eligible} people active this window. Points are what the pillar
-                  contributed — they add up to the score above, exactly. Open one to see the
-                  factors behind it against the team median.
-                </p>
+                <p>What the score is made of. Open a pillar to see its factors against the team.</p>
               </div>
               <Ingredients row={sc} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} />
-            </div>
-            <div className="dsc-ctx">
-              <WhyRankAbove row={sc} />
-              <span className="dsc-chip">AI leverage {sc.drivers.ai_share}%</span> share of AI-marked commits — context, not scored.
+              {/* Inside the card, as its footer. Loose under it, this read as debris — and
+                  .dsc-ctx is a flex row, so WhyRankAbove's <p> broke the line in the
+                  middle of the AI-leverage sentence. */}
+              <div className="dsc-foot">
+                <WhyRankAbove row={sc} />
+                <p>
+                  <span className="dsc-chip">AI leverage {sc.drivers.ai_share}%</span>
+                  {" "}share of AI-marked commits — context, not scored.
+                </p>
+              </div>
             </div>
           </>
         ) : (
