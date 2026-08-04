@@ -543,7 +543,6 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-foot p{margin:5px 0 0}
   .dsc-foot .dsc-whyrank{margin:0;font-size:11.5px}
   .dsc-chip{font-size:11px;font-weight:700;color:var(--acc);background:var(--acc-soft);border-radius:var(--r-pill);padding:2px 9px}
-  .dsc-board{margin-top:var(--space-4);border-top:1px solid var(--line);padding-top:var(--space-3)}
   .dsc-board-h{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);margin-bottom:6px}
   .dsc-sc{font-variant-numeric:tabular-nums}
   /* why-this-rank line + the real-work → team → score chain (card & row expansions) */
@@ -643,7 +642,6 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-foot p{margin:5px 0 0}
   .dsc-foot .dsc-whyrank{margin:0;font-size:11.5px}
   .dsc-chip{font-size:11px;font-weight:700;color:var(--acc);background:var(--acc-soft);border-radius:var(--r-pill);padding:2px 9px}
-  .dsc-board{margin-top:var(--space-4);border-top:1px solid var(--line);padding-top:var(--space-3)}
   .dsc-board-h{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);margin-bottom:6px}
   .dsc-sc{font-variant-numeric:tabular-nums}
   /* why-this-rank line + the real-work → team → score chain (card & row expansions) */
@@ -738,12 +736,25 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
 
 
 
+  /* How the whole team falls across the bands. Worth a strip rather than a sentence: it is
+     the one view where the SHAPE of the scale is visible, and with a median of 50 by
+     construction that shape is largely a property of the scale, not of the team. */
+  .dsc-dist{margin:0 0 var(--space-3)}
+  .dsc-dist-t{display:flex;height:8px;border-radius:var(--r-pill);overflow:hidden;background:var(--line2)}
+  .dsc-dist-t i{display:block}
+  .dsc-dist-k{display:flex;flex-wrap:wrap;gap:var(--space-4);margin-top:7px;font-size:11.5px;color:var(--mut)}
+  .dsc-dist-k em{display:inline-flex;align-items:center;gap:6px;font-style:normal}
+  .dsc-dist-k i{width:8px;height:8px;border-radius:50%}
+  .dsc-dist-k b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .dsc-gaps{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:11.5px;color:var(--mut);line-height:1.5}
+  .dsc-gaps b{color:var(--ink)}
+
   .dsc-leg{display:flex;flex-wrap:wrap;gap:var(--space-3);margin:2px 0 var(--space-2);font-size:11px;color:var(--mut)}
   .dsc-leg .dsc-legi{display:inline-flex;align-items:center;gap:5px}
   .dsc-leg i{width:10px;height:10px;border-radius:var(--r-xs);display:inline-block}
   .dsc-drow{border-top:1px solid var(--line)}
   .dsc-drow.me{background:var(--acc-soft)}
-  .dsc-drow summary{display:grid;grid-template-columns:26px 1fr 130px 40px;align-items:center;gap:var(--space-3);
+  .dsc-drow summary{display:grid;grid-template-columns:26px 1fr 130px 42px 118px 46px;align-items:center;gap:var(--space-3);
     padding:7px var(--space-2);cursor:pointer;list-style:none}
   .dsc-drow summary::-webkit-details-marker{display:none}
   .dsc-drow summary:hover{background:var(--panel2)}
@@ -752,6 +763,11 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-drow summary .comp{display:flex;height:14px;border-radius:var(--r-xs);overflow:hidden;background:var(--panel2);cursor:help}
   .dsc-drow summary .comp i{display:block;height:100%}
   .dsc-drow summary .sc{font-size:15px;font-weight:850;text-align:right;font-variant-numeric:tabular-nums}
+  .dsc-drow summary .bnd{text-align:left}
+  /* Coverage of the pillars scored this window. Red when short, because a low score with
+     a short count is a different statement from a low score. */
+  .dsc-drow summary .cov{font-size:12px;font-weight:700;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums;cursor:help}
+  .dsc-drow summary .cov.thin{color:var(--bad)}
   .dsc-drow[open] summary{background:var(--panel2)}
   .dsc-drow-body{padding:var(--space-2) 10px var(--space-4) 46px}
   .dsc-rows.capped > .dsc-drow:nth-child(n+16){display:none}
