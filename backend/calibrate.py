@@ -14,13 +14,18 @@ def calibrate_json(rater: str = "") -> dict:
     all-rater summary + this rater's own rating, plus the pillar weights. Raw
     values; the React page escapes on output."""
     import store
+    SINCE, UNTIL = "2008-01-01T00:00:00Z", "2099-01-01T00:00:00Z"
     conn = store.connect()
     try:
-        board = store.developer_scores(conn, "2008-01-01T00:00:00Z",
-                                       "2099-01-01T00:00:00Z")["board"]
+        board = store.developer_scores(conn, SINCE, UNTIL)["board"]
         summ = store.label_summary(conn)
         mine = {r["subject_login"]: r["rating"]
                 for r in store.read_score_labels(conn) if r["rater"] == rater}
+        # Suggested band floors from THIS board's own distribution — the same window the
+        # page shows, so the suggestion and the rows a rater is looking at agree. Only ever
+        # a suggestion: floors pinned to quantiles every window would make a person's label
+        # move when the team moves, on top of the score already doing so.
+        suggested = store.suggest_score_bands(conn, SINCE, UNTIL)
     finally:
         conn.close()
     rows = []
@@ -31,4 +36,7 @@ def calibrate_json(rater: str = "") -> dict:
         rows.append({"login": lg, "name": p["name"], "score": p["score"],
                      "avg": avg, "mine": mine.get(lg, 0)})
     return {"rater": rater, "board": rows,
-            "weights": {"cur": store._score_weights(), "def": dict(store._SCORE_WEIGHTS)}}
+            "weights": {"cur": store._score_weights(), "def": dict(store._SCORE_WEIGHTS)},
+            "bands": {"cur": store._score_band_floors(),
+                      "def": {b: lo for lo, b, _ in store._SCORE_BANDS},
+                      "suggested": suggested}}

@@ -343,3 +343,16 @@ developer_score_weights:      # normalised at scoring, so these needn't sum to 1
   craft: 25             # review rounds, merge rate
   flow: 35              # timeline forward-flow / friction
 
+# Band floors — where the score stops being one label and becomes the next. The lowest
+# band starts at 0 and the floors must ascend; anything else falls back to these.
+# The score is a weighted mean of percentiles, so its median is 50 BY CONSTRUCTION: a
+# floor is therefore a statement about what share of people carry a label, whether or not
+# it was meant as one. These put roughly a tenth in the bottom band and a seventh in the
+# top, with the mass in the middle two. Calibrate can suggest floors from the window's own
+# distribution; it suggests rather than applies, so a label does not move when the team does.
+developer_score_bands:
+  Building: 0           # always 0 — the scale has to start somewhere
+  Developing: 30        # ~10th percentile of the scored population, measured
+  Solid: 50             # the median, by construction
+  Strong: 70            # ~85th percentile, measured
+

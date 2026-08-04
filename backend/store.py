@@ -2572,33 +2572,110 @@ def score_signal_spec() -> list[dict]:
     return out
 
 
-# The band scale, as DATA, ascending by floor. _score_band reads it and so does the
-# client (via score_band_spec) — the gauge has to draw its boundaries at exactly the
-# thresholds the labels use, and a second copy in TS would drift the first time these
-# move. Which they may well: the median score is 50 by CONSTRUCTION (the score is a
-# weighted mean of percentiles), so the share of people who land under 45 is a property
-# of the scale, not of how the team works. Renaming the bands to something positional,
-# or recalibrating the floors against an outcome backtest, are both live options.
+# The band scale, as DATA, ascending by floor. _score_band reads it, the client draws it
+# (via score_band_spec), and the floors are configurable — see _score_band_floors.
+#
+# The floors were 45/60/75 until 2026-08-04, and they were far harsher than they looked.
+# Measured over the people who actually get banded (full pillar coverage) on production:
+# 41% of them fell under 45 on a one-year window and 40% on a ninety-day one, against 7%
+# above 75. "Building" was the label for two fifths of the org. That is not a statement
+# about the org: the score is a weighted mean of percentiles, so its median is 50 BY
+# CONSTRUCTION, and a floor at 45 therefore sits near the 41st percentile by arithmetic.
+# Excluding the partial-coverage rows changes nothing — the skew is the scale, not the gaps.
+#
+# 30/50/70 instead. The bottom band becomes a genuine tail (7-11% measured, not 41%), the
+# top stays selective without vanishing (14-15%), and the mass sits in the two middle bands
+# — the same shape a consumer credit score has, where being in the middle-upper band is the
+# norm and so the label does not read as a verdict. The middle floor is exactly 50, which
+# is the median by construction: that boundary documents itself.
 _SCORE_BANDS = [
     (0,  "Building",   "weak"),
-    (45, "Developing", "warn"),
-    (60, "Solid",      "good"),
-    (75, "Strong",     "good"),
+    (30, "Developing", "warn"),
+    (50, "Solid",      "good"),
+    (70, "Strong",     "good"),
 ]
+# Where a suggested scale puts its outer floors, as quantiles of the scored population.
+# The middle one is not here: it is pinned to the median, which the score defines as 50.
+_BAND_SUGGEST_Q = (0.10, 0.85)
+
+
+def _score_band_floors() -> dict:
+    """Effective band floors as {band: floor}: config.yaml `developer_score_bands` merged
+    with the Config overlay, falling back to the built-in scale.
+
+    Guarded the way the scale has to be: the lowest band always starts at 0, floors must be
+    strictly ascending, and every band must be present. A scale that is out of order or has
+    a hole is not a milder scale, it is a broken one — _score_band walks it from the top and
+    would hand back the wrong label — so anything invalid falls back whole rather than in
+    part."""
+    base = {b: lo for lo, b, _ in _SCORE_BANDS}
+    try:
+        import configstore
+        cfg = configstore.apply_overlay(configstore.base_config(), configstore.load_overlay())
+        raw = cfg.get("developer_score_bands") or {}
+        out = dict(base)
+        for b in base:
+            if b in raw:
+                out[b] = int(round(float(raw[b])))
+        floors = [out[b] for lo, b, _ in _SCORE_BANDS]
+        if floors[0] != 0 or any(a >= b for a, b in zip(floors, floors[1:])):
+            return base
+        return out
+    except Exception:                # noqa: BLE001 — config is optional
+        return base
 
 
 def score_band_spec() -> list[dict]:
     """The band scale for a client that has to draw it: floor, label, tone, ascending."""
-    return [{"min": lo, "band": b, "tone": t} for lo, b, t in _SCORE_BANDS]
+    floors = _score_band_floors()
+    return [{"min": floors[b], "band": b, "tone": t} for _, b, t in _SCORE_BANDS]
 
 
 def _score_band(s):
     if s is None:
         return ("—", "na")
-    for lo, band, tone in reversed(_SCORE_BANDS):
-        if s >= lo:
-            return (band, tone)
+    for stop in reversed(score_band_spec()):
+        if s >= stop["min"]:
+            return (stop["band"], stop["tone"])
     return (_SCORE_BANDS[0][1], _SCORE_BANDS[0][2])
+
+
+def suggest_score_bands(conn, since: str, until: str) -> dict | None:
+    """Floors the CURRENT window's distribution would put the chosen shape at, as
+    {band: floor} — a suggestion for the Calibrate page, never applied on its own.
+
+    Suggests rather than sets, for the same reason the weights are suggested: pinning the
+    floors to quantiles every window would make a person's LABEL move when the team moves,
+    on top of the score already doing so. A human accepts a scale and then it holds still.
+
+    Computed over people with FULL pillar coverage only, because those are the only rows
+    that get banded — a missing pillar counts as zero, and letting those scores into the
+    quantiles would drag the bottom floor down to accommodate a data gap. Returns None when
+    there is too little to fit, which is not the same as a scale of zeros."""
+    import statistics
+    sc = developer_scores(conn, since, until)
+    act = sc["active_pillars"]
+    scores = sorted(r["score"] for r in sc["board"]
+                    if all(r["pillars"].get(p) is not None for p in act))
+    if len(scores) < 8:
+        return None
+
+    def q(p):
+        i = (len(scores) - 1) * p
+        lo, hi = int(i), min(int(i) + 1, len(scores) - 1)
+        return scores[lo] + (scores[hi] - scores[lo]) * (i - lo)
+
+    names = [b for _, b, _ in _SCORE_BANDS]
+    mid = round(statistics.median(scores))          # 50 by construction; measured anyway
+    out = {names[0]: 0, names[1]: round(q(_BAND_SUGGEST_Q[0])),
+           names[2]: mid, names[3]: round(q(_BAND_SUGGEST_Q[1]))}
+    floors = [out[b] for b in names]
+    # A tight distribution can collapse two floors onto each other; nudge rather than
+    # return a scale that _score_band cannot walk.
+    for i in range(1, len(floors)):
+        if floors[i] <= floors[i - 1]:
+            floors[i] = floors[i - 1] + 1
+    return dict(zip(names, floors))
 
 
 def _median(xs):

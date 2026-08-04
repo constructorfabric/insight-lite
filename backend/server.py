@@ -3443,6 +3443,24 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json({"ok": True, "weights": eff})
             return
+        if path == "/api/score-bands":
+            # Its own endpoint for the same reason the weights are: these saves do whole-scope
+            # replaces, and the band scale must not be wiped by an unrelated config edit.
+            payload = self._read_json_body()
+            if payload is None:
+                return
+            import configstore as _cs
+            try:
+                eff = _cs.save_score_bands(payload.get("bands") or payload)
+            except ValueError as exc:
+                # An invalid SCALE, not an invalid field — the message names which rule broke.
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            except Exception as exc:               # noqa: BLE001 — never 500 silently
+                self.send_json({"ok": False, "error": str(exc)}, 500)
+                return
+            self.send_json({"ok": True, "bands": eff})
+            return
         if path == "/api/config/policy":
             # Deliberately its own endpoint rather than part of the config save, for
             # the same reason the score weights are: that save does whole-scope

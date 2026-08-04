@@ -9,7 +9,23 @@ import { useEffect, useState } from "react";
 
 type Person = { login: string; name: string; score: number | null; avg: string; mine: number };
 type Weights = { cur: Record<string, number>; def: Record<string, number> };
-type Data = { rater: string; board: Person[]; weights: Weights };
+// The band scale: where the score stops being one label and becomes the next. `suggested`
+// is fitted to THIS window's distribution and is null when there is too little to fit —
+// and it stays a suggestion, because floors pinned to quantiles every window would make a
+// person's label move when the team moves, on top of the score already doing so.
+type Bands = {
+  cur: Record<string, number>; def: Record<string, number>;
+  suggested: Record<string, number> | null;
+};
+type Data = { rater: string; board: Person[]; weights: Weights; bands: Bands };
+
+// Ascending, and the lowest is fixed at 0 — the scale has to start somewhere, and the
+// server rejects anything that does not ascend from there.
+const BAND_KEYS: [string, string][] = [
+  ["Developing", "Developing from"],
+  ["Solid", "Solid from"],
+  ["Strong", "Strong from"],
+];
 
 const KEYS: [string, string][] = [
   ["engagement", "Engagement"],
@@ -26,6 +42,31 @@ export default function CalibrateEditor() {
   const [wt, setWt] = useState<Record<string, number>>({});
   const [wtStatus, setWtStatus] = useState<{ text: string; color: string }>({ text: "", color: "var(--mut)" });
   const [wtSaving, setWtSaving] = useState(false);
+  const [bd, setBd] = useState<Record<string, number>>({});
+  const [bdStatus, setBdStatus] = useState<{ text: string; color: string }>({ text: "", color: "var(--mut)" });
+  const [bdSaving, setBdSaving] = useState(false);
+
+  function saveBands() {
+    setBdSaving(true);
+    setBdStatus({ text: "saving…", color: "var(--mut)" });
+    fetch("/api/score-bands", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bands: { ...bd, Building: 0 } }),
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.ok) {
+          setBd({ ...j.bands });
+          setBdStatus({ text: "saved", color: "var(--good)" });
+        } else {
+          // The server validates the SCALE, not each field, so its message names the rule.
+          setBdStatus({ text: j.error || "not saved", color: "var(--bad)" });
+        }
+      })
+      .catch(() => setBdStatus({ text: "not saved", color: "var(--bad)" }))
+      .finally(() => setBdSaving(false));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -36,6 +77,7 @@ export default function CalibrateEditor() {
         setData(d);
         setRatings(Object.fromEntries(d.board.map((p: Person) => [p.login, p.mine || 0])));
         setWt({ ...d.weights.def, ...d.weights.cur });
+        setBd({ ...d.bands.def, ...d.bands.cur });
       })
       .catch(() => {});
     return () => {
@@ -177,6 +219,73 @@ export default function CalibrateEditor() {
           </tbody>
         </table>
       </div>
+
+      <section className="wtcard">
+        <h2>
+          Band floors <span className="exp">Experimental</span>
+        </h2>
+        <p className="wsub">
+          Where the score stops being one label and becomes the next. The score is a weighted
+          mean of percentiles, so its median is <b>50 by construction</b> — a floor is therefore
+          also a decision about what share of people carry a label, whether it was meant as one
+          or not. The floors were 45 / 60 / 75 until they were measured: those put <b>41%</b> of
+          the banded population in Building against <b>7%</b> in Strong. Defaults now:
+          Developing 30 · Solid 50 · Strong 70. The lowest band always starts at 0.
+        </p>
+        <div id="bdRows">
+          {BAND_KEYS.map(([k, label]) => (
+            <div className="wtrow" key={k}>
+              <span className="wtlab">{label}</span>
+              <input
+                type="range" min="1" max="99" step="1"
+                value={Math.round(bd[k] || 0)}
+                aria-label={`${label} floor`}
+                onChange={(e) => {
+                  setBd((b) => ({ ...b, [k]: +e.target.value }));
+                  setBdStatus({ text: "", color: "var(--mut)" });
+                }}
+              />
+              <span className="wtval">{Math.round(bd[k] || 0)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="wtfoot">
+          <span className="wt-total">
+            {data?.bands.suggested
+              ? <>This window suggests <b>{BAND_KEYS.map(([k]) => data.bands.suggested?.[k]).join(" · ")}</b></>
+              : <>too few scored people this window to suggest a scale</>}
+          </span>
+          <span className="wtbtns">
+            {data?.bands.suggested && (
+              <button
+                type="button" className="btn ghost"
+                onClick={() => {
+                  // Fills the fields, does NOT save. A scale should be accepted by a person
+                  // and then hold still; refitting it every window would move labels under
+                  // people who had not moved.
+                  setBd({ ...(data.bands.suggested ?? {}) });
+                  setBdStatus({ text: "suggested — not saved yet", color: "var(--mut)" });
+                }}
+              >
+                Use this window&rsquo;s
+              </button>
+            )}
+            <button
+              type="button" className="btn ghost"
+              onClick={() => {
+                setBd({ ...(data?.bands.def ?? {}) });
+                setBdStatus({ text: "reset — not saved yet", color: "var(--mut)" });
+              }}
+            >
+              Reset to defaults
+            </button>
+            <button type="button" className="btn" disabled={bdSaving} onClick={saveBands}>
+              Save floors
+            </button>
+            <span className="wtsaved" style={{ color: bdStatus.color }}>{bdStatus.text}</span>
+          </span>
+        </div>
+      </section>
 
       <section className="wtcard">
         <h2>
