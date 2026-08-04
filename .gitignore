@@ -28,16 +28,27 @@ exports/
 .claude/
 .playwright-mcp/
 # SQLite store lives on the docker bind-mount (persists across restarts).
-history/report.db
-history/report.db-shm
-history/report.db-wal
+#
+# `**/` and not `history/`, which would anchor these to the repo root. store.connect()
+# resolves DATA_DIR from the CURRENT working directory, so running anything from backend/
+# creates backend/history/report.db — a path an anchored pattern does not match, and one
+# that got committed once before this comment existed. The store may hold the identity of
+# everyone in the org, so where it happens to sit must not decide whether git tracks it.
+**/history/report.db
+**/history/report.db-shm
+**/history/report.db-wal
 # Snapshots pulled off a server for local inspection (scripts/pull-db.sh). Same personal
-# data as report.db above, and the same reason not to track it — the default name is
-# matched by neither of those lines, so it is spelled out rather than left to luck.
-history/prod-copy.db
-history/prod-copy.db-shm
-history/prod-copy.db-wal
-history/*-copy.db
+# data, and the same reason not to track it — the default name is matched by none of the
+# lines above, so it is spelled out rather than left to luck.
+**/history/prod-copy.db
+**/history/prod-copy.db-shm
+**/history/prod-copy.db-wal
+# pull-db.sh accepts ANY destination, and SQLite writes a -wal and a -shm beside whatever it
+# opens. The wildcard covered the database and not its sidecars, and a -wal holds the same
+# personal data as the file it belongs to.
+**/history/*-copy.db
+**/history/*-copy.db-shm
+**/history/*-copy.db-wal
 
 # Collected aggregates. These were TRACKED internally as a "text backup of the DB" and
 # that was a mistake for a public repo: snapshots.jsonl carries per-company commit / LOC
@@ -62,3 +73,7 @@ frontend/visual/diff/
 
 # per-installation deploy target (host/key/dir) — never in git
 scripts/deploy.env
+
+# Design mockups served against the real stylesheets (scripts serve the repo root).
+# Throwaway by nature and often carry pulled data — not source.
+mockups/

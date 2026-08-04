@@ -541,6 +541,65 @@ def _report_version():
         conn.close()
 
 
+# developer_scores runs per request, and the person page needs TWO windows now (this one and
+# the one before it, for the delta). Measured inside a warm request on a copy of production:
+# 33ms for the current window and 26ms for the previous, against ~78ms for the whole endpoint
+# — so the scoring is most of it, and caching takes the endpoint to ~21ms.
+#
+# NOT the "2.7s per call" an earlier version of this comment claimed. That number was the
+# FIRST call in a fresh process on a 180MB database: process warm-up and cold page cache, not
+# the scorer. Worth stating because it is the sort of figure that gets repeated.
+# Keyed on
+# store.report_version() exactly like _RENDER above: a content token that moves the instant any
+# run blob or override is written, which the DB file mtime does not under WAL. Bounded, because
+# a window is a user-chosen string and an unbounded dict keyed on one is a slow memory leak.
+_SCORES: dict = {}
+_SCORES_LOCK = threading.Lock()
+_SCORES_MAX = 8
+
+
+def _cached_scores(conn, since: str, until: str) -> dict:
+    """developer_scores for a window, cached until the data changes.
+
+    Two windows are needed per person page now (this one and the one before it, for the
+    delta), so without a cache the page paid twice over — and the second window is the SAME
+    for every person, which is exactly what a cache is for.
+
+    Keyed on the DB PATH as well as the version, because report_version is a content hash:
+    two different databases holding the same runs and overrides produce the same token, so a
+    version-only key hands one store's board to another. One database in production, but the
+    test suite runs several with identical seeds and caught it immediately.
+
+    A version of None means the token could not be read. That is the one case where caching
+    is worse than not: nothing would ever invalidate the entry, so it would serve the same
+    board until the process restarted. Pay the cost instead.
+
+    The window is keyed to the HOUR (`[:13]` of an ISO stamp), not to the second, and without
+    that the cache could never hit at all: a preset window is resolved from "now", so two
+    requests three seconds apart asked for 2026-05-06T15:34:21Z and ...:24Z and missed every
+    time. Rounding the KEY while computing the exact window is sound here rather than merely
+    tolerable, because report_version already moves on any collect or edit — so within one
+    version no new data exists for a later window edge to include, and the numbers for
+    15:34:21 and 15:34:24 are the same numbers."""
+    import store
+    version = _report_version()
+    # A None key means "do not cache this at all", which keeps the scorer to ONE call site.
+    key = None if version is None else (store.db_path(), version,
+                                        since[:13], until[:13])
+    if key is not None:
+        with _SCORES_LOCK:
+            hit = _SCORES.get(key)
+        if hit is not None:
+            return hit
+    built = store.developer_scores(conn, since, until)
+    if key is not None:
+        with _SCORES_LOCK:
+            if len(_SCORES) >= _SCORES_MAX:
+                _SCORES.clear()      # whole-sale, rather than guessing which to evict
+            _SCORES[key] = built
+    return built
+
+
 def _cached_report_model():
     """The cached model if it is present AND current, else None. Never builds.
 
@@ -1453,12 +1512,50 @@ class Handler(BaseHTTPRequestHandler):
         """
         import store
         try:
-            sc = store.developer_scores(conn, since, until)
-            subj = sc["by_login"].get(login)
-            board = sc["board"]           # full board; the UI reveals past the top 15
+            sc = _cached_scores(conn, since, until)
+            # The cache hands back the SAME board list to every request, and this method
+            # annotates rows per subject — vs_self below, and delta further down. Writing
+            # those onto the cached object corrupts other requests two ways, and neither is
+            # theoretical: the server is a ThreadingHTTPServer, so a concurrent request can
+            # overwrite rows while this one serialises them; and sequentially, a person with
+            # no score skips the vs_self loop entirely and would ship the PREVIOUS subject's
+            # comparisons. Reproduced before fixing — asking for an unscored person returned
+            # all 46 rows still measured against the person requested before them.
+            #
+            # A shallow row copy is enough because only top-level keys are written here; the
+            # nested pillars / contributions / drivers dicts are read and never mutated.
+            board = [dict(r) for r in sc["board"]]
+            by_login = {r["login"]: r for r in board}
+            subj = by_login.get(login)
             if subj is not None:
                 for r in board:
                     r["vs_self"] = store.compare_row_to(r, subj, sc["active_pillars"])
+            # The window before this one, of the same length, so a delta compares like with
+            # like. Cached, so the second window is paid once per data version rather than
+            # once per person page — and every person on the page shares it.
+            delta, board_deltas = None, {}
+            try:
+                span = (datetime.fromisoformat(until.replace("Z", "+00:00"))
+                        - datetime.fromisoformat(since.replace("Z", "+00:00")))
+                if span.total_seconds() > 0:
+                    p_until = since
+                    p_since = (datetime.fromisoformat(since.replace("Z", "+00:00")) - span).isoformat()
+                    prev = _cached_scores(conn, p_since, p_until)
+                    if subj is not None:
+                        delta = store.score_delta(sc, prev, login)
+                        if delta is not None:
+                            # A comparison has to say what it compared with. The window is
+                            # derived here, so it is the only place that knows.
+                            delta["since"] = p_since[:10]
+                            delta["until"] = p_until[:10]
+                    # Per row, only the total: the counterfactual split is an explanation
+                    # for the page's subject, not a column to skim eighty-seven of.
+                    for r in board:
+                        was = prev["by_login"].get(r["login"])
+                        r["delta"] = (r["score"] - was["score"]) if was else None
+            except Exception as exc:           # noqa: BLE001 — a delta must never take the panel
+                log_degraded(f"score delta for {login} ({since[:10]}->{until[:10]})", exc)
+
             viewer = None
             for ident in self._oauth_idents():
                 viewer = store.person_login_for(conn, ident)
@@ -1468,6 +1565,14 @@ class Handler(BaseHTTPRequestHandler):
                     "n_eligible": sc["n_eligible"], "n_ranked": sc["n_ranked"],
                     "active_pillars": sc["active_pillars"], "team_medians": sc["team_medians"],
                     "min_activity": sc["min_activity"],
+                    # Which pillar each signal belongs to, which way is better, and how to
+                    # print it. Sent so the client stops carrying its own copy — the
+                    # direction is not derivable from anywhere else it can see.
+                    "delta": delta,
+                    "signals": store.score_signal_spec(),
+                    # the band scale, so the gauge draws its boundaries at the same
+                    # thresholds the labels come from
+                    "bands_scale": store.score_band_spec(),
                     "is_self_view": (viewer is not None and viewer == login)}, None
         except Exception as exc:           # noqa: BLE001 — never break the dashboard
             log_degraded(f"developer score for {login} ({since[:10]}→{until[:10]})", exc)
@@ -3435,6 +3540,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(exc)}, 500)
                 return
             self.send_json({"ok": True, "weights": eff})
+            return
+        if path == "/api/score-bands":
+            # Its own endpoint for the same reason the weights are: these saves do whole-scope
+            # replaces, and the band scale must not be wiped by an unrelated config edit.
+            payload = self._read_json_body()
+            if payload is None:
+                return
+            import configstore as _cs
+            try:
+                eff = _cs.save_score_bands(payload.get("bands") or payload)
+            except ValueError as exc:
+                # An invalid SCALE, not an invalid field — the message names which rule broke.
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
+            except Exception as exc:               # noqa: BLE001 — never 500 silently
+                self.send_json({"ok": False, "error": str(exc)}, 500)
+                return
+            self.send_json({"ok": True, "bands": eff})
             return
         if path == "/api/config/policy":
             # Deliberately its own endpoint rather than part of the config save, for

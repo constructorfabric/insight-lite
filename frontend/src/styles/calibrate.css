@@ -39,3 +39,37 @@ td.sc{font-weight:800}
 .btn:disabled{opacity:.55;cursor:default}
 .btn.ghost{background:var(--panel);color:var(--acc)}
 .wtsaved{font-size:12px;font-weight:700;white-space:nowrap}
+
+/* The weights as the split they produce. Two sentences of prose replaced by one bar: the
+   segments add to 100% however the sliders are set, which is what "relative" and "normalised
+   at scoring" were trying to say. NOT .wtbar — report.css already owns that. */
+.wtsplit{margin:var(--space-3) 0 var(--space-2)}
+.wtsplit-b{display:flex;height:12px;border-radius:var(--r-pill);overflow:hidden;
+  background:var(--line2)}
+.wtsplit-b i{display:block}
+.wtsplit-k{display:flex;flex-wrap:wrap;gap:var(--space-4);margin-top:8px;font-size:11.5px;
+  color:var(--mut)}
+.wtsplit-k em{display:inline-flex;align-items:center;gap:6px;font-style:normal}
+.wtsplit-k i{width:8px;height:8px;border-radius:50%}
+.wtsplit-k b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* The distribution with the floors on it. Carries what three paragraphs used to: the axis
+   is scores, the bars are people, and the coloured regions are the bands. */
+.bdchart{margin:var(--space-4) 0 var(--space-2)}
+.bdbars{position:relative;display:flex;align-items:flex-end;gap:1px;height:88px;
+  border-bottom:1px solid var(--line2)}
+.bdbars i{flex:1;min-height:1px;border-radius:1px 1px 0 0}
+.bdbars u{position:absolute;top:-6px;bottom:0;width:2px;background:var(--ink);text-decoration:none}
+.bdbars u em{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-style:normal;
+  font-size:10.5px;font-weight:700;color:var(--ink);background:var(--panel);padding:0 3px;
+  font-variant-numeric:tabular-nums}
+.bdaxis{position:relative;height:15px;margin-top:4px}
+.bdaxis span{position:absolute;transform:translateX(-50%);font-size:10.5px;color:var(--mut);
+  font-variant-numeric:tabular-nums}
+
+/* Live band sizes under the floor sliders. Three floors define four bands, and the sizes
+   are what a floor is actually being set to produce — the earlier per-slider "N% below"
+   was both ambiguous about what it was below and the wrong quantity. */
+.bdsizes{margin:var(--space-3) 0 0;font-size:12px;color:var(--ink2);line-height:1.6}
+.bdsizes b{color:var(--ink);font-variant-numeric:tabular-nums}
+.bdsizes .mut{color:var(--mut);font-variant-numeric:tabular-nums}

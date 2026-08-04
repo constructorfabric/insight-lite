@@ -76,7 +76,8 @@ BLOB_KEYS = ("ai_tools", "studio_provenance", "gears_usage", "fabric_trackers",
 # tomorrow — a captured config must mean the same thing as the file it came from, not
 # merely produce the same output once.
 BASE_KEYS = ("org", "lookback_days", "extra_orgs", "extra_repos", "repo_types",
-             "repos", "elements", "companies", "developer_score_weights")
+             "repos", "elements", "companies", "developer_score_weights",
+             "developer_score_bands")
 
 
 def load_overlay() -> dict:
@@ -110,6 +111,8 @@ def load_overlay() -> dict:
         ov["lookback_days"] = settings["lookback_days"]["value"]
     if (settings.get("dev_score_weights") or {}).get("value"):
         ov["dev_score_weights"] = settings["dev_score_weights"]["value"]
+    if (settings.get("dev_score_bands") or {}).get("value"):
+        ov["dev_score_bands"] = settings["dev_score_bands"]["value"]
     for key in BLOB_KEYS:
         # `is not None` rather than truthiness: an EMPTY override is a real choice
         # (no bot logins, no identity bridges) and must not silently fall back to the
@@ -218,6 +221,11 @@ def apply_overlay(cfg: dict, ov: dict | None = None) -> dict:
     if ov.get("dev_score_weights"):
         w = cfg.setdefault("developer_score_weights", {})
         w.update(ov["dev_score_weights"])
+    # ...and the band floors, same rule. store._score_band_floors validates the result:
+    # a scale that does not ascend is not a milder scale, it is a broken one.
+    if ov.get("dev_score_bands"):
+        b = cfg.setdefault("developer_score_bands", {})
+        b.update(ov["dev_score_bands"])
 
     # policy blocks — replaced whole, see BLOB_KEYS
     for key in BLOB_KEYS:
@@ -515,6 +523,41 @@ def save_score_weights(weights: dict) -> dict:
     finally:
         conn.close()
     return store._score_weights()
+
+
+def save_score_bands(bands: dict) -> dict:
+    """Persist the developer-score band floors (Calibrate page). Mirrors
+    save_score_weights: coerces to integers, upserts the single `setting/dev_score_bands`
+    override, and clears it when the values are back at the base defaults so a reset
+    really resets. Returns the effective floors.
+
+    Validates the whole scale rather than each floor, because the floors are only
+    meaningful together — the lowest must be 0 and they must strictly ascend, or
+    store._score_band walks a scale that hands back the wrong label."""
+    import store
+    names = [b for _, b, _ in store._SCORE_BANDS]
+    defaults = {b: lo for lo, b, _ in store._SCORE_BANDS}
+    out = dict(defaults)
+    for k in names:
+        if k in (bands or {}):
+            try:
+                out[k] = int(round(float(bands[k])))
+            except (TypeError, ValueError):
+                pass
+    floors = [out[b] for b in names]
+    if floors[0] != 0:
+        raise ValueError(f"the lowest band must start at 0, got {floors[0]}")
+    if any(a >= b for a, b in zip(floors, floors[1:])):
+        raise ValueError(f"band floors must ascend, got {floors}")
+    conn = store.connect()
+    try:
+        if out == defaults:
+            store.delete_override(conn, "setting", "dev_score_bands")
+        else:
+            store.write_override(conn, "setting", "dev_score_bands", {"value": out})
+    finally:
+        conn.close()
+    return store._score_band_floors()
 
 
 # Human-facing description per policy block, shown above its editor. Kept next to

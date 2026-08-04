@@ -94,6 +94,37 @@ class ScoreBlockBuilderTest(unittest.TestCase):
         # inside the block would otherwise fail the test on timing alone.
         self.assertNotIn("degraded", log.getvalue())
 
+    def test_one_persons_annotations_never_reach_another_persons_board(self):
+        """The score cache hands the SAME board list to every request, and this builder
+        annotates rows per subject (vs_self, and delta). Writing those onto the cached object
+        corrupts other requests, and not hypothetically — the server is a ThreadingHTTPServer,
+        and even without concurrency a subject with no score skips the vs_self loop and would
+        ship the PREVIOUS subject's comparisons. Reproduced on production data before the fix:
+        asking for an unscored person returned all 46 rows still measured against the person
+        requested before them.
+
+        So: ask about a scored person, then about somebody who is not scored, and the second
+        answer must carry no comparisons at all — and the cached object must be untouched
+        either way."""
+        with _store() as conn:
+            _seed(conn)
+            h = _handler()
+            with contextlib.redirect_stderr(io.StringIO()):
+                first, _ = h._developer_score_block(conn, "alice", SINCE, UNTIL)
+                # "nobody" is not in the board, so subj is None and the loop is skipped
+                second, _ = h._developer_score_block(conn, "nobody", SINCE, UNTIL)
+
+        self.assertTrue(any(r.get("vs_self") for r in first["board"]),
+                        "the scored subject should have produced comparisons")
+        self.assertIsNone(second["self"])
+        self.assertFalse(any(r.get("vs_self") for r in second["board"]),
+                         "this board is carrying the previous subject's comparisons")
+        # and the two payloads must not be the same objects, or a later write to one shows
+        # up in the other after both have been built
+        self.assertIsNot(first["board"], second["board"])
+        for a, b in zip(first["board"], second["board"]):
+            self.assertIsNot(a, b, f"{a['login']} is one shared row in both payloads")
+
     def test_a_raising_builder_is_reported_and_logged_with_a_traceback(self):
         with _store() as conn:
             log = io.StringIO()
@@ -129,12 +160,22 @@ class ScoreBlockBuilderTest(unittest.TestCase):
 
     def test_the_person_endpoint_uses_the_shared_builder(self):
         """There is one person endpoint since the legacy /api/person fragment went with
-        the monolith, and it must still go through the shared builder rather than
-        growing its own copy of the score logic."""
+        the monolith, and it must still go through the shared builder rather than growing
+        its own copy of the score logic.
+
+        Two doors now, not one. developer_scores costs seconds, so the handler reaches it
+        through _cached_scores; a direct call from the handler would be correct and slow,
+        which is the kind of regression nothing else notices. So: the builder is called
+        once, the handler never calls the scorer itself, and the module has exactly one
+        place that does."""
         import inspect
-        src = inspect.getsource(server.Handler)
-        self.assertEqual(src.count("self._developer_score_block("), 1)
-        self.assertEqual(src.count("store.developer_scores("), 1)
+        handler = inspect.getsource(server.Handler)
+        module = inspect.getsource(server)
+        self.assertEqual(handler.count("self._developer_score_block("), 1)
+        self.assertEqual(handler.count("store.developer_scores("), 0,
+                         "the handler must go through _cached_scores, not the scorer")
+        self.assertEqual(module.count("store.developer_scores("), 1,
+                         "one door to the scorer, and it is the cache")
 
 
 # --- render side: the gate that decides whether the panel is drawn -------------

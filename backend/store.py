@@ -2527,18 +2527,161 @@ _PILLAR_PRIMARY = {
     "craft":      {"key": "rounds", "label": "review rounds/PR", "lower_better": True},
     "flow":       {"key": "flow", "label": "friction/item", "lower_better": True},
 }
+# How each signal is NAMED and PRINTED. Split from _SCORE_SIGNALS above so the tuple
+# stays the machine-readable definition, but kept next to it because they have to
+# describe the same ten keys — tests/test_developer_score.py asserts exactly that.
+#
+# This exists so the UI does not carry its own copy. A client that hardcodes "rounds is
+# lower-is-better" drifts the first time the model changes, and the direction is not
+# recoverable from anywhere else: the metric registry (_m) has no direction field, so
+# _SCORE_SIGNALS is the only place that knows, and score_signal_spec() is how it travels.
+# `fmt` is a hint, not a format string — the client owns rendering:
+#   int    plain integer, thousands-separated
+#   f1/f2  one / two decimals
+#   hours  one decimal with an h suffix
+#   pct01  a 0..1 ratio printed as a percentage
+_SCORE_SIGNAL_META = {
+    "commits":       ("Commits", "int"),
+    "loc":           ("Meaningful LOC", "int"),
+    "prs_merged":    ("PRs merged", "int"),
+    "reviews_given": ("Reviews given", "int"),
+    "specs":         ("Spec edits", "int"),
+    "ttm":           ("Median merge time", "hours"),
+    "size":          ("PR size", "f1"),
+    "rounds":        ("Review rounds per PR", "f2"),
+    "merge_rate":    ("Merge rate", "pct01"),
+    "flow":          ("Friction per item", "f3"),
+}
 
 
-def _score_band(s):
+def score_signal_spec() -> list[dict]:
+    """The score's signals as the UI needs them: which pillar, which way is better, and
+    how to name and print each one. Derived from _SCORE_SIGNALS so the two cannot disagree.
+
+    Ordered by pillar (heaviest weight first) and, inside a pillar, by _SCORE_SIGNALS'
+    own order, so the client can render without sorting and every person's page agrees."""
+    order = sorted(_SCORE_WEIGHTS, key=lambda p: -_SCORE_WEIGHTS[p])
+    out = []
+    for pillar in order:
+        for p, key, direction in _SCORE_SIGNALS:
+            if p != pillar:
+                continue
+            label, fmt = _SCORE_SIGNAL_META[key]
+            out.append({"pillar": pillar, "key": key, "label": label,
+                        "fmt": fmt, "higher_is_better": direction > 0})
+    return out
+
+
+# The band scale, as DATA, ascending by floor. _score_band reads it, the client draws it
+# (via score_band_spec), and the floors are configurable — see _score_band_floors.
+#
+# The floors were 45/60/75 until 2026-08-04, and they were far harsher than they looked.
+# Measured over the people who actually get banded (full pillar coverage) on production:
+# 41% of them fell under 45 on a one-year window and 40% on a ninety-day one, against 7%
+# above 75. "Building" was the label for two fifths of the org. That is not a statement
+# about the org: the score is a weighted mean of percentiles, so its median is 50 BY
+# CONSTRUCTION, and a floor at 45 therefore sits near the 41st percentile by arithmetic.
+# Excluding the partial-coverage rows changes nothing — the skew is the scale, not the gaps.
+#
+# 30/50/70 instead. The bottom band becomes a genuine tail (7-11% measured, not 41%), the
+# top stays selective without vanishing (14-15%), and the mass sits in the two middle bands
+# — the same shape a consumer credit score has, where being in the middle-upper band is the
+# norm and so the label does not read as a verdict. The middle floor is exactly 50, which
+# is the median by construction: that boundary documents itself.
+_SCORE_BANDS = [
+    (0,  "Building",   "weak"),
+    (30, "Developing", "warn"),
+    (50, "Solid",      "good"),
+    (70, "Strong",     "good"),
+]
+# Where a suggested scale puts its outer floors, as quantiles of the scored population.
+# The middle one is not here: it is pinned to the median, which the score defines as 50.
+_BAND_SUGGEST_Q = (0.10, 0.85)
+
+
+def _score_band_floors() -> dict:
+    """Effective band floors as {band: floor}: config.yaml `developer_score_bands` merged
+    with the Config overlay, falling back to the built-in scale.
+
+    Guarded the way the scale has to be: the lowest band always starts at 0, floors must be
+    strictly ascending, and every band must be present. A scale that is out of order or has
+    a hole is not a milder scale, it is a broken one — _score_band walks it from the top and
+    would hand back the wrong label — so anything invalid falls back whole rather than in
+    part."""
+    base = {b: lo for lo, b, _ in _SCORE_BANDS}
+    try:
+        import configstore
+        cfg = configstore.apply_overlay(configstore.base_config(), configstore.load_overlay())
+        raw = cfg.get("developer_score_bands") or {}
+        out = dict(base)
+        for b in base:
+            if b in raw:
+                out[b] = int(round(float(raw[b])))
+        floors = [out[b] for lo, b, _ in _SCORE_BANDS]
+        if floors[0] != 0 or any(a >= b for a, b in zip(floors, floors[1:])):
+            return base
+        return out
+    except Exception:                # noqa: BLE001 — config is optional
+        return base
+
+
+def score_band_spec() -> list[dict]:
+    """The band scale for a client that has to draw it: floor, label, tone, ascending."""
+    floors = _score_band_floors()
+    return [{"min": floors[b], "band": b, "tone": t} for _, b, t in _SCORE_BANDS]
+
+
+def _score_band(s, spec=None):
+    """The band for a score. `spec` lets a caller resolve the scale ONCE and reuse it:
+    _score_band_floors reads the merged config, and developer_scores would otherwise pay
+    that for the total plus every pillar of every person — five reads per row."""
     if s is None:
         return ("—", "na")
-    if s >= 75:
-        return ("Strong", "good")
-    if s >= 60:
-        return ("Solid", "good")
-    if s >= 45:
-        return ("Developing", "warn")
-    return ("Building", "weak")
+    for stop in reversed(spec if spec is not None else score_band_spec()):
+        if s >= stop["min"]:
+            return (stop["band"], stop["tone"])
+    return (_SCORE_BANDS[0][1], _SCORE_BANDS[0][2])
+
+
+def suggest_score_bands(sc: dict) -> dict | None:
+    """Floors the CURRENT window's distribution would put the chosen shape at, as
+    {band: floor} — a suggestion for the Calibrate page, never applied on its own.
+
+    Suggests rather than sets, for the same reason the weights are suggested: pinning the
+    floors to quantiles every window would make a person's LABEL move when the team moves,
+    on top of the score already doing so. A human accepts a scale and then it holds still.
+
+    Computed over people with FULL pillar coverage only, because those are the only rows
+    that get banded — a missing pillar counts as zero, and letting those scores into the
+    quantiles would drag the bottom floor down to accommodate a data gap. Returns None when
+    there is too little to fit, which is not the same as a scale of zeros.
+
+    Takes a developer_scores RESULT rather than a window, because it used to score the window
+    itself — so the Calibrate page ran the full scorer three times for one request, over a
+    2008-2099 span at that."""
+    import statistics
+    act = sc["active_pillars"]
+    scores = sorted(r["score"] for r in sc["board"]
+                    if all(r["pillars"].get(p) is not None for p in act))
+    if len(scores) < 8:
+        return None
+
+    def q(p):
+        i = (len(scores) - 1) * p
+        lo, hi = int(i), min(int(i) + 1, len(scores) - 1)
+        return scores[lo] + (scores[hi] - scores[lo]) * (i - lo)
+
+    names = [b for _, b, _ in _SCORE_BANDS]
+    mid = round(statistics.median(scores))          # 50 by construction; measured anyway
+    out = {names[0]: 0, names[1]: round(q(_BAND_SUGGEST_Q[0])),
+           names[2]: mid, names[3]: round(q(_BAND_SUGGEST_Q[1]))}
+    floors = [out[b] for b in names]
+    # A tight distribution can collapse two floors onto each other; nudge rather than
+    # return a scale that _score_band cannot walk.
+    for i in range(1, len(floors)):
+        if floors[i] <= floors[i - 1]:
+            floors[i] = floors[i - 1] + 1
+    return dict(zip(names, floors))
 
 
 def _median(xs):
@@ -3117,6 +3260,7 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
     # ("40h · team 15h"), so the relative score reads against real work.
     team_medians = {k: (statistics.median(v) if v else None) for k, v in dists.items()}
 
+    band_spec = score_band_spec()        # once per run; see _score_band
     board = []
     for lg in eligible:
         e = raw[lg]
@@ -3133,11 +3277,25 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
         rem = score - sum(contrib.values())
         for p in sorted(active, key=lambda p: cf[p] - int(cf[p]), reverse=True)[:max(0, rem)]:
             contrib[p] += 1
-        band, tone = _score_band(score)
+        band, tone = _score_band(score, band_spec)
+        # A band PER PILLAR, not just for the total. This deliberately runs the total's
+        # thresholds over a pillar's percentile, which is a choice and not a derivation:
+        # a pillar percentile and a weighted mean of pillar percentiles are different
+        # quantities that happen to share a 0..100 range. It is here rather than in the
+        # client so there is one place to change when the thresholds move — and they
+        # probably will, because the median score is 50 by construction, so the share of
+        # people below 45 is decided by the scale rather than by the work.
+        pillar_bands = {}
+        for p in _SCORE_WEIGHTS:
+            if p in active and pillars[p] is not None:
+                pb, pt = _score_band(pillars[p], band_spec)
+                pillar_bands[p] = {"band": pb, "tone": pt}
+            else:
+                pillar_bands[p] = None
         board.append({
             "login": lg, "name": names.get(lg, lg), "score": score,
             "band": band, "tone": tone,
-            "pillars": pillars,
+            "pillars": pillars, "pillar_bands": pillar_bands,
             "contributions": {p: contrib.get(p) for p in _SCORE_WEIGHTS},
             "drivers": {
                 "commits": e["commits"], "loc": e["loc"], "prs_merged": e["prs_merged"],
@@ -3171,10 +3329,72 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             "theirs": ab["drivers"].get(prim["key"]) if prim else None,
         } if gp else None
     return {"weights": {k: round(v) for k, v in weights.items()},
+            # Unrounded, for anything that has to REPRODUCE this run's arithmetic rather
+            # than display it — score_delta's counterfactual would otherwise weight with
+            # rounded numbers the scoring never used.
+            "weights_raw": dict(weights),
             "active_pillars": active, "team_medians": team_medians,
             "min_activity": _SCORE_MIN_ACTIVITY,
             "n_eligible": len(eligible), "n_ranked": len(board), "board": board,
+            # The per-signal sorted lists this run ranked against. Returned so a delta can
+            # score one person's PREVIOUS drivers against THIS window's distribution — the
+            # counterfactual that separates "the team moved" from "you moved". Rebuilding
+            # them at the call site would be a second copy of the ranking rule.
+            "dists": dists,
             "by_login": {r["login"]: r for r in board}}
+
+
+def score_delta(cur: dict, prev: dict, login: str) -> dict | None:
+    """How a person's score moved between two windows, split into the part that is theirs
+    and the part that is the team moving around them. None when they are not in both.
+
+    The score is a PERCENTILE, so it moves for two independent reasons and only one of them
+    is anyone's to act on. Telling somebody they dropped eighteen points when eleven of those
+    are the team improving is not a smaller version of the truth, it is a different claim —
+    and it is the claim that gets made if a delta is reported as one number.
+
+    The split is a counterfactual: score their PREVIOUS drivers against the CURRENT window's
+    distribution. That is "you did not change, only the team did", so the difference from
+    their previous score is the team's contribution and the rest is theirs. Measured on
+    production this is not a rounding detail — one person fell 18 points, of which 11 was the
+    team; another fell 26, of which 10 was.
+
+    Uses cur["dists"], the very lists the current run ranked against, so the counterfactual
+    and the real score cannot disagree about the ranking rule."""
+    import bisect                    # local, as in developer_scores
+    a, b = prev.get("by_login", {}).get(login), cur.get("by_login", {}).get(login)
+    if not a or not b:
+        return None
+    dists, weights = cur["dists"], (cur.get("weights_raw") or cur["weights"])
+    active = cur["active_pillars"]
+
+    def pctl(key, v, direction):
+        vals = dists.get(key) or []
+        n = len(vals)
+        if n <= 1:
+            return 0.5
+        below = bisect.bisect_left(vals, v)
+        equal = bisect.bisect_right(vals, v) - below
+        p = (below + 0.5 * equal) / n
+        return p if direction > 0 else (1.0 - p)
+
+    buckets: dict = {}
+    for pillar, key, direction in _SCORE_SIGNALS:
+        v = a["drivers"].get(key)
+        if v is not None:
+            buckets.setdefault(pillar, []).append(pctl(key, v, direction))
+    pil = {p: (round(100 * sum(buckets[p]) / len(buckets[p])) if p in buckets else None)
+           for p in _SCORE_WEIGHTS}
+    den = sum(weights[p] for p in active) or 1
+    counterfactual = round(sum(weights[p] * (pil[p] or 0) for p in active) / den)
+
+    team = counterfactual - a["score"]
+    return {"prev": a["score"], "now": b["score"], "total": b["score"] - a["score"],
+            "team": team, "you": b["score"] - counterfactual,
+            "pillars": {p: {"prev": a["pillars"].get(p), "now": b["pillars"].get(p),
+                            "prev_points": a["contributions"].get(p),
+                            "now_points": b["contributions"].get(p)}
+                        for p in _SCORE_WEIGHTS if p in active}}
 
 
 def compare_row_to(row, anchor, active):

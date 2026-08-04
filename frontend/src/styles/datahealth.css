@@ -12,10 +12,13 @@ h1{font-size:24px;margin:0 0 var(--space-1)}
 .sec-h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
   color:var(--ink2);margin:var(--space-6) 0 var(--space-3)}
 .quality{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--space-3)}
-.qitem{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line2);
+/* State colours the WHOLE border, not a thick left edge. A 3px side border on a
+   rounded box renders as a bracket around the card, which reads as decoration
+   rather than as a border; `.card.good` in report.css already did it this way. */
+.qitem{background:var(--panel);border:1px solid var(--line);
   border-radius:var(--r-lg);padding:var(--space-4) var(--space-4);transition:box-shadow .15s,transform .15s}
-.qitem.ok{border-left-color:var(--good)} .qitem.warn{border-left-color:var(--warn)}
-.qitem.bad{border-left-color:var(--bad)}
+.qitem.ok{border-color:var(--good)} .qitem.warn{border-color:var(--warn)}
+.qitem.bad{border-color:var(--bad)}
 .qitem .qv{font-size:22px;font-weight:800;letter-spacing:-.02em}
 .qitem .ql{font-size:12.5px;color:var(--ink2);margin-top:3px}
 a.qitem{text-decoration:none;color:inherit;display:block}

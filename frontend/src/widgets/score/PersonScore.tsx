@@ -12,7 +12,8 @@
 // components/SegBar, whose DOM is `<span class="segbar">` with a per-segment
 // data-tip). Swapping in SegBar here would change the class + data-tip
 // structure and break parity, so it is kept verbatim as `.comp`.
-import { useState } from "react";
+import { Activity, ChevronDown, ChevronRight, Timer, Waves, Wrench } from "lucide-react";
+import { Fragment, useState } from "react";
 
 import { fmtNum, jr } from "../../lib/format";
 import { PILLAR_COLORS, token } from "../../lib/tokens";
@@ -30,24 +31,58 @@ export type ScoreAbove = {
 };
 export type VsSelf = { self?: boolean; delta?: number; pillar?: string; metric_label?: string | null;
                        row_val?: number | null; anchor_val?: number | null } | null;
+export type PillarBand = { band: string; tone: string } | null;
+// store.score_delta: the move split into the part that is the person's and the part that is
+// the team moving around them. The score is a percentile, so both happen, and reporting one
+// number would make a claim about the wrong one.
+export type ScoreDelta = {
+  prev: number; now: number; total: number; team: number; you: number;
+  /** The window compared against — a delta that does not name it is not a comparison. */
+  since?: string; until?: string;
+  pillars: Record<string, { prev: number | null; now: number | null;
+                            prev_points: number | null; now_points: number | null }>;
+};
 export type ScoreRow = {
   login: string; name: string; score: number; band: string; tone: string;
-  pillars: ScorePillars; contributions: Record<string, number | null>; drivers: ScoreDrivers;
+  pillars: ScorePillars; pillar_bands?: Record<string, PillarBand>;
+  contributions: Record<string, number | null>; drivers: ScoreDrivers;
   rank: number; above?: ScoreAbove | null; vs_self?: VsSelf;
+  /** Total move against the previous window; null when they were not scored then. */
+  delta?: number | null;
+};
+// store.score_band_spec(): the band scale, ascending by floor. The gauge must draw its
+// boundaries at exactly the thresholds the labels come from, so it reads them rather
+// than repeating 45/60/75 on this side.
+export type BandStop = { min: number; band: string; tone: string };
+// store.score_signal_spec(): which pillar a signal feeds, which way is better, and how
+// to print it. Sent by the server precisely so this file does not keep its own copy —
+// the direction is not derivable from anything else the client can see.
+export type ScoreSignal = {
+  pillar: string; key: string; label: string; fmt: string; higher_is_better: boolean;
 };
 export type ScoreBlock = {
   self: ScoreRow | null; board: ScoreRow[]; weights: Record<string, number>;
   n_eligible: number; n_ranked: number; active_pillars: string[];
   team_medians: Record<string, number | null>; min_activity: number; is_self_view: boolean;
+  signals?: ScoreSignal[]; bands_scale?: BandStop[]; delta?: ScoreDelta | null;
 };
 
-// ---- score-specific format helpers -----------------------------------------
-function scol(v: number | null): string {
-  if (v === null || v === undefined) return "var(--mut)";
-  if (v >= 67) return token["score-good"];
-  if (v >= 45) return token["score-mid"];
-  return token["score-bad"];
+// A colour per band STEP, taken from the band's position in the scale — not from its tone.
+// tone says how severe a band is, and there are four bands over three tones: Strong and
+// Solid are both "good". Colouring by tone therefore painted two different bands the same
+// green, which put two identical dots in the distribution key and made the strip read as
+// three steps instead of four. A scale needs one colour per step. All four are text-safe
+// semantic tokens; --c-pr carries the step between warn and good.
+const BAND_RAMP = [token["bad"], token["warn"], token["c-pr"], token["good"]];
+function bandColor(i: number, n: number): string {
+  if (i < 0 || n <= 0) return "var(--mut)";
+  return BAND_RAMP[Math.round((i * (BAND_RAMP.length - 1)) / Math.max(1, n - 1))];
 }
+function bandIndex(band: string | undefined, scale: BandStop[]): number {
+  return scale.findIndex((b) => b.band === band);
+}
+
+// ---- score-specific format helpers -----------------------------------------
 const PLABELS: Record<string, [string, string]> = {
   engagement: ["Engagement", "output + reviews & specs"],
   delivery: ["Delivery", "time-to-merge · PR size"],
@@ -55,6 +90,12 @@ const PLABELS: Record<string, [string, string]> = {
   flow: ["Flow", "forward-flow through stages"],
 };
 const PCOLOR = PILLAR_COLORS;
+// An icon per pillar. In the reference layout these do most of the glanceable work — the
+// eye lands on a shape before it reads a word — and they are what a row of small grey
+// text cannot do.
+const PICON: Record<string, typeof Activity> = {
+  engagement: Activity, delivery: Timer, craft: Wrench, flow: Waves,
+};
 const PILLAR_ORDER = ["engagement", "delivery", "craft", "flow"];
 function nodataMetric(pillar: string): string {
   if (pillar === "flow") return "no flow data";
@@ -76,44 +117,317 @@ function fmtValScore(pillar: string, v: number | null): string {
   return `${fmtNum(v)} commits`;
 }
 
-function ScoreChain({ row, active, weights, tm, wsum }: {
-  row: ScoreRow; active: string[]; weights: Record<string, number>;
-  tm: Record<string, number | null>; wsum: number;
+// toFixed, not the jr() used everywhere else, and deliberately. jr() exists for byte
+// parity with the Jinja path: it appends ".0" to a whole number and otherwise prints
+// whatever String() gives, so jr(1, 2) is "1.0" while jr(5.18, 2) is "5.18". Down a
+// column of the same metric that reads as two different formats — "1.0" against "5.18",
+// "0.0" against "0.175" — which is the exact sloppiness this table was rebuilt to remove.
+// These factor columns have no Jinja counterpart to stay parity-identical with, so they
+// pad to a fixed width instead. jr() itself must not change: every other number in the
+// product is rendered through it.
+function fixed(v: number, p: number): string {
+  return v.toFixed(p);
+}
+function fmtSignal(fmt: string, v: number | null): string {
+  if (v === null || v === undefined) return "—";
+  if (fmt === "int") return fmtNum(v);
+  if (fmt === "hours") return `${fixed(v, 1)}h`;
+  if (fmt === "pct01") return `${fixed(100 * v, 1)}%`;
+  if (fmt === "f1") return fixed(v, 1);
+  if (fmt === "f2") return fixed(v, 2);
+  if (fmt === "f3") return fixed(v, 3);
+  return String(v);
+}
+
+// A factor's standing as a PHRASE, not a bare ratio. "0.4x" makes the reader do the work:
+// they have to remember that lower is better here, invert it, and only then know it is
+// good. "2.4x better" says it once. The factor of improvement is always stated the way
+// round that makes it a number above 1, and the direction is carried by the word rather
+// than by colour alone — which also stops colour being the only encoding.
+export function verdict(mine: number | null, med: number | null, higherIsBetter: boolean):
+  { text: string; good: boolean | null } {
+  if (mine === null || med === null) return { text: "—", good: null };
+  if (mine === med) return { text: "at the team median", good: true };
+  const better = higherIsBetter ? mine > med : mine < med;
+  // A zero has no finite ratio, and "better than the team" said nothing while looking
+  // out of place beside "2.4x better". Each zero has a fact worth stating instead, and
+  // none of them should read as missing data — the value is right there in the column.
+  if (mine === 0) {
+    return better
+      ? { text: "best possible", good: true }      // e.g. zero friction, where lower is better
+      : { text: "none at all", good: false };      // e.g. no reviews given
+  }
+  if (med === 0) return { text: "team median is 0", good: better };
+  const hi = Math.max(mine, med);
+  const lo = Math.min(mine, med);
+  return { text: `${fixed(hi / lo, 1)}× ${better ? "better" : "worse"}`, good: better };
+}
+
+function FactorRows({ row, tm, signals, whose }: {
+  row: ScoreRow; tm: Record<string, number | null>; signals: ScoreSignal[];
+  /** Whose values these are. Ingredients renders for the page's subject AND for every team
+      row, so a hardcoded "You" labelled bob's numbers as yours on alice's page. */
+  whose: string;
 }) {
-  const dv = row.drivers;
+  const dv = row.drivers as unknown as Record<string, number | null>;
   return (
-    <table className="dsc-chain">
-      <thead><tr><th>Pillar</th><th>Your real work</th><th>vs team</th><th>Score → pts</th></tr></thead>
+    <table className="dsc-fac">
+      <thead>
+        <tr><th>Factor</th><th>{whose}</th><th>Team</th><th>Standing</th></tr>
+      </thead>
       <tbody>
-        {PILLAR_ORDER.map((key) => {
-          const on = active.includes(key);
-          const v = row.pillars[key];
-          const pts = row.contributions[key];
-          const work = key === "engagement"
-            ? `${fmtNum(dv.commits)} commits · ${fmtNum(dv.prs_merged)} PRs · ${fmtNum(dv.reviews_given)} reviews · ${fmtNum(dv.specs)} specs`
-            : key === "delivery"
-              ? (dv.ttm !== null ? `${jr(dv.ttm, 1)}h to merge · ${Math.round(dv.size ?? 0)} files/PR` : "no merged PRs")
-              : key === "craft"
-                ? (dv.rounds !== null ? `${jr(dv.rounds, 1)} rounds/PR · ${Math.round(100 * (dv.merge_rate ?? 0))}% merged` : "no PRs opened")
-                : (dv.flow !== null ? `${jr(dv.flow, 2)} friction/item` : "no timeline data");
+        {signals.map((s) => {
+          const mine = dv[s.key] ?? null;
+          const med = tm[s.key] ?? null;
+          const v = verdict(mine, med, s.higher_is_better);
+          // --good / --bad, not the chart fills --c-story / --c-bug. tokens.json is explicit
+          // that those are FILLS which measured 3.76:1 as type, which is why --c-bug-fg
+          // exists at all; this column is type, and --good/--bad declare text_on panel.
+          const col = v.good === null ? "var(--mut)" : v.good ? token["good"] : token["bad"];
           return (
-            <tr key={key} className={`${!on ? "off" : ""}${on && v === null ? " gap" : ""}`.trim() || undefined}>
-              <td className="pil">{PLABELS[key][0]}{on && <> <span className="w">{Math.round((100 * weights[key]) / wsum)}%</span></>}</td>
-              <td className="work">{work}</td>
-              <td className="vs">
-                {!on ? <span className="mut">not scored (team data gap)</span>
-                  : key === "engagement" ? `team ${fmtNum(tm.prs_merged ?? 0)} PRs`
-                    : key === "delivery" ? (tm.ttm !== null && tm.ttm !== undefined ? `team ${jr(tm.ttm, 1)}h` : "—")
-                      : key === "craft" ? (tm.rounds !== null && tm.rounds !== undefined ? `team ${jr(tm.rounds, 1)} rounds` : "—")
-                        : (tm.flow !== null && tm.flow !== undefined ? `team ${jr(tm.flow, 2)}` : "—")}
+            <tr key={s.key}>
+              <td className="fn">
+                {s.label}
+                <span className="dir">{s.higher_is_better ? "higher is better" : "lower is better"}</span>
               </td>
-              <td className="sp">{on ? <><b>{v ?? 0}</b><span className="ar">→ +{pts}</span></> : <span className="mut">—</span>}</td>
+              <td>{fmtSignal(s.fmt, mine)}</td>
+              <td>{fmtSignal(s.fmt, med)}</td>
+              <td className="fr" style={{ color: col }}>{v.text}</td>
             </tr>
           );
         })}
-        <tr className="tot"><td colSpan={3}>Score</td><td className="sp"><b>{row.score}</b></td></tr>
       </tbody>
     </table>
+  );
+}
+
+// How many of the pillars scored THIS WINDOW the person actually has data for. A missing
+// active pillar counts as zero in the score, which is deliberate — "didn't ship" is a real
+// minus — but on a table a manager reads it makes a data gap look like a result, so the
+// count is shown and the band is withheld.
+function coverage(row: ScoreRow, active: string[]): number {
+  return active.filter((p) => row.pillars[p] !== null && row.pillars[p] !== undefined).length;
+}
+
+// The pillar breakdown, led by the arithmetic rather than by prose. The previous version
+// showed the same numbers, but a wide free-text "your real work" column dominated the row
+// and the weight was a 10px superscript — read left to right it argued the opposite of the
+// score, which is exactly how a reviewer concluded the total was unexplained. Weight,
+// percentile and points now each own a column, and the total row states the sum.
+function Ingredients({ row, active, weights, tm, wsum, signals, scale, whose }: {
+  row: ScoreRow; active: string[]; weights: Record<string, number>;
+  tm: Record<string, number | null>; wsum: number; signals: ScoreSignal[];
+  scale: BandStop[]; whose: string;
+}) {
+  // One pillar open at a time, and the whole row is the control. <details> put the
+  // toggle inside the drill, i.e. under the row it belongs to, which reads as a stray
+  // link; the reference puts a chevron on the row and opens it in place.
+  const [open, setOpen] = useState<string | null>(null);
+  const order = PILLAR_ORDER.slice().sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+  const parts = order.filter((k) => active.includes(k)).map((k) => row.contributions[k] ?? 0);
+  return (
+    <>
+    <table className="dsc-ing">
+      <tbody>
+        {order.map((key) => {
+          const on = active.includes(key);
+          const v = row.pillars[key];
+          const pb = row.pillar_bands?.[key] ?? null;
+          const sigs = signals.filter((s) => s.pillar === key);
+          const canOpen = on && sigs.length > 0;
+          const isOpen = open === key;
+          const Icon = PICON[key];
+          return (
+            <Fragment key={key}>
+              <tr
+                className={`${!on ? "off" : ""}${on && v === null ? " gap" : ""}${canOpen ? " can" : ""}`.trim() || undefined}
+                onClick={canOpen ? () => setOpen(isOpen ? null : key) : undefined}
+              >
+                <td className="pico"><span style={{ color: PCOLOR[key] }}><Icon size={17} /></span></td>
+                <td className="pil">
+                  <span className="w" style={{ color: PCOLOR[key] }}>
+                    {on ? `${Math.round((100 * weights[key]) / wsum)}% of score` : "not scored"}
+                  </span>
+                  <span className="nm">{PLABELS[key][0]}</span>
+                  <span className="mut"> · {sigs.length} factor{sigs.length === 1 ? "" : "s"}</span>
+                </td>
+                <td className="bd">
+                  {/* A pillar the whole team lacks is a collection gap, not this person's
+                      shortfall, and one THEY lack is a real zero. Neither gets a band. */}
+                  {pb
+                    ? <span className="dsc-pill"><i style={{ background: bandColor(bandIndex(pb.band, scale), scale.length) }} />{pb.band}</span>
+                    : <span className="mut">{on ? nodataMetric(key) : "team data gap"}</span>}
+                </td>
+                <td className="pt">{on ? <><b>{row.contributions[key] ?? 0}</b> <span className="u">pts</span></> : "—"}</td>
+                <td className="cv">
+                  {/* A real button, not just a click handler on the row. The row stays
+                      clickable because that is the nicer target, but without this the whole
+                      breakdown was mouse-only — and the team rows below, which are
+                      <details>/<summary>, were keyboard-operable, so the same content had two
+                      different answers. stopPropagation so the row's handler does not undo
+                      this one's toggle. */}
+                  {canOpen && (
+                    <button
+                      type="button" className="dsc-cvbtn" aria-expanded={isOpen}
+                      aria-label={`${isOpen ? "Hide" : "Show"} what drives ${PLABELS[key][0]}`}
+                      onClick={(e) => { e.stopPropagation(); setOpen(isOpen ? null : key); }}
+                    >
+                      {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
+                  )}
+                </td>
+              </tr>
+              {canOpen && isOpen && (
+                // Its own full-width row: inside a cell the factor table inherits that
+                // column's width and wraps every label onto three lines.
+                <tr className="drill">
+                  <td colSpan={5}>
+                    <div className="dsc-drill-in">
+                      <span className="dsc-drill-h">
+                        {PLABELS[key][0]} sits at the <b>{ordinal(v ?? 0)} percentile</b> of the team.
+                        What that is made of:
+                      </span>
+                      <FactorRows row={row} tm={tm} signals={sigs} whose={whose} />
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+    <p className="dsc-sum">{parts.join(" + ")} = <b>{row.score}</b></p>
+    </>
+  );
+}
+
+// The headline: one number, its band, and where it sits on the scale. A horizontal scale
+// rather than the donut it replaces, because the thing worth seeing is not "61 out of 100"
+// — a ring shows that — but WHICH band you are in and how far the next one is. On an
+// ordinary panel; see report.css for why it is not the dark card the reference uses.
+// Deliberately no "what's changed" affordance yet: the delta it would open does not exist,
+// and this file already carries the scar of a button that shipped inert.
+// Why this is three numbers and not one: the score is a percentile, so it moves when the
+// person moves AND when the team moves past them. On production one person fell 18 points of
+// which 11 was the team, and another fell 26 of which 10 was. "You dropped 18" is not a
+// rounder version of that, it is a different claim — and the wrong one.
+// "61th" / "1th" / "22th" — percentiles run 0-100, so the naive suffix is wrong for most of
+// them. 11/12/13 are the exceptions that make a lookup on the last digit alone insufficient.
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+}
+
+function fmtDay(s: string | undefined): string {
+  if (!s) return "";
+  // new Date("garbage") returns an Invalid Date rather than throwing, so a try/catch never
+  // fires and the heading reads "vs Invalid Date". Check the timestamp and fall back to the
+  // raw string, which at least says something true.
+  const d = new Date(`${s}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function WhatsChanged({ d, boardHasDeltas }: { d: ScoreDelta | null; boardHasDeltas: boolean }) {
+  if (!d) {
+    // Absent for two different reasons, and they are not the same news.
+    return (
+      <p className="dsc-nodelta">
+        {boardHasDeltas
+          ? "No comparison: this person was not scored in the window before this one."
+          : "No comparison: there is no data for the window before this one."}
+      </p>
+    );
+  }
+  const sign = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+  const col = (v: number) => (v === 0 ? "var(--mut)" : v > 0 ? token["good"] : token["bad"]);
+  return (
+    <div className="dsc-card">
+      <div className="dsc-card-h">
+        <h3>
+          What&rsquo;s changed{" "}
+          {d.since && d.until && (
+            <span className="dsc-vs">vs {fmtDay(d.since)} &ndash; {fmtDay(d.until)}</span>
+          )}
+        </h3>
+        <p>
+          The score is a percentile, so it moves when you move and when the team moves around
+          you. Only one of those is yours to act on.
+        </p>
+      </div>
+      <div className="dsc-split">
+        {([["Total", d.total, `${d.prev} → ${d.now}`],
+           ["The team moved", d.team, "your metrics held, theirs changed"],
+           ["You moved", d.you, "your own work"]] as [string, number, string][])
+          .map(([label, v, why]) => (
+            <div key={label}>
+              <span className="lb">{label}</span>
+              <b style={{ color: col(v) }}>{sign(v)}</b>
+              <span className="why">{why}</span>
+            </div>
+          ))}
+      </div>
+      <table className="dsc-chg">
+        <thead>
+          <tr><th>Pillar</th><th>Was</th><th>Now</th><th>Δ pctl</th><th>Δ points</th></tr>
+        </thead>
+        <tbody>
+          {PILLAR_ORDER.filter((k) => d.pillars[k]).map((k) => {
+            const p = d.pillars[k];
+            const dp = (p.now ?? 0) - (p.prev ?? 0);
+            const dpt = (p.now_points ?? 0) - (p.prev_points ?? 0);
+            return (
+              <tr key={k}>
+                <td>{PLABELS[k][0]}</td>
+                <td>{p.prev ?? "—"}</td>
+                <td>{p.now ?? "—"}</td>
+                <td style={{ color: col(dp) }}>{sign(dp)}</td>
+                <td style={{ color: col(dpt) }}>{sign(dpt)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Hero({ row, n, scale }: { row: ScoreRow; n: number; scale: BandStop[] }) {
+  const stops = scale.length ? scale : [{ min: 0, band: row.band, tone: row.tone }];
+  const col = bandColor(bandIndex(row.band, stops), stops.length);
+  return (
+    <div className="dsc-hero">
+      <div className="dsc-hero-h">
+        <span className="dsc-exp">Experimental</span>
+        <span className="mut">org-relative · this window</span>
+      </div>
+      <div className="dsc-hero-n">
+        <b>{row.score}</b>
+        <span className="of">of 100</span>
+        <span className="dsc-pill"><i style={{ background: col }} />{row.band}</span>
+      </div>
+      <div className="dsc-scale">
+        {/* Filled to the score in the band's colour, the rest left neutral. Painting all
+            four bands across the whole bar made a traffic light out of a scale, and put
+            three saturated colours on screen to say one thing. */}
+        <span className="dsc-scale-t">
+          <i style={{ width: `${row.score}%`, background: col }} />
+          {stops.slice(1).map((s) => <u key={s.min} style={{ left: `${s.min}%` }} />)}
+        </span>
+        <span className="dsc-scale-m"><b style={{ left: `${row.score}%`, background: col }} /></span>
+        <span className="dsc-scale-k">
+          {[...stops.map((s) => s.min), 100].map((v) => (
+            <em key={v} style={{ left: `${v}%` }}>{v}</em>
+          ))}
+        </span>
+      </div>
+      <div className="dsc-hero-f">
+        <span>Rank <b>{row.rank}</b> of <b>{n}</b> scored</span>
+        <span>Median of the {n} is <b>50</b></span>
+      </div>
+    </div>
   );
 }
 
@@ -164,39 +478,40 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
   const active = score.active_pillars && score.active_pillars.length
     ? score.active_pillars : PILLAR_ORDER;
   const wsum = active.reduce((s, k) => s + (score.weights[k] || 0), 0) || 1;
+  // Absent only on a payload from before the spec was sent; the pillar rows still
+  // render, they just have nothing to drill into.
+  const signals = score.signals ?? [];
   const you = score.is_self_view ? "you" : login;
-  const C = 326.726;
+  // No outer disclosure: the panel has its own route in the person sub-nav, so the
+  // <details> was one click to reveal the only thing on the page, behind a summary that
+  // repeated what the score already says. The Experimental chip and the
+  // "org-relative · this window" caveat both live in the hero now.
   return (
-    <details className="dsc">
-      <summary>
-        <span className="dsc-exp">Experimental</span> Developer score{" "}
-        <span className="mut">— compound, org-relative · click to open</span>
-      </summary>
+    <div className="dsc">
       <div className="dsc-body">
         {sc && sc.score !== null && sc.score !== undefined ? (
-          <div className="dsc-top">
-            <div className="dsc-gauge">
-              <svg width="128" height="128" viewBox="0 0 128 128">
-                <circle cx="64" cy="64" r="52" fill="none" stroke="var(--panel2)" strokeWidth="11" />
-                <circle
-                  cx="64" cy="64" r="52" fill="none" stroke={scol(sc.score)} strokeWidth="11"
-                  strokeLinecap="round" transform="rotate(-90 64 64)"
-                  strokeDasharray={C} strokeDashoffset={jr(C * (1 - sc.score / 100), 1)}
-                />
-                <text x="64" y="60" textAnchor="middle" className="dsc-val">{sc.score}</text>
-                <text x="64" y="78" textAnchor="middle" className="dsc-of">/ 100</text>
-              </svg>
-              <div className="dsc-band" style={{ color: scol(sc.score) }}>{sc.band}</div>
-              <div className="mut" style={{ fontSize: "11.5px" }}>#{sc.rank} of {score.n_ranked || score.n_eligible}</div>
-            </div>
-            <div className="dsc-pillars">
-              <WhyRankAbove row={sc} />
-              <ScoreChain row={sc} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} />
-              <div className="dsc-ctx">
-                <span className="dsc-chip">AI leverage {sc.drivers.ai_share}%</span> share of AI-marked commits — context, not scored.
+          <>
+            <Hero row={sc} n={score.n_ranked || score.n_eligible} scale={score.bands_scale ?? []} />
+            <WhatsChanged d={score.delta ?? null}
+                          boardHasDeltas={(score.board ?? []).some((r) => r.delta !== null && r.delta !== undefined)} />
+            <div className="dsc-card">
+              <div className="dsc-card-h">
+                <h3>Score ingredients</h3>
+                <p>What the score is made of. Open a pillar to see its factors against the team.</p>
+              </div>
+              <Ingredients row={sc} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} scale={score.bands_scale ?? []} whose={score.is_self_view ? "You" : sc.name} />
+              {/* Inside the card, as its footer. Loose under it, this read as debris — and
+                  .dsc-ctx is a flex row, so WhyRankAbove's <p> broke the line in the
+                  middle of the AI-leverage sentence. */}
+              <div className="dsc-foot">
+                <WhyRankAbove row={sc} />
+                <p>
+                  <span className="dsc-chip">AI leverage {sc.drivers.ai_share}%</span>
+                  {" "}share of AI-marked commits — context, not scored.
+                </p>
               </div>
             </div>
-          </div>
+          </>
         ) : (
           <p className="conc" style={{ marginTop: 0 }}>
             <b>{login}</b> had under {score.min_activity} commits+PRs in the selected period, so no individual
@@ -204,20 +519,68 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
           </p>
         )}
 
-        {score.board && score.board.length > 0 && (
-          <div className="dsc-board">
-            <div className="dsc-board-h">
-              Team <span className="mut">— everyone active is ranked, and each row is measured against {you}:
-                click to see how to catch up (above) or where {you} lead{!score.is_self_view ? "s" : ""} (below).
-                The bar shows what each score is made of.</span>
+        {score.board && score.board.length > 0 && (() => {
+          const nAct = active.length;
+          const thin = score.board.filter((r) => coverage(r, active) < nAct);
+          const lowest = (score.bands_scale ?? [])[0]?.band;
+          const thinLow = thin.filter((r) => r.band === lowest).length;
+          // Band counts, best first — the same order the scale is drawn in the hero, read
+          // right to left. Computed here because the board is the only place that knows.
+          const bscale = score.bands_scale ?? [];
+          const counts = bscale.slice().reverse().map((b) => ({
+            ...b, n: score.board.filter((r) => r.band === b.band).length,
+            col: bandColor(bandIndex(b.band, bscale), bscale.length),
+          })).filter((b) => b.n > 0);
+          return (
+          <div className="dsc-card">
+            <div className="dsc-card-h">
+              <h3>Team standing</h3>
+              <p>
+                Everyone with at least {score.min_activity} commits and PRs this window, ranked.
+                A percentile only means something inside this window and scope, so these scores
+                compare to each other and to nothing else. Open a row to see how {you}{" "}
+                compare{score.is_self_view ? "" : "s"}.
+              </p>
             </div>
+
+            {counts.length > 0 && (
+              <div className="dsc-dist">
+                <span className="dsc-dist-t">
+                  {counts.map((b) => (
+                    <i key={b.band} style={{ width: `${(100 * b.n) / score.board.length}%`,
+                                             background: b.col }} />
+                  ))}
+                </span>
+                <span className="dsc-dist-k">
+                  {counts.map((b) => (
+                    <em key={b.band}><i style={{ background: b.col }} />{b.band} <b>{b.n}</b></em>
+                  ))}
+                </span>
+              </div>
+            )}
+
             <div className="dsc-leg">
               {PILLAR_ORDER.filter((k) => active.includes(k)).map((k) => (
                 <span key={k} className="dsc-legi"><i style={{ background: PCOLOR[k] }} />{PLABELS[k][0]}</span>
               ))}
             </div>
+            {/* Column labels on the same grid as the rows. Seven columns with a delta among
+                them cannot go unlabelled — a bare "+7" beside a score invites being read as
+                part of it. */}
+            <div className="dsc-rowh">
+              <span />
+              <span>Person</span>
+              <span>Make-up</span>
+              <span className="r">Score</span>
+              <span>Band</span>
+              <span className="r" data-tip="against the window before this one">&Delta;</span>
+              <span className="r" data-tip="pillars with data, of those scored this window">Data</span>
+            </div>
             <div className={`dsc-rows${capped ? " capped" : ""}`}>
-              {score.board.map((r) => (
+              {score.board.map((r) => {
+                const cov = coverage(r, active);
+                const partial = nAct > 0 && cov < nAct;
+                return (
                 <details key={r.login} className={`dsc-drow${r.login === login ? " me" : ""}`}>
                   <summary>
                     <span className="rk">{r.rank}</span>
@@ -235,13 +598,33 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                       })}
                     </span>
                     <span className="sc">{r.score}</span>
+                    <span className="bnd">
+                      {/* No band on partial coverage: a score built from one pillar out of
+                          four is a data gap wearing the costume of a result, and this is the
+                          table where that gets acted on. */}
+                      {partial
+                        ? <span className="mut">not banded</span>
+                        : <span className="dsc-pill"><i style={{ background: bandColor(bandIndex(r.band, bscale), bscale.length) }} />{r.band}</span>}
+                    </span>
+                    <span className="dlt">
+                      {r.delta === null || r.delta === undefined
+                        ? <span className="mut" data-tip="not scored in the previous window">—</span>
+                        : <span style={{ color: r.delta === 0 ? "var(--mut)"
+                                                : r.delta > 0 ? token["good"] : token["bad"] }}>
+                            {r.delta > 0 ? `+${r.delta}` : r.delta}
+                          </span>}
+                    </span>
+                    <span className={`cov${partial ? " thin" : ""}`} data-tip={`data for ${cov} of the ${nAct} pillars scored this window`}>
+                      {cov}/{nAct}
+                    </span>
                   </summary>
                   <div className="dsc-drow-body">
                     <VsSelfLine v={r.vs_self ?? null} you={you} />
-                    <ScoreChain row={r} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} />
+                    <Ingredients row={r} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} scale={score.bands_scale ?? []} whose={r.name} />
                   </div>
                 </details>
-              ))}
+                );
+              })}
             </div>
             {capped && (
               // data-dsc-showall is kept so the monolith's delegated listener still
@@ -249,10 +632,25 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
               <button type="button" className="dsc-showall" data-dsc-showall
                       onClick={() => setShowAll(true)}>Show all {score.board.length}</button>
             )}
-          </div>
-        )}
 
-        <p className="conc" style={{ marginTop: 12 }}>
+            <div className="dsc-gaps">
+              <b>What this table does not know.</b>{" "}
+              {thin.length > 0 && (
+                <>
+                  <b>{thin.length}</b> of the {score.board.length} have no data for at least one
+                  pillar scored this window{thinLow > 0 && <> and <b>{thinLow}</b> of those land in {lowest}</>}
+                  {" "}— a missing pillar counts as zero, so the score is a data gap and not a
+                  result. Those rows are left unbanded.{" "}
+                </>
+              )}
+              Anyone under <b>{score.min_activity}</b> commits and PRs is not scored at all and is
+              absent from this table, so a name that is not here is not a name that is fine.
+            </div>
+          </div>
+          );
+        })()}
+
+        <p className="dsc-note">
           <b>Experimental v0.</b> Each signal is a percentile within the {score.n_eligible} people active this
           window (≥{score.min_activity} commits+PRs); pillars are averaged, weighted, and normalised.{" "}
           <b>Everyone active is ranked</b> — a scored pillar you have no data for (e.g. no PRs opened) counts as{" "}
@@ -262,6 +660,6 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
           true code-complexity signal, and quality is read from review rounds / merge rate, not blame.
         </p>
       </div>
-    </details>
+    </div>
   );
 }
