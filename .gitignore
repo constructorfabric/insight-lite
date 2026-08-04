@@ -31,6 +31,13 @@ exports/
 history/report.db
 history/report.db-shm
 history/report.db-wal
+# Snapshots pulled off a server for local inspection (scripts/pull-db.sh). Same personal
+# data as report.db above, and the same reason not to track it — the default name is
+# matched by neither of those lines, so it is spelled out rather than left to luck.
+history/prod-copy.db
+history/prod-copy.db-shm
+history/prod-copy.db-wal
+history/*-copy.db
 
 # Collected aggregates. These were TRACKED internally as a "text backup of the DB" and
 # that was a mistake for a public repo: snapshots.jsonl carries per-company commit / LOC
