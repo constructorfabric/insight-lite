@@ -121,15 +121,28 @@ function fmtSignal(fmt: string, v: number | null): string {
   return String(v);
 }
 
-// One axis for every factor: multiples of the team median on a log scale, median fixed
-// at the centre. A linear axis cannot serve this data — ratios in production run from
-// 0.1x (merge time well under the median) to 27x (reviews given), so a linear bar pins
-// nearly every row at its maximum and stops distinguishing anything. Returns null when
-// the ratio is undefined, which is not the same as "at the median".
-function axisPos(v: number | null, med: number | null): number | null {
-  if (v === null || v === undefined || !med || med <= 0 || v <= 0) return null;
-  const pos = 50 + 50 * Math.log10(v / med);
-  return Math.max(2, Math.min(98, pos));
+// A factor's standing as a PHRASE, not a bare ratio. "0.4x" makes the reader do the work:
+// they have to remember that lower is better here, invert it, and only then know it is
+// good. "2.4x better" says it once. The factor of improvement is always stated the way
+// round that makes it a number above 1, and the direction is carried by the word rather
+// than by colour alone — which also stops colour being the only encoding.
+export function verdict(mine: number | null, med: number | null, higherIsBetter: boolean):
+  { text: string; good: boolean | null } {
+  if (mine === null || med === null) return { text: "—", good: null };
+  if (mine === med) return { text: "at the team median", good: true };
+  const better = higherIsBetter ? mine > med : mine < med;
+  // A zero has no finite ratio, and "better than the team" said nothing while looking
+  // out of place beside "2.4x better". Each zero has a fact worth stating instead, and
+  // none of them should read as missing data — the value is right there in the column.
+  if (mine === 0) {
+    return better
+      ? { text: "best possible", good: true }      // e.g. zero friction, where lower is better
+      : { text: "none at all", good: false };      // e.g. no reviews given
+  }
+  if (med === 0) return { text: "team median is 0", good: better };
+  const hi = Math.max(mine, med);
+  const lo = Math.min(mine, med);
+  return { text: `${fixed(hi / lo, 1)}× ${better ? "better" : "worse"}`, good: better };
 }
 
 function FactorRows({ row, tm, signals }: {
@@ -139,33 +152,26 @@ function FactorRows({ row, tm, signals }: {
   return (
     <table className="dsc-fac">
       <thead>
-        <tr><th>Factor</th><th>You</th><th>Team</th><th>×median</th><th>0.1× · 1× · 10×</th></tr>
+        <tr><th>Factor</th><th>You</th><th>Team</th><th>Standing</th></tr>
       </thead>
       <tbody>
         {signals.map((s) => {
           const mine = dv[s.key] ?? null;
           const med = tm[s.key] ?? null;
-          const ratio = mine !== null && med !== null && med > 0 ? mine / med : null;
-          const pos = axisPos(mine, med);
-          // "good" is a statement about the ratio and the direction together, which is
-          // the whole reason the direction has to travel with the signal.
-          const good = ratio === null ? null : s.higher_is_better ? ratio >= 1 : ratio <= 1;
+          const v = verdict(mine, med, s.higher_is_better);
           // --good / --bad, not the chart fills --c-story / --c-bug. tokens.json is explicit
           // that those are FILLS which measured 3.76:1 as type, which is why --c-bug-fg
           // exists at all; this column is type, and --good/--bad declare text_on panel.
-          const col = good === null ? "var(--mut)" : good ? token["good"] : token["bad"];
+          const col = v.good === null ? "var(--mut)" : v.good ? token["good"] : token["bad"];
           return (
             <tr key={s.key}>
-              <td className="fn">{s.label}</td>
+              <td className="fn">
+                {s.label}
+                <span className="dir">{s.higher_is_better ? "higher is better" : "lower is better"}</span>
+              </td>
               <td>{fmtSignal(s.fmt, mine)}</td>
               <td>{fmtSignal(s.fmt, med)}</td>
-              <td className="fr" style={{ color: col }}>{ratio === null ? "—" : `${fixed(ratio, 1)}×`}</td>
-              <td>
-                <span className="dsc-ax">
-                  <u />
-                  {pos !== null && <b style={{ left: `${pos}%`, background: col }} />}
-                </span>
-              </td>
+              <td className="fr" style={{ color: col }}>{v.text}</td>
             </tr>
           );
         })}
