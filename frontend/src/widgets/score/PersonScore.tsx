@@ -488,7 +488,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
             col: bandColor(bandIndex(b.band, bscale), bscale.length),
           })).filter((b) => b.n > 0);
           return (
-          <div className="dsc-card" style={{ marginTop: "var(--space-4)" }}>
+          <div className="dsc-card">
             <div className="dsc-card-h">
               <h3>Team standing</h3>
               <p>
@@ -606,7 +606,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
           );
         })()}
 
-        <p className="conc" style={{ marginTop: 12 }}>
+        <p className="dsc-note">
           <b>Experimental v0.</b> Each signal is a percentile within the {score.n_eligible} people active this
           window (≥{score.min_activity} commits+PRs); pillars are averaged, weighted, and normalised.{" "}
           <b>Everyone active is ranked</b> — a scored pillar you have no data for (e.g. no PRs opened) counts as{" "}

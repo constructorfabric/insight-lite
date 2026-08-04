@@ -557,7 +557,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
      that just standardised on one elevation and borders. The only dark surfaces in the
      light theme are the tooltip and the code block, and both mean "a different KIND of
      thing", not "an important one". */
-  .dsc-hero{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-5) var(--space-5) var(--space-4);margin:0 0 var(--space-4)}
+  .dsc-hero{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-5) var(--space-5) var(--space-4)}
   .dsc-hero-h{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);font-size:11.5px}
   .dsc-hero-n{display:flex;align-items:flex-end;gap:var(--space-3);margin:var(--space-3) 0 var(--space-2)}
   .dsc-hero-n b{font-size:44px;font-weight:800;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
@@ -583,7 +583,12 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-pill{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border-radius:var(--r-pill);padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;color:var(--ink2)}
   .dsc-pill i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 
-  .dsc-card{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-4) var(--space-5) var(--space-2)}
+  /* The card owns its own gap. Spacing a stack by giving each NEIGHBOUR a margin leaves
+     whichever pair nobody thought about touching — which is exactly what happened between
+     "What's changed" and "Score ingredients": the hero had a bottom margin, the team card an
+     inline top one, and the two in between had neither, so they met at 0px. */
+  .dsc-card{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);
+    padding:var(--space-4) var(--space-5) var(--space-2);margin-top:var(--space-4)}
   .dsc-card-h h3{margin:0 0 4px;font-size:15px}
   .dsc-card-h p{margin:0 0 var(--space-3);color:var(--mut);font-size:12px;max-width:70ch}
 
@@ -602,6 +607,9 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-chg td:first-child{text-align:left;padding-left:var(--space-5);font-weight:600;font-variant-numeric:normal}
   .dsc-chg tr:last-child td{border-bottom:none}
   .dsc-nodelta{margin:0 0 var(--space-4);font-size:12px;color:var(--mut)}
+  /* The closing caveat, on the same rhythm as the cards above it — it was 12px inline
+     against their 16, which is the same "patch the gap where you notice it" habit. */
+  .dsc-note{margin:var(--space-4) 0 var(--space-2);font-size:12px;color:var(--mut);line-height:1.55}
 
   /* Score ingredients. Three things to SEE per row — an icon, the pillar with its share,
      and a rating pill. Points sit quietly on the right and the percentile moved into the
@@ -654,106 +662,6 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-fac td.fr{font-weight:700;width:150px}
   .dsc-fac tr:last-child td{border-bottom:none}
 
-  .dsc-foot{margin:var(--space-3) 0 var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:11.5px;color:var(--mut)}
-  .dsc-foot p{margin:5px 0 0}
-  .dsc-foot .dsc-whyrank{margin:0;font-size:11.5px}
-  .dsc-chip{font-size:11px;font-weight:700;color:var(--acc);background:var(--acc-soft);border-radius:var(--r-pill);padding:2px 9px}
-  .dsc-board-h{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);margin-bottom:6px}
-  .dsc-sc{font-variant-numeric:tabular-nums}
-  /* why-this-rank line + the real-work → team → score chain (card & row expansions) */
-  .dsc-whyrank{font-size:12.5px;color:var(--ink2);margin:0 0 9px;line-height:1.45}
-  .dsc-whyrank.dsc-selfrow{color:var(--acc);font-weight:700}
-  /* The headline. A horizontal scale, not a ring: what matters is which band you are in
-     and how far the next one sits, and the boundaries are drawn from the scale the server
-     sends so they cannot disagree with the labels.
-     An ORDINARY panel — --panel plus a border, like every other card. The reference this
-     layout came from puts the score on a dark navy card, but that darkness carries
-     Experian's brand, and copied here it would be a third surface concept in a system
-     that just standardised on one elevation and borders. The only dark surfaces in the
-     light theme are the tooltip and the code block, and both mean "a different KIND of
-     thing", not "an important one". */
-  .dsc-hero{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-5) var(--space-5) var(--space-4);margin:0 0 var(--space-4)}
-  .dsc-hero-h{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);font-size:11.5px}
-  .dsc-hero-n{display:flex;align-items:flex-end;gap:var(--space-3);margin:var(--space-3) 0 var(--space-2)}
-  .dsc-hero-n b{font-size:44px;font-weight:800;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-  .dsc-hero-n .of{color:var(--mut);padding-bottom:5px;font-size:13px}
-  .dsc-hero-n .dsc-pill{margin-left:auto}
-  .dsc-scale{margin-top:var(--space-4)}
-  .dsc-scale-t{position:relative;display:block;height:6px;border-radius:var(--r-pill);background:var(--line2);overflow:hidden}
-  .dsc-scale-t i{position:absolute;top:0;bottom:0;left:0;border-radius:var(--r-pill)}
-  .dsc-scale-t u{position:absolute;top:0;bottom:0;width:2px;background:var(--panel)}
-  .dsc-scale-m{position:relative;display:block;height:0}
-  /* The ring around the marker is the PAGE showing through, so it has to be the surface
-     the hero actually sits on. */
-  .dsc-scale-m b{position:absolute;top:-13px;width:13px;height:13px;border-radius:50%;border:3px solid var(--panel);transform:translateX(-50%)}
-  .dsc-scale-k{position:relative;display:block;height:15px;margin-top:4px;font-size:10.5px;font-variant-numeric:tabular-nums}
-  .dsc-scale-k em{position:absolute;transform:translateX(-50%);font-style:normal;color:var(--mut)}
-  .dsc-hero-f{display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:12px;color:var(--mut)}
-  .dsc-hero-f b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
-
-  /* One pill shape for a band, wherever it appears — the total and each pillar. */
-  /* Neutral surface, dark text, and the band's colour carried by the DOT only. Colouring
-     the text and the border as well put four saturated pills on one small panel, which
-     read as an alarm rather than as a rating. */
-  .dsc-pill{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border-radius:var(--r-pill);padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;color:var(--ink2)}
-  .dsc-pill i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
-
-  .dsc-card{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-4) var(--space-5) var(--space-2)}
-  .dsc-card-h h3{margin:0 0 4px;font-size:15px}
-  .dsc-card-h p{margin:0 0 var(--space-3);color:var(--mut);font-size:12px;max-width:70ch}
-
-  /* What's changed: three numbers, because the score is a percentile and moves for two
-     independent reasons. Tiles rather than a sentence — the split is the point. */
-  .dsc-split{display:flex;gap:var(--space-3);margin:0 var(--space-5) var(--space-4)}
-  .dsc-split>div{flex:1;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4)}
-  .dsc-split .lb{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
-  .dsc-split b{display:block;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .dsc-split .why{display:block;font-size:11.5px;color:var(--ink2)}
-  .dsc-chg{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 var(--space-2)}
-  .dsc-chg th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:var(--space-2) var(--space-2) 4px 0;border-bottom:1px solid var(--line2)}
-  .dsc-chg th:first-child{text-align:left;padding-left:var(--space-5)}
-  .dsc-chg th:last-child,.dsc-chg td:last-child{padding-right:var(--space-5)}
-  .dsc-chg td{padding:6px var(--space-2) 6px 0;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
-  .dsc-chg td:first-child{text-align:left;padding-left:var(--space-5);font-weight:600;font-variant-numeric:normal}
-  .dsc-chg tr:last-child td{border-bottom:none}
-  .dsc-nodelta{margin:0 0 var(--space-4);font-size:12px;color:var(--mut)}
-
-  /* Score ingredients. Three things to SEE per row — an icon, the pillar with its share,
-     and a rating pill. Points sit quietly on the right and the percentile moved into the
-     drill: a bare "39" says nothing at a glance, and the pill already said it. The earlier
-     version put five columns of small grey type in one row, which is how a table meant to
-     be read at a glance turned into something you have to study. */
-  .dsc-ing{width:100%;border-collapse:collapse}
-  .dsc-ing td{padding:var(--space-4) var(--space-2);border-bottom:1px solid var(--line);vertical-align:middle}
-  .dsc-ing tr.can{cursor:pointer}
-  .dsc-ing tr.can:hover td{background:var(--row-hover)}
-  .dsc-ing tr.off{opacity:.55}
-  /* NOT .ico — report.css already owns that for the KPI tiles, whose icons sit on a
-     saturated fill and are stroked --on-solid, i.e. white on our light chip. */
-  .dsc-ing td.pico{width:40px;padding-right:0}
-  .dsc-ing td.pico span{display:grid;place-items:center;width:30px;height:30px;border-radius:var(--r-md);background:var(--panel2)}
-  .dsc-ing td.pil{text-align:left}
-  .dsc-ing td.pil .w{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
-  .dsc-ing td.pil .nm{font-weight:700;font-size:15px}
-  .dsc-ing td.pil .mut{font-size:13px}
-  .dsc-ing td.bd{width:150px;text-align:left}
-  .dsc-ing td.pt{width:74px;text-align:right;font-variant-numeric:tabular-nums;color:var(--mut)}
-  .dsc-ing td.pt b{font-size:15px;font-weight:700;color:var(--ink)}
-  .dsc-ing td.pt .u{font-size:11px}
-  .dsc-ing td.cv{width:26px;color:var(--mut)}
-  .dsc-ing td.cv svg{display:block;margin:0 auto}
-  /* A pillar row and its drill row are ONE unit: the rule goes under the pair. */
-  .dsc-ing tr.drill>td{border-bottom:1px solid var(--line);padding:0 var(--space-2) var(--space-3)}
-  .dsc-ing tr:has(+tr.drill)>td{border-bottom:none;padding-bottom:var(--space-2)}
-  .dsc-ing tr.gap td.pt b{color:var(--c-bug-fg)}
-  /* The arithmetic, as one quiet line rather than a fifth column and a total row. */
-  .dsc-sum{margin:var(--space-3) 0 0;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
-  .dsc-sum b{color:var(--ink);font-size:14px}
-
-  .dsc-drill-in{background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4)}
-  .dsc-drill-h{display:block;text-align:left;font-size:12px;color:var(--ink2);margin-bottom:var(--space-3)}
-  .dsc-drill-h b{font-weight:700;color:var(--ink)}
-
   /* Factor drill. One axis for the whole table: multiples of the team median on a log
      scale with the median at the centre, so two factors in different units stay
      comparable and the good side is always the coloured side. */
@@ -764,7 +672,6 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-fac td{padding:4px var(--space-2) 4px 0;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
   .dsc-fac td.fn{text-align:left;font-weight:600;font-variant-numeric:normal}
   .dsc-fac td.fr{font-weight:700}
-  .dsc-fac tr:last-child td{border-bottom:none}
 
 
 
