@@ -560,16 +560,19 @@ def board_snapshot_rows(conn, repos=None) -> list:
 def board_rewind_scan(conn, repos=None, rows=None, instants=None) -> dict:
     """Every qa→dev move the snapshots can show, with no window applied.
 
-    This is the expensive half of board_rewinds and NONE of it depends on the window:
-    the whole of work_item_status is read (141k rows on the Constructor org — it has to
-    be, because a sequence cannot be reconstructed from a slice of itself), each row is
-    resolved to a stage, and consecutive pairs are diffed. Only which of the resulting
-    moves you COUNT depends on since/until.
+    This is the expensive half of board_rewinds and NONE of it depends on the window: the
+    full history is read, each row is resolved to a stage, and consecutive pairs are
+    diffed. Only which of the resulting moves you COUNT depends on since/until. It has to
+    be the full history, because a sequence cannot be reconstructed from a slice of
+    itself — but "full" no longer means the whole table. By default `rows` comes from
+    board_snapshot_rows(), the derived change-row cache: 3,349 rows on the Constructor org
+    against work_item_status's 141k. That is a lossless reduction for this scan, not a
+    slice, since a row that repeats its predecessor's status cannot be a move.
 
     Split out because the Flow page needs two windows — this period and the one before
     it, for the tile's delta — and computing them separately meant doing this twice per
-    request, ~400ms each, for two lists that differ only in a date comparison. Callers
-    that want both pass the same scan to both board_rewinds() calls.
+    request, ~400ms each before the cache landed, for two lists that differ only in a date
+    comparison. Callers that want both pass the same scan to both board_rewinds() calls.
 
     `rows` and `instants` accept a board_snapshot_rows() / board_snapshot_instants() read
     instead of doing their own. has_history and the date range come from the instants,

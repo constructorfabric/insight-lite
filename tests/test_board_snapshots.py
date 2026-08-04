@@ -36,7 +36,8 @@ class BoardSnapshotFixture(unittest.TestCase):
 
     def setUp(self):
         self._tmp = TemporaryDirectory()
-        with patch.dict(os.environ, {"REPORT_DB": str(Path(self._tmp.name) / "t.db")}):
+        self._db = str(Path(self._tmp.name) / "t.db")
+        with patch.dict(os.environ, {"REPORT_DB": self._db}):
             self.conn = store.connect()
         self.conn.execute(
             "INSERT INTO pull_request (repo,number,author_login) VALUES ('o/r',7,'alice')")
@@ -125,6 +126,24 @@ def _full_read(conn, repos=None):
         "SELECT taken_at, updated_at, item_id, repo, number, item_type, status_raw, title "
         "FROM work_item_status WHERE status_raw IS NOT NULL" + rf +
         " ORDER BY item_id, taken_at", rp).fetchall()
+
+
+class _CountingConn:
+    """A connection that counts commits, for asserting how many transactions a write uses.
+
+    sqlite3.Connection takes no instance attributes, so this delegates instead of patching.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.commits = 0
+
+    def commit(self):
+        self.commits += 1
+        self._conn.commit()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
 
 class DerivedKeyTableTest(BoardSnapshotFixture):
@@ -250,6 +269,40 @@ class DerivedKeyTableTest(BoardSnapshotFixture):
         with patch.object(semantic, "stage_for", _stage):
             self.assertEqual(sm.board_rewind_scan(self.conn, None)["events"], [],
                              "QA -> In Progress became QA -> Done: no rewind left")
+
+    def test_the_status_write_and_the_cache_rebuild_are_one_transaction(self):
+        """The cache cannot lag the table only if both land at once.
+
+        Committing the statuses and then the rebuild left a window where a reader on
+        another connection saw the new statuses against the old cache — and _board_key
+        cannot notice, because its guard rebuilds an EMPTY cache and a stale one is merely
+        behind. Under WAL that reader does not block, so the window is observable. Counting
+        commits is the deterministic way to pin this; racing two connections is not."""
+        counted = _CountingConn(self.conn)
+        store.write_work_item_status(counted, "2026-06-05", [
+            {"item_id": "IT7", "project": "P", "item_type": "PullRequest",
+             "repo": "o/r", "number": 7, "status_raw": "QA", "title": "widget"},
+        ])
+        self.assertEqual(counted.commits, 1,
+                         "two commits means a window where the cache disagrees")
+        self.assertEqual(self.conn.execute(
+            "SELECT status_raw FROM work_item_key WHERE item_id='IT7' "
+            "ORDER BY taken_at DESC LIMIT 1").fetchone()[0], "QA",
+            "and the one transaction still leaves the cache current")
+
+    def test_the_lazy_rebuild_still_commits_on_its_own(self):
+        """refresh_work_item_key defaults to committing, because _board_key calls it with
+        no write of its own to bundle with. A second connection is the proof: an uncommitted
+        rebuild would be invisible there, and the next reader would rebuild all over again."""
+        self.conn.execute("DELETE FROM work_item_key")
+        self.conn.execute("DELETE FROM work_item_instant")
+        self.conn.commit()
+        store.refresh_work_item_key(self.conn)
+        with patch.dict(os.environ, {"REPORT_DB": self._db}):
+            other = store.connect()
+        self.addCleanup(other.close)
+        self.assertEqual(other.execute("SELECT COUNT(*) FROM work_item_key").fetchone()[0], 6,
+                         "visible from another connection, so it was committed")
 
     def test_a_database_with_no_cache_builds_one_on_read(self):
         # Databases written before the cache existed, and any database whose cache was

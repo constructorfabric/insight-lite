@@ -783,7 +783,7 @@ def upsert_snapshot(conn: sqlite3.Connection, snap: dict) -> int:
     return conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
 
 
-def refresh_work_item_key(conn: sqlite3.Connection) -> int:
+def refresh_work_item_key(conn: sqlite3.Connection, *, commit: bool = True) -> int:
     """Rebuild work_item_key / work_item_instant from work_item_status.
 
     Called by write_work_item_status, which is the table's ONLY writer — so there is no
@@ -791,6 +791,13 @@ def refresh_work_item_key(conn: sqlite3.Connection) -> int:
     the data. Rebuilds wholesale rather than incrementally: it costs ~0.6s on 141k rows,
     which is nothing inside a collection and is one fewer thing to get wrong than an
     incremental update that has to reason about a re-run overwriting one instant.
+
+    `commit=False` leaves the transaction open so a caller can land the source write and
+    this rebuild together. write_work_item_status needs that: committing separately would
+    publish the new statuses while the cache still held the old ones, and under WAL a
+    reader on another connection does not block, so it would see exactly that pair. The
+    default stays True for the lazy build in semantic_metrics._board_key, which has no
+    write of its own to bundle with.
 
     Reading from the result is 0.001s against 0.052s for the source, which takes
     /api/report/flow from 413ms to 116ms and the rewinds drill-down from 250ms to 15ms —
@@ -818,7 +825,8 @@ def refresh_work_item_key(conn: sqlite3.Connection) -> int:
     conn.execute("INSERT INTO work_item_instant (taken_at) "
                  "SELECT DISTINCT taken_at FROM work_item_status "
                  "WHERE status_raw IS NOT NULL")
-    conn.commit()
+    if commit:
+        conn.commit()
     return conn.execute("SELECT COUNT(*) FROM work_item_key").fetchone()[0]
 
 
@@ -837,12 +845,19 @@ def write_work_item_status(conn: sqlite3.Connection, taken_at: str, rows: list[d
             [(taken_at, date, r["item_id"], r.get("project"), r.get("item_type"),
               r.get("repo"), r.get("number"), r.get("status_raw"), r.get("title"),
               r.get("updated_at")) for r in rows])
-    conn.commit()
     # This is the table's only writer, so rebuilding the derived cache HERE is what makes
     # it impossible for the two to disagree — including on a re-run that overwrites one
     # instant in place, which changes statuses without changing the row count or the
     # newest timestamp and would defeat any cheap staleness marker.
-    refresh_work_item_key(conn)
+    #
+    # Both writes land in ONE transaction, which is what the previous sentence actually
+    # requires: committing the statuses first and the cache second left a window where a
+    # reader saw new statuses against the old cache, and _board_key's guard cannot catch
+    # it — the guard rebuilds an EMPTY cache, and a stale one is merely behind. The window
+    # is reachable, not theoretical: collection runs while the portal serves reads, which
+    # is why connect() sets busy_timeout at all.
+    refresh_work_item_key(conn, commit=False)
+    conn.commit()
     return len(rows)
 
 
