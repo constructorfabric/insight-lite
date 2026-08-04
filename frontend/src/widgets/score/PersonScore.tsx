@@ -18,7 +18,7 @@ import { Help } from "../../components/FilterBar";
 import { Fragment, useState } from "react";
 
 import { fmtNum, jr } from "../../lib/format";
-import { PILLAR_COLORS, token } from "../../lib/tokens";
+import { PILLAR_COLORS } from "../../lib/tokens";
 
 // ---- types (mirror render.person_json's score payload) ---------------------
 export type ScorePillars = Record<string, number | null>;
@@ -75,7 +75,14 @@ export type ScoreBlock = {
 // green, which put two identical dots in the distribution key and made the strip read as
 // three steps instead of four. A scale needs one colour per step. All four are text-safe
 // semantic tokens; --c-pr carries the step between warn and good.
-const BAND_RAMP = [token["bad"], token["warn"], token["c-pr"], token["good"]];
+//
+// var(), not the generated token map: every one of these lands in a `color:` or
+// `background:` inline style, where a custom property resolves and therefore FLIPS with the
+// theme. The JS map holds the light palette only, so reading --bad from it painted dark mode
+// with the light red — #d41e24 on the dark panel is 2.93:1, under the 3:1 that a 26px bold
+// number needs. tokens.ts exists for values that leave CSS entirely (recharts writes SVG
+// attributes, where var() does not resolve); an inline style is not that case.
+const BAND_RAMP = ["var(--bad)", "var(--warn)", "var(--c-pr)", "var(--good)"];
 function bandColor(i: number, n: number): string {
   if (i < 0 || n <= 0) return "var(--mut)";
   return BAND_RAMP[Math.round((i * (BAND_RAMP.length - 1)) / Math.max(1, n - 1))];
@@ -191,7 +198,7 @@ function FactorRows({ row, tm, signals, whose }: {
           // --good / --bad, not the chart fills --c-story / --c-bug. tokens.json is explicit
           // that those are FILLS which measured 3.76:1 as type, which is why --c-bug-fg
           // exists at all; this column is type, and --good/--bad declare text_on panel.
-          const col = v.good === null ? "var(--mut)" : v.good ? token["good"] : token["bad"];
+          const col = v.good === null ? "var(--mut)" : v.good ? "var(--good)" : "var(--bad)";
           return (
             <tr key={s.key}>
               <td className="fn">
@@ -353,7 +360,7 @@ function WhatsChanged({ d, boardHasDeltas, weights, wsum }: {
     );
   }
   const sign = (v: number) => (v > 0 ? `+${v}` : `${v}`);
-  const col = (v: number) => (v === 0 ? "var(--mut)" : v > 0 ? token["good"] : token["bad"]);
+  const col = (v: number) => (v === 0 ? "var(--mut)" : v > 0 ? "var(--good)" : "var(--bad)");
   return (
     <div className="dsc-card">
       <div className="dsc-card-h">
@@ -538,6 +545,11 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
   return (
     <div className="dsc">
       <div className="dsc-body">
+        {/* Two wrappers so the wide layout can put "everyone" beside "you" instead of
+            under it. Below the breakpoint they are display:contents, so the DOM order
+            hero -> what's changed -> ingredients -> team standing IS the reading order
+            and nothing has to be re-sorted for narrow screens. */}
+        <div className="dsc-mainc">
         {sc && sc.score !== null && sc.score !== undefined ? (
           <>
             <Hero row={sc} n={score.n_ranked || score.n_eligible} scale={score.bands_scale ?? []} />
@@ -568,7 +580,10 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
           </p>
         )}
 
-        {score.board && score.board.length > 0 && (() => {
+        </div>
+
+        {score.board && score.board.length > 0 && (
+        <div className="dsc-sidec">{(() => {
           const nAct = active.length;
           const thin = score.board.filter((r) => coverage(r, active) < nAct);
           const lowest = (score.bands_scale ?? [])[0]?.band;
@@ -659,7 +674,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                       {r.delta === null || r.delta === undefined
                         ? <span className="mut" data-tip="not scored in the previous window">—</span>
                         : <span style={{ color: r.delta === 0 ? "var(--mut)"
-                                                : r.delta > 0 ? token["good"] : token["bad"] }}>
+                                                : r.delta > 0 ? "var(--good)" : "var(--bad)" }}>
                             {r.delta > 0 ? `+${r.delta}` : r.delta}
                           </span>}
                     </span>
@@ -697,7 +712,8 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
             </div>
           </div>
           );
-        })()}
+        })()}</div>
+        )}
 
         <p className="dsc-note">
           <b>Experimental v0.</b> Each signal is a percentile within the {score.n_eligible} people active this

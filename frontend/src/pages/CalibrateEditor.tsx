@@ -7,7 +7,7 @@
 // SSR-safe: no top-level window/document access — only inside effects / handlers.
 import { useEffect, useState } from "react";
 
-import { PILLAR_COLORS, token } from "../lib/tokens";
+import { PILLAR_COLORS } from "../lib/tokens";
 
 type Person = { login: string; name: string; score: number | null; avg: string; mine: number };
 type Weights = { cur: Record<string, number>; def: Record<string, number> };
@@ -43,7 +43,10 @@ const BAND_KEYS: [string, string][] = [
 // which needs no preposition to be unambiguous.
 // One colour per band STEP. tone would not do: the model gives Strong and Solid the same
 // "good", so two bands would come out the same colour on a scale that has to show four.
-const BAND_RAMP = [token["bad"], token["warn"], token["c-pr"], token["good"]];
+// var(), not the generated token map — see the same ramp in PersonScore: this lands in a
+// `background:` inline style, so a custom property resolves and flips with the theme, while
+// the JS map carries the light palette only.
+const BAND_RAMP = ["var(--bad)", "var(--warn)", "var(--c-pr)", "var(--good)"];
 
 function bandSizes(dist: number[], floors: [string, number][]): { band: string; n: number }[] {
   const asc = floors.slice().sort((a, b) => a[1] - b[1]);

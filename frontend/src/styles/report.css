@@ -515,6 +515,37 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-exp{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--exp-fg);
     background:var(--exp-bg);border:1px solid var(--exp-line);border-radius:var(--r-pill);padding:1px 7px}
   .dsc-body{padding:0}
+  /* The panel used to be capped at 940px, which left ~690px of dead space beside it on a
+     wide screen while every block inside was already at a comfortable measure. Uncapping
+     just moves the emptiness inward — measured at 1587px available: the split tiles go to
+     494px under a 26px number and the change table to 1545px between a pillar's name and
+     its numbers. So the width gets USED instead.
+     Not a 2x2 grid: the blocks are 219 / 422 / 484 / 925px tall, and a grid row is as tall
+     as its tallest cell, so pairing them off leaves 644px of holes INSIDE the panel — worse
+     than the gap it was meant to close. Independent columns instead, grouped so the heights
+     land near each other: you (219+422+484) beside everyone (925).
+     display:contents below the breakpoint means the wrappers do not exist for layout, so
+     the single-column order is the DOM order and needs no override. */
+  .dsc-mainc,.dsc-sidec{display:contents}
+  /* 1700px, not 1280: this panel sits inside the sidebar and two levels of padding, ~340px
+     of overhead here, so a 1440 laptop would get two 540px columns — narrower than the
+     900px the tables are laid out for. Below the breakpoint one 940px column is the better
+     shape anyway, and the space beside it is too small to read as a hole. */
+  @media(min-width:1700px){
+    .dsc{max-width:1440px}
+    .dsc-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+      column-gap:var(--space-4);align-items:start}
+    .dsc-mainc,.dsc-sidec{display:block;min-width:0}
+    /* The first card in each column carries margin-top for the single-column rhythm; at the
+       top of a grid track it would push one column below the other. */
+    .dsc-sidec>.dsc-card{margin-top:0}
+    .dsc-note{grid-column:1/-1}
+    /* No board (no one clears the activity floor) means no second column. Fall all the way
+       back to the narrow single column: leaving the panel at 1440 would stretch the hero to
+       the full width, which is the thing the cap was there to prevent. */
+    .dsc:not(:has(.dsc-sidec)){max-width:940px}
+    .dsc-body:not(:has(.dsc-sidec)){display:block}
+  }
   .dsc-pil{margin:0 0 11px}
   .dsc-pil-h{display:flex;align-items:baseline;gap:var(--space-2)}
   .dsc-pil-n{font-size:13px;font-weight:700}
@@ -571,6 +602,11 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-scale-k{position:relative;display:block;height:14px;font-size:10.5px;color:var(--mut);
     font-variant-numeric:tabular-nums}
   .dsc-scale-k em{position:absolute;transform:translateX(-50%);font-style:normal}
+  /* The end labels sit ON the ends, so centring them hangs half of each past the bar: "100"
+     at left:100% overflowed its container by 10px at any width. Align them to the edge they
+     mark instead, the way an axis does. */
+  .dsc-scale-k em:first-child{transform:none}
+  .dsc-scale-k em:last-child{transform:translateX(-100%)}
   .dsc-scale-t{position:relative;display:block;height:20px;border-radius:var(--r-xs);
     background:linear-gradient(to right,var(--bad) 0%,var(--warn) 34%,
       var(--c-story) 67%,var(--good) 100%)}
