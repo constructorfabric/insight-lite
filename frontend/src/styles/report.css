@@ -614,6 +614,22 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
     font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.04em;
     text-transform:uppercase;color:var(--tooltip-fg);white-space:nowrap;
     text-shadow:0 1px 2px rgba(0,0,0,.55)}
+  /* The names sit on their band's MIDPOINT, so what has to fit is not their total width but
+     the distance between neighbours: at shares of 30/20/20/30 the tightest pair needs
+     (65+30)/2 <= 0.20 x bar, about 238px of bar. At a 320px window the bar is 204 and
+     Building, Developing and Solid ran into each other.
+     inline-size queries resolve against the container's CONTENT box, so 300 here is asked of
+     the bar itself, not of the hero's 40px-padded outer width. It is deliberately above the
+     238 the geometry needs: band names come from config.yaml and can be renamed to anything,
+     and 21px of slack (a 375px phone gives a 259px bar) does not survive one longer word.
+     The cost is that a normal phone shows only the two ends — which is what the names are
+     load-bearing for, telling you which END is better. The band you are actually in is named
+     in the pill beside the number either way. Asked of the hero rather than the window for
+     the same reason the board row asks its card. */
+  .dsc-hero{container-type:inline-size}
+  @container (max-width:300px){
+    .dsc-scale-t em:not(:first-child):not(:last-child){display:none}
+  }
   .dsc-scale-m{position:relative;display:block;height:12px}
   .dsc-scale-m b{position:absolute;top:0;left:0;width:0;height:0;transform:translateX(-50%);
     border-left:5px solid transparent;border-right:5px solid transparent;
@@ -773,6 +789,47 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-drow[open] summary{background:var(--panel2)}
   .dsc-drow-body{padding:var(--space-2) 10px var(--space-4) 46px}
   .dsc-rows.capped > .dsc-drow:nth-child(n+16){display:none}
+  /* NARROW LAYOUT. Two separate jobs, and the second one must NOT be measured against the
+     viewport — that was the mistake worth recording. The row lives inside a sidebar and two
+     levels of padding, so at a 901px window its container is 502px and a viewport-keyed rule
+     saw "901, plenty" while the name column was squeezed to 20px. The container is the thing
+     that decides, so the container is what gets asked.
+
+     1. CONTAINMENT. Whatever still cannot fit scrolls ITSELF, so the page never does. Keyed
+        to the viewport because a container query cannot style its own container, and set
+        generously — an earlier attempt at the computed edge (430px) still let a 431px window
+        push the page 5px sideways. A rule that only just fits does not fit.
+     2. COLUMNS. Dropped as the CONTAINER narrows, in order of what a phone can do without,
+        and the header loses the same POSITION as the row so the two cannot drift:
+          3 Make-up  the segbar, decoration at this size
+          7 Data     the coverage caveat, which the row's own drill repeats
+          5 Band     a bucketing of the score, and the score is right beside it
+        Delta stays: it is the one number on the row you cannot derive from the others.
+        Seven columns are 394px plus 72px of gaps, so they need ~566px of row before the name
+        (1fr) has anything left; the row is the card less 40px of card padding and 20px of its
+        own, hence 626. Five need 272+name, hence 412. */
+  @media(max-width:1100px){
+    .dsc-mainc .dsc-card,.dsc-drow-body{overflow-x:auto}
+  }
+  .dsc-card{container-type:inline-size}
+  @container (max-width:626px){
+    .dsc-rowh,.dsc-drow summary{grid-template-columns:26px minmax(0,1fr) 42px 112px 44px}
+    .dsc-rowh > :nth-child(3),.dsc-drow summary > :nth-child(3),
+    .dsc-rowh > :nth-child(7),.dsc-drow summary > :nth-child(7){display:none}
+  }
+  @container (max-width:412px){
+    .dsc-rowh,.dsc-drow summary{grid-template-columns:26px minmax(0,1fr) 42px 44px}
+    .dsc-rowh > :nth-child(5),.dsc-drow summary > :nth-child(5){display:none}
+    /* The same column, for the same reason, in the pillar tables. */
+    .dsc-ing .bd{display:none}
+    /* And their horizontal padding, which is where a surprising amount of the width was:
+       eight per side across five columns is 80px of a 261px table. Vertical padding is
+       untouched, so the rows keep their rhythm. */
+    .dsc-ing td{padding-left:var(--space-1);padding-right:var(--space-1)}
+    /* 46px of that indent aligns a drill under the name column on a desktop row; on a phone
+       it was spending 18% of the width on alignment. */
+    .dsc-drow-body{padding-left:var(--space-3)}
+  }
   /* segbar component — a stacked proportional bar + optional swatch legend */
   .segbar{display:flex;width:100%;border-radius:var(--r-xs);overflow:hidden;background:var(--panel2)}
   .segbar i{display:block;height:100%}
