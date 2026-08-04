@@ -1472,6 +1472,9 @@ class Handler(BaseHTTPRequestHandler):
                     # print it. Sent so the client stops carrying its own copy — the
                     # direction is not derivable from anywhere else it can see.
                     "signals": store.score_signal_spec(),
+                    # the band scale, so the gauge draws its boundaries at the same
+                    # thresholds the labels come from
+                    "bands_scale": store.score_band_spec(),
                     "is_self_view": (viewer is not None and viewer == login)}, None
         except Exception as exc:           # noqa: BLE001 — never break the dashboard
             log_degraded(f"developer score for {login} ({since[:10]}→{until[:10]})", exc)

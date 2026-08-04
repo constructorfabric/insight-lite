@@ -2572,16 +2572,33 @@ def score_signal_spec() -> list[dict]:
     return out
 
 
+# The band scale, as DATA, ascending by floor. _score_band reads it and so does the
+# client (via score_band_spec) — the gauge has to draw its boundaries at exactly the
+# thresholds the labels use, and a second copy in TS would drift the first time these
+# move. Which they may well: the median score is 50 by CONSTRUCTION (the score is a
+# weighted mean of percentiles), so the share of people who land under 45 is a property
+# of the scale, not of how the team works. Renaming the bands to something positional,
+# or recalibrating the floors against an outcome backtest, are both live options.
+_SCORE_BANDS = [
+    (0,  "Building",   "weak"),
+    (45, "Developing", "warn"),
+    (60, "Solid",      "good"),
+    (75, "Strong",     "good"),
+]
+
+
+def score_band_spec() -> list[dict]:
+    """The band scale for a client that has to draw it: floor, label, tone, ascending."""
+    return [{"min": lo, "band": b, "tone": t} for lo, b, t in _SCORE_BANDS]
+
+
 def _score_band(s):
     if s is None:
         return ("—", "na")
-    if s >= 75:
-        return ("Strong", "good")
-    if s >= 60:
-        return ("Solid", "good")
-    if s >= 45:
-        return ("Developing", "warn")
-    return ("Building", "weak")
+    for lo, band, tone in reversed(_SCORE_BANDS):
+        if s >= lo:
+            return (band, tone)
+    return (_SCORE_BANDS[0][1], _SCORE_BANDS[0][2])
 
 
 def _median(xs):
@@ -3177,10 +3194,24 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
         for p in sorted(active, key=lambda p: cf[p] - int(cf[p]), reverse=True)[:max(0, rem)]:
             contrib[p] += 1
         band, tone = _score_band(score)
+        # A band PER PILLAR, not just for the total. This deliberately runs the total's
+        # thresholds over a pillar's percentile, which is a choice and not a derivation:
+        # a pillar percentile and a weighted mean of pillar percentiles are different
+        # quantities that happen to share a 0..100 range. It is here rather than in the
+        # client so there is one place to change when the thresholds move — and they
+        # probably will, because the median score is 50 by construction, so the share of
+        # people below 45 is decided by the scale rather than by the work.
+        pillar_bands = {}
+        for p in _SCORE_WEIGHTS:
+            if p in active and pillars[p] is not None:
+                pb, pt = _score_band(pillars[p])
+                pillar_bands[p] = {"band": pb, "tone": pt}
+            else:
+                pillar_bands[p] = None
         board.append({
             "login": lg, "name": names.get(lg, lg), "score": score,
             "band": band, "tone": tone,
-            "pillars": pillars,
+            "pillars": pillars, "pillar_bands": pillar_bands,
             "contributions": {p: contrib.get(p) for p in _SCORE_WEIGHTS},
             "drivers": {
                 "commits": e["commits"], "loc": e["loc"], "prs_merged": e["prs_merged"],

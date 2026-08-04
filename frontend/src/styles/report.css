@@ -507,22 +507,14 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .wkcell-n{font-size:12px;font-weight:700;color:var(--mut);font-variant-numeric:tabular-nums}
   .wtbar{margin:2px 0 var(--space-4)}
   .wtsw{width:10px;height:10px;border-radius:var(--r-xs);display:inline-block;margin-right:7px;vertical-align:middle;flex:none}
-  /* Developer score (experimental, collapsed on the Person tab) */
-  .dsc{margin-top:var(--space-5);border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
-  .dsc>summary{cursor:pointer;padding:var(--space-3) var(--space-4);font-weight:700;font-size:14px;list-style:none;display:flex;align-items:center;gap:var(--space-2)}
-  .dsc>summary::-webkit-details-marker{display:none}
-  .dsc>summary::before{content:"▸";color:var(--mut);font-size:11px;transition:transform .15s}
-  .dsc[open]>summary::before{transform:rotate(90deg)}
+  /* Developer score (experimental). A plain CONTAINER, not a card — the hero and the
+     ingredients card each carry their own border, and wrapping them in a third one
+     reads as a box inside a box. */
+  .dsc{margin-top:var(--space-5)}
   .dsc .mut{color:var(--mut);font-weight:500}
   .dsc-exp{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--exp-fg);
     background:var(--exp-bg);border:1px solid var(--exp-line);border-radius:var(--r-pill);padding:1px 7px}
-  .dsc-body{padding:2px var(--space-4) var(--space-4)}
-  .dsc-top{display:grid;grid-template-columns:150px 1fr;gap:var(--space-6);align-items:start}
-  @media(max-width:640px){.dsc-top{grid-template-columns:1fr}}
-  .dsc-gauge{text-align:center}
-  .dsc-val{font-size:30px;font-weight:850;fill:var(--ink)}
-  .dsc-of{font-size:10px;fill:var(--mut)}
-  .dsc-band{font-weight:750;font-size:13px;margin-top:var(--space-1)}
+  .dsc-body{padding:0}
   .dsc-pil{margin:0 0 11px}
   .dsc-pil-h{display:flex;align-items:baseline;gap:var(--space-2)}
   .dsc-pil-n{font-size:13px;font-weight:700}
@@ -549,10 +541,45 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-chip{font-size:11px;font-weight:700;color:var(--acc);background:var(--acc-soft);border-radius:var(--r-pill);padding:2px 9px}
   .dsc-board{margin-top:var(--space-4);border-top:1px solid var(--line);padding-top:var(--space-3)}
   .dsc-board-h{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);margin-bottom:6px}
-  .dsc-val,.dsc-sc{font-variant-numeric:tabular-nums}
+  .dsc-sc{font-variant-numeric:tabular-nums}
   /* why-this-rank line + the real-work → team → score chain (card & row expansions) */
   .dsc-whyrank{font-size:12.5px;color:var(--ink2);margin:0 0 9px;line-height:1.45}
   .dsc-whyrank.dsc-selfrow{color:var(--acc);font-weight:700}
+  /* The headline. A horizontal scale, not a ring: what matters is which band you are in
+     and how far the next one sits, and the boundaries are drawn from the scale the server
+     sends so they cannot disagree with the labels.
+     An ORDINARY panel — --panel plus a border, like every other card. The reference this
+     layout came from puts the score on a dark navy card, but that darkness carries
+     Experian's brand, and copied here it would be a third surface concept in a system
+     that just standardised on one elevation and borders. The only dark surfaces in the
+     light theme are the tooltip and the code block, and both mean "a different KIND of
+     thing", not "an important one". */
+  .dsc-hero{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-5) var(--space-5) var(--space-4);margin:0 0 var(--space-4)}
+  .dsc-hero-h{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);font-size:11.5px}
+  .dsc-hero-n{display:flex;align-items:flex-end;gap:var(--space-3);margin:var(--space-3) 0 var(--space-2)}
+  .dsc-hero-n b{font-size:44px;font-weight:800;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .dsc-hero-n .of{color:var(--mut);padding-bottom:5px;font-size:13px}
+  .dsc-hero-n .dsc-pill{margin-left:auto}
+  .dsc-scale{margin-top:var(--space-4)}
+  .dsc-scale-t{display:flex;height:6px;border-radius:var(--r-pill);overflow:hidden}
+  .dsc-scale-t i{display:block}
+  .dsc-scale-m{position:relative;display:block;height:0}
+  /* The ring around the marker is the PAGE showing through, so it has to be the surface
+     the hero actually sits on. */
+  .dsc-scale-m b{position:absolute;top:-13px;width:13px;height:13px;border-radius:50%;border:3px solid var(--panel);transform:translateX(-50%)}
+  .dsc-scale-k{position:relative;display:block;height:15px;margin-top:4px;font-size:10.5px;font-variant-numeric:tabular-nums}
+  .dsc-scale-k em{position:absolute;transform:translateX(-50%);font-style:normal;color:var(--mut)}
+  .dsc-hero-f{display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:12px;color:var(--mut)}
+  .dsc-hero-f b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+
+  /* One pill shape for a band, wherever it appears — the total and each pillar. */
+  .dsc-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid currentColor;border-radius:var(--r-pill);padding:2px 9px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
+  .dsc-pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+  .dsc-card{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);padding:var(--space-4) var(--space-5) var(--space-2)}
+  .dsc-card-h h3{margin:0 0 4px;font-size:15px}
+  .dsc-card-h p{margin:0 0 var(--space-3);color:var(--mut);font-size:12px;max-width:70ch}
+
   /* Score ingredients. Weight, percentile and points each own a column and the total
      row states the sum, so the arithmetic reads before any prose does. Numbers are
      right-aligned and tabular — a column of figures is never flush left. */
@@ -573,8 +600,12 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-ing tr.gap td.pt{color:var(--c-bug-fg)}
   .dsc-ing tr.tot td{border-bottom:none;font-weight:800;padding-top:8px;text-align:left}
   .dsc-ing tr.tot td.pt{text-align:right}
-  .dsc-drill>summary{cursor:pointer;color:var(--acc-ink);font-size:11.5px}
-  .dsc-drill[open]>summary{margin-bottom:var(--space-2)}
+  .dsc-ing tr.can{cursor:pointer}
+  .dsc-ing tr.can:hover td{background:var(--row-hover)}
+  .dsc-ing td.cv{width:22px;text-align:center;color:var(--mut)}
+  .dsc-ing td.bd{width:118px;text-align:left}
+  .dsc-drill-in{background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4) var(--space-3)}
+  .dsc-drill-h{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:var(--space-2)}
 
   /* Factor drill. One axis for the whole table: multiples of the team median on a log
      scale with the median at the centre, so two factors in different units stay
