@@ -119,17 +119,22 @@ with the same value, and the same purple appears under three names (`--app`,
 
 ## Audit against the Constructor Fabric kit
 
-**Source caveat.** This audit was done against the four kit images. They name every
-token (`color/background` … `color/blue`) and give exact px values for typography,
-spacing, radii and elevation, but they show **no hex values** for any colour. So the
-colour comparison below is structural — naming, coverage, role — plus what is
-judgeable by eye. A value-level diff needs the Fabric token JSON or the Figma file.
+**Source caveat.** The structural part of this audit was done against the four kit
+images. They name every token (`color/background` … `color/blue`) and give exact px
+values for typography, spacing, radii and elevation, but they show **no hex values**
+for any colour. The 19 colour values were read separately out of the Figma file
+(`Insight-UX`, page `02 · CF Insight · Foundation`, board `Foundation / Colors`) and
+are recorded below. Typography and elevation are still image-derived: the file also
+carries Text styles (`Inter`, `Constructor Fabric`) and Effect styles (`shadcn`,
+`Constructor Fabric`) that nobody has read yet, so `--elev` remains a value
+transcribed from a screenshot caption rather than from the kit.
 
 ### Summary
 
 | Layer | Kit | insight-lite today | Verdict |
 |---|---|---|---|
 | Colour token names | 19 `color/*` semantic | 0 `--color-*`; own 18-name set (`--bg`, `--acc`, `--ink`…) | full rename |
+| Colour token values | 15 distinct, Tailwind slate + 2 brand violets | own ramp; 1 of the 15 matches (`#ffffff`) | full repaint |
 | Token definitions | one source | 2 live copies + 1 shadowed + 1 dead | consolidate |
 | Hardcoded colours | none implied | 61 distinct in CSS, 17 in TS/TSX | large delta |
 | Typeface (UI) | Inter | **Inter**, with Jakarta kept in the fallback chain | done |
@@ -143,6 +148,71 @@ judgeable by eye. A value-level diff needs the Fabric token JSON or the Figma fi
 | Icon source | Material Symbols | `lucide-react` + hand-inlined SVG paths | swap |
 | Formatting contract | 10 rules | 3 match, 3 conflict, 1 n/a, 3 unverified | partial |
 | Accessibility baseline | 7 requirements | 1 met, 4 partial, 2 failing | partial |
+
+### The kit's colour values
+
+Read from the Figma file's Properties panel, one swatch at a time. There is no
+machine route: the document travels over the websocket in binary, every
+`variables` endpoint 404s, and Dev Mode is a separate paid seat, so "copy as code"
+is unavailable. Selecting a swatch's `Color` child makes the panel print the bound
+variable name next to its resolved hex, and that is the only extraction path that
+works.
+
+19 tokens, 15 distinct values — `surface`, `surface-elevated`, `card` and
+`primary-foreground` are all `#FFFFFF`, and `card-hover` repeats `background`.
+
+| Token | Value | Tailwind | Nearest token here | Ours |
+|---|---|---|---|---|
+| `color/background` | `#F8FAFC` | slate-50 | `--bg` | `#f5f6f9` |
+| `color/sidebar` | `#F1F5F9` | slate-100 | `--panel2` | `#eef1f5` |
+| `color/surface` | `#FFFFFF` | white | `--panel` | `#ffffff` ✅ |
+| `color/surface-elevated` | `#FFFFFF` | white | `--panel` | `#ffffff` ✅ |
+| `color/card` | `#FFFFFF` | white | `--panel` | `#ffffff` ✅ |
+| `color/card-hover` | `#F8FAFC` | slate-50 | `--row-hover` | `#f7f8fc` |
+| `color/border` | `#E2E8F0` | slate-200 | `--line2` | `#e2e6ec` |
+| `color/border-strong` | `#CBD5E1` | slate-300 | — | none |
+| `color/foreground` | `#0F172A` | slate-900 | `--ink` | `#101828` |
+| `color/muted-foreground` | `#64748B` | slate-500 | `--ink2` | `#475467` |
+| `color/subtle-foreground` | `#94A3B8` | slate-400 | `--mut` | `#656e80` |
+| `color/primary` | `#8257E6` | — brand | `--acc` | `#5b5bf0` |
+| `color/primary-hover` | `#7147D2` | — brand | `--acc-ink` | `#4a45d6` |
+| `color/primary-foreground` | `#FFFFFF` | white | `--on-solid` | `#ffffff` ✅ |
+| `color/success` | `#059669` | emerald-600 | `--good` | `#0c7f47` |
+| `color/warning` | `#D97706` | amber-600 | `--warn` | `#a26b1b` |
+| `color/danger` | `#E11D48` | rose-600 | `--bad` | `#d41e24` |
+| `color/info` | `#0284C7` | sky-600 | `--c-people` | `#05a3be` |
+| `color/blue` | `#2563EB` | blue-600 | `--c-pr` | `#2f80ed` |
+
+**The palette is Tailwind plus two brand violets.** 13 of the 15 values are literal
+Tailwind: the whole grey ramp is slate 50/100/200/300/400/500/900, and every semantic
+hue is the `-600` step of its family. Only `#8257E6` / `#7147D2` are proprietary. That
+makes the kit cheap to reason about and explains the shadcn mappings — this is a
+shadcn/Tailwind palette with a violet primary swapped in.
+
+**Four values fail the contrast bar this repo already enforces.** Measured on
+`#FFFFFF`, with `#F8FAFC` in brackets:
+
+| Token | Value | Contrast | Verdict |
+|---|---|---|---|
+| `subtle-foreground` | `#94A3B8` | 2.56 (2.45) | fails AA **and** 3:1 |
+| `warning` | `#D97706` | 3.19 (3.04) | fails AA, clears 3:1 |
+| `success` | `#059669` | 3.77 (3.60) | fails AA, clears 3:1 |
+| `info` | `#0284C7` | 4.10 (3.91) | fails AA, clears 3:1 |
+
+`subtle-foreground` is the sharp one. `--mut` was darkened on 2026-08-03 from
+`#8a93a3`, which measured 2.73:1 on `--panel2` and was below AA across 223 uses;
+`#94A3B8` is *lighter* than the value that was removed. Taking it verbatim would
+reintroduce exactly the failure that commit fixed. `success` / `warning` / `info` are
+the same story as `--good` / `--warn` and the four chart hues darkened in the same
+pass: fine as fills, short as body text.
+
+The rest clears the bar — `foreground` 17.85, `primary` 4.71 (and 4.71 for white on
+it, so `primary-foreground` holds), `primary-hover` 5.94, `danger` 4.70, `blue` 5.17.
+
+So the kit's colours are a **repaint, not a rename**, on two counts: no grey in our
+ramp matches theirs (closest pair is `#E2E8F0` vs `--line2` `#e2e6ec`), the accent
+moves from indigo to violet, and four values need a darkened text variant before they
+can carry type — the `--app` / `--app-fg` split this repo already uses.
 
 ### Typography
 
@@ -175,10 +245,13 @@ shadows, which is visible on every page.
 
 ### One collision to plan for
 
-`#8b5cf6` — visually the kit's `color/primary` purple — already appears 7 times here,
-but as a *chart* colour (`--app`, `--c-loc`, `--c-epic`). The primary action colour is
-indigo `#5b5bf0`. Renaming toward the kit collides those two roles unless the chart
-series is separated from the action palette first.
+`#8b5cf6` appears 7 times here as a *chart* colour (`--app`, `--c-loc`, `--c-epic`),
+while the primary action colour is indigo `#5b5bf0`. The kit's `color/primary` turns
+out to be `#8257E6` — a near neighbour of that chart violet, 19 units away in RGB, not
+the same value. So the collision is not a name clash but a legibility one: adopting
+the kit puts the action colour and an existing chart series within one perceptual step
+of each other. The chart series has to be separated from the action palette first
+either way.
 
 ### Data formatting contract
 
@@ -495,7 +568,10 @@ Two distinct scopes, worth pricing separately:
 
 - **Tokens only** — rename to `--color-*`, add `--space-*`, collapse the radii, add
   the dark palette, keep the hand-written CSS. Contained: 21 stylesheets plus the
-  generated artefacts. Feasible after step 4 above.
+  generated artefacts. Feasible after step 4 above. Note this is a rename *and* a
+  repaint: with the values now known (above), 14 of the kit's 15 differ from ours, so
+  every pixel-parity baseline is invalidated in one go, and four of them need a
+  darkened text variant to keep the AA gate green.
 - **Tokens plus shadcn** — introduces tailwind, radix, shadcn and next-themes into a
   four-dependency frontend, and rewrites every control. This is a frontend rewrite,
   not a restyle.
