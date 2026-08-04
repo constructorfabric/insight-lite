@@ -564,15 +564,24 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-hero-n .of{color:var(--mut);padding-bottom:5px;font-size:13px}
   .dsc-hero-n .dsc-pill{margin-left:auto}
   .dsc-scale{margin-top:var(--space-4)}
-  .dsc-scale-t{position:relative;display:block;height:6px;border-radius:var(--r-pill);background:var(--line2);overflow:hidden}
-  .dsc-scale-t i{position:absolute;top:0;bottom:0;left:0;border-radius:var(--r-pill)}
-  .dsc-scale-t u{position:absolute;top:0;bottom:0;width:2px;background:var(--panel)}
-  .dsc-scale-m{position:relative;display:block;height:0}
-  /* The ring around the marker is the PAGE showing through, so it has to be the surface
-     the hero actually sits on. */
-  .dsc-scale-m b{position:absolute;top:-13px;width:13px;height:13px;border-radius:50%;border:3px solid var(--panel);transform:translateX(-50%)}
-  .dsc-scale-k{position:relative;display:block;height:15px;margin-top:4px;font-size:10.5px;font-variant-numeric:tabular-nums}
-  .dsc-scale-k em{position:absolute;transform:translateX(-50%);font-style:normal;color:var(--mut)}
+  /* Boundaries above, the gradation behind, names over it, tick below. The ramp runs
+     --bad -> --warn -> --c-story -> --good: monotonic in HUE (red, amber, green, deep green),
+     which is what makes the good end obvious without a legend. Names carry a shadow rather
+     than a per-segment colour, because the background underneath them varies continuously. */
+  .dsc-scale-k{position:relative;display:block;height:14px;font-size:10.5px;color:var(--mut);
+    font-variant-numeric:tabular-nums}
+  .dsc-scale-k em{position:absolute;transform:translateX(-50%);font-style:normal}
+  .dsc-scale-t{position:relative;display:block;height:20px;border-radius:var(--r-xs);
+    background:linear-gradient(to right,var(--bad) 0%,var(--warn) 34%,
+      var(--c-story) 67%,var(--good) 100%)}
+  .dsc-scale-t em{position:absolute;top:0;line-height:20px;transform:translateX(-50%);
+    font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--tooltip-fg);white-space:nowrap;
+    text-shadow:0 1px 2px rgba(0,0,0,.55)}
+  .dsc-scale-m{position:relative;display:block;height:12px}
+  .dsc-scale-m b{position:absolute;top:0;left:0;width:0;height:0;transform:translateX(-50%);
+    border-left:5px solid transparent;border-right:5px solid transparent;
+    border-bottom:6px solid var(--ink)}
   .dsc-hero-f{display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:12px;color:var(--mut)}
   .dsc-hero-f b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 
@@ -601,14 +610,20 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-split>div{flex:1;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4)}
   .dsc-split .lb{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
   .dsc-split b{display:block;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .dsc-split .why{display:block;font-size:11.5px;color:var(--ink2)}
+  .dsc-split .why{display:block;font-size:11.5px;color:var(--ink2);margin-top:3px}
+  /* Three tiles in a row need about 170px each before the LABELS start wrapping — at
+     375px they were 75px wide and "From the team" broke over three lines. 760px is the
+     breakpoint the rest of this file uses for one-column fallbacks. */
+  @media(max-width:760px){ .dsc-split{flex-direction:column} }
   .dsc-chg{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 var(--space-2)}
   .dsc-chg th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:var(--space-2) var(--space-2) 4px 0;border-bottom:1px solid var(--line2)}
   .dsc-chg th:first-child{text-align:left;padding-left:var(--space-5)}
   .dsc-chg th:last-child,.dsc-chg td:last-child{padding-right:var(--space-5)}
   .dsc-chg td{padding:6px var(--space-2) 6px 0;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
   .dsc-chg td:first-child{text-align:left;padding-left:var(--space-5);font-weight:600;font-variant-numeric:normal}
-  .dsc-chg tr:last-child td{border-bottom:none}
+  .dsc-chg td .sh{display:block;font-weight:400;font-size:10.5px;color:var(--mut)}
+  .dsc-chg tfoot td{border-top:1px solid var(--line2);border-bottom:none;font-weight:800;
+    padding-top:8px}
   .dsc-nodelta{margin:0 0 var(--space-4);font-size:12px;color:var(--mut)}
   /* The closing caveat, on the same rhythm as the cards above it — it was 12px inline
      against their 16, which is the same "patch the gap where you notice it" habit. */

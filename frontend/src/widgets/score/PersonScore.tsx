@@ -13,6 +13,8 @@
 // data-tip). Swapping in SegBar here would change the class + data-tip
 // structure and break parity, so it is kept verbatim as `.comp`.
 import { Activity, ChevronDown, ChevronRight, Timer, Waves, Wrench } from "lucide-react";
+
+import { Help } from "../../components/FilterBar";
 import { Fragment, useState } from "react";
 
 import { fmtNum, jr } from "../../lib/format";
@@ -97,6 +99,12 @@ const PICON: Record<string, typeof Activity> = {
   engagement: Activity, delivery: Timer, craft: Wrench, flow: Waves,
 };
 const PILLAR_ORDER = ["engagement", "delivery", "craft", "flow"];
+// Heaviest pillar first, and derived in ONE place. The change table used PILLAR_ORDER while
+// the ingredients table sorted by weight, so one screen listed the same four pillars in two
+// different orders — Engagement first at the top, Flow first below it.
+function byWeight(weights: Record<string, number>): string[] {
+  return PILLAR_ORDER.slice().sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+}
 function nodataMetric(pillar: string): string {
   if (pillar === "flow") return "no flow data";
   if (pillar === "delivery" || pillar === "craft") return "no merged PRs";
@@ -223,7 +231,7 @@ function Ingredients({ row, active, weights, tm, wsum, signals, scale, whose }: 
   // toggle inside the drill, i.e. under the row it belongs to, which reads as a stray
   // link; the reference puts a chevron on the row and opens it in place.
   const [open, setOpen] = useState<string | null>(null);
-  const order = PILLAR_ORDER.slice().sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+  const order = byWeight(weights);
   const parts = order.filter((k) => active.includes(k)).map((k) => row.contributions[k] ?? 0);
   return (
     <>
@@ -330,7 +338,10 @@ function fmtDay(s: string | undefined): string {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-function WhatsChanged({ d, boardHasDeltas }: { d: ScoreDelta | null; boardHasDeltas: boolean }) {
+function WhatsChanged({ d, boardHasDeltas, weights, wsum }: {
+  d: ScoreDelta | null; boardHasDeltas: boolean;
+  weights: Record<string, number>; wsum: number;
+}) {
   if (!d) {
     // Absent for two different reasons, and they are not the same news.
     return (
@@ -348,47 +359,74 @@ function WhatsChanged({ d, boardHasDeltas }: { d: ScoreDelta | null; boardHasDel
       <div className="dsc-card-h">
         <h3>
           What&rsquo;s changed{" "}
+          {/* The mechanism has to be available — "how can my score fall because of the team"
+              is the first thing anyone asks — but it does not have to sit on the screen
+              forever. Same "?" the period and scope controls use, so it is one affordance
+              the page already teaches, and it carries the hidden text a screen reader needs. */}
+          <Help
+            id="dsc-delta-help" of="this split"
+            text="Your score is a rank among the people scored, so it moves when their numbers move and not only when yours do. From the team is that part of the change; from you is your own."
+          />{" "}
           {d.since && d.until && (
             <span className="dsc-vs">vs {fmtDay(d.since)} &ndash; {fmtDay(d.until)}</span>
           )}
         </h3>
-        <p>
-          The score is a percentile, so it moves when you move and when the team moves around
-          you. Only one of those is yours to act on.
-        </p>
       </div>
       <div className="dsc-split">
-        {([["Total", d.total, `${d.prev} → ${d.now}`],
-           ["The team moved", d.team, "your metrics held, theirs changed"],
-           ["You moved", d.you, "your own work"]] as [string, number, string][])
-          .map(([label, v, why]) => (
+        {/* Each tile names a CAUSE, shows that cause's share of the total in points of your
+            score, and says in one line HOW that cause reaches your score. All three are the
+            same quantity, so the signs agree and -4 + -9 = -13 reads straight off the tiles.
+            The captions are the mechanism, never the label restated — "FROM THE TEAM" over
+            "the team improved" was that mistake — and they fill space the tiles already had
+            rather than adding height.
+            This took three tries and the first two were the same mistake: describing the TEAM
+            while the number measured YOUR SCORE. "the part of the move that was not yours"
+            restated the label; "The team improved" over a red -4 had three signals disagreeing;
+            making the -4 neutral removed the colour clash but not the contradiction, because
+            "improved" and "-4" cannot both be about the same thing. They were not. That the
+            team moved up is still readable — a negative share from the team means exactly that
+            — it just is not welded to a number measuring something else.
+            Colour stays on the tiles that are a verdict on you; the team's share is not one. */}
+        {([["Total", d.total, true, `${d.prev} → ${d.now}`],
+           ["From the team", d.team, false, "the ranking shifted"],
+           ["From you", d.you, true, "your own numbers moved"],
+          ] as [string, number, boolean, string][])
+          .map(([label, v, valenced, why]) => (
             <div key={label}>
               <span className="lb">{label}</span>
-              <b style={{ color: col(v) }}>{sign(v)}</b>
+              <b style={{ color: valenced ? col(v) : "var(--ink)" }}>{sign(v)}</b>
               <span className="why">{why}</span>
             </div>
           ))}
       </div>
       <table className="dsc-chg">
         <thead>
-          <tr><th>Pillar</th><th>Was</th><th>Now</th><th>Δ pctl</th><th>Δ points</th></tr>
+          <tr><th>Pillar</th><th>Points was</th><th>now</th><th>Δ</th></tr>
         </thead>
         <tbody>
-          {PILLAR_ORDER.filter((k) => d.pillars[k]).map((k) => {
+          {byWeight(weights).filter((k) => d.pillars[k]).map((k) => {
             const p = d.pillars[k];
-            const dp = (p.now ?? 0) - (p.prev ?? 0);
             const dpt = (p.now_points ?? 0) - (p.prev_points ?? 0);
             return (
               <tr key={k}>
-                <td>{PLABELS[k][0]}</td>
-                <td>{p.prev ?? "—"}</td>
-                <td>{p.now ?? "—"}</td>
-                <td style={{ color: col(dp) }}>{sign(dp)}</td>
+                <td>
+                  {PLABELS[k][0]}
+                  <span className="sh">{Math.round((100 * (weights[k] || 0)) / wsum)}% of score</span>
+                </td>
+                <td>{p.prev_points ?? "—"}</td>
+                <td>{p.now_points ?? "—"}</td>
                 <td style={{ color: col(dpt) }}>{sign(dpt)}</td>
               </tr>
             );
           })}
         </tbody>
+        <tfoot>
+          <tr>
+            <td>Score</td>
+            <td>{d.prev}</td><td>{d.now}</td>
+            <td style={{ color: col(d.total) }}>{sign(d.total)}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -408,20 +446,31 @@ function Hero({ row, n, scale }: { row: ScoreRow; n: number; scale: BandStop[] }
         <span className="of">of 100</span>
         <span className="dsc-pill"><i style={{ background: col }} />{row.band}</span>
       </div>
+      {/* The thermometer, as the reference builds it: boundaries above, a CONTINUOUS red-to-
+          dark-green gradation behind, band names over it, and a tick below for position.
+          Two earlier attempts got this wrong. Four flat segments are not a gradation, and
+          dimming everything except the current band was worse still: it made brightness say
+          "you are here" when brightness is the channel that has to say "this way is better".
+          Position belongs to the tick. And the ramp is monotonic in HUE — red, amber, green —
+          not in luminance, which is what makes "which end is good" readable without a key. */}
       <div className="dsc-scale">
-        {/* Filled to the score in the band's colour, the rest left neutral. Painting all
-            four bands across the whole bar made a traffic light out of a scale, and put
-            three saturated colours on screen to say one thing. */}
-        <span className="dsc-scale-t">
-          <i style={{ width: `${row.score}%`, background: col }} />
-          {stops.slice(1).map((s) => <u key={s.min} style={{ left: `${s.min}%` }} />)}
-        </span>
-        <span className="dsc-scale-m"><b style={{ left: `${row.score}%`, background: col }} /></span>
         <span className="dsc-scale-k">
-          {[...stops.map((s) => s.min), 100].map((v) => (
+          {[...stops.map((b) => b.min), 100].map((v) => (
             <em key={v} style={{ left: `${v}%` }}>{v}</em>
           ))}
         </span>
+        <span className="dsc-scale-t">
+          {stops.map((b, i) => {
+            const hi = i + 1 < stops.length ? stops[i + 1].min : 100;
+            return (
+              <em key={b.band} style={{ left: `${(b.min + hi) / 2}%` }}
+                  title={`${b.band}: ${b.min}\u2013${hi === 100 ? 100 : hi - 1}`}>
+                {b.band}
+              </em>
+            );
+          })}
+        </span>
+        <span className="dsc-scale-m"><b style={{ left: `${row.score}%` }} /></span>
       </div>
       <div className="dsc-hero-f">
         <span>Rank <b>{row.rank}</b> of <b>{n}</b> scored</span>
@@ -492,7 +541,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
         {sc && sc.score !== null && sc.score !== undefined ? (
           <>
             <Hero row={sc} n={score.n_ranked || score.n_eligible} scale={score.bands_scale ?? []} />
-            <WhatsChanged d={score.delta ?? null}
+            <WhatsChanged d={score.delta ?? null} weights={score.weights} wsum={wsum}
                           boardHasDeltas={(score.board ?? []).some((r) => r.delta !== null && r.delta !== undefined)} />
             <div className="dsc-card">
               <div className="dsc-card-h">
