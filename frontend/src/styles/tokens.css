@@ -114,7 +114,7 @@
     --panel2:#21252e;
     --line:#262b35;
     --line2:#333a46;
-    --ink:#6e8bc5;
+    --ink:#e7eaf0;   /* CHOSEN, not derived — see the _note above. Was #6e8bc5 until 2026-08-04: derive_dark_theme.py picks #e7eaf0 for the ink ramp and then its generic text_on loop overwrote it, landing every text token on the same 4.5:1 floor. --ink measured 5.11 on --panel against --ink2's 5.15 and --mut's 5.14, so primary, secondary and muted text were indistinguishable and primary was nominally the weakest of the three. It was also blue, because the loop preserves the hue of #101828 — a near-black, where hue means nothing until lightness is raised. */
     --ink2:#7c8da5;
     --mut:#838c9d;
     --acc:#7e7ef3;
@@ -182,7 +182,7 @@
   --panel2:#21252e;
   --line:#262b35;
   --line2:#333a46;
-  --ink:#6e8bc5;
+  --ink:#e7eaf0;   /* CHOSEN, not derived — see the _note above. Was #6e8bc5 until 2026-08-04: derive_dark_theme.py picks #e7eaf0 for the ink ramp and then its generic text_on loop overwrote it, landing every text token on the same 4.5:1 floor. --ink measured 5.11 on --panel against --ink2's 5.15 and --mut's 5.14, so primary, secondary and muted text were indistinguishable and primary was nominally the weakest of the three. It was also blue, because the loop preserves the hue of #101828 — a near-black, where hue means nothing until lightness is raised. */
   --ink2:#7c8da5;
   --mut:#838c9d;
   --acc:#7e7ef3;

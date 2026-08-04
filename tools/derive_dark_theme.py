@@ -63,8 +63,19 @@ for bg,(fg,a) in TINT.items():
 for n in ("good-line","warn-line","bad-line","run-line","tag-ext-line","tag-legacy-line","period-line"):
     D[n]=tint(spec[n]["value"],P,.34)
 
-# every foreground with a declared requirement, against ALL its backgrounds
+CHOSEN = set(D)   # everything above was picked by hand; the loops below must not touch it
+
+# every foreground with a declared requirement, against ALL its backgrounds.
+# Skips CHOSEN: this loop drives a token to the LOWEST lightness that clears its target,
+# which is right for a token whose only requirement is "stay legible" and wrong for one
+# that was picked for a reason. Until 2026-08-04 it did not skip, so it silently
+# overwrote --ink's chosen #e7eaf0 with a derived #6e8bc5 — 5.11 on --panel, where
+# --ink2 was 5.15 and --mut 5.14. Every text token landed on the same 4.5:1 floor and
+# the ramp flattened; primary text came out nominally the weakest of the three, and blue,
+# since the hue preserved was that of a near-black. Tokens with no declared pair
+# (option-fg, code-fg) were unaffected, which is why the bug was not obvious.
 for name,s in spec.items():
+    if name in CHOSEN: continue
     for key,target in (("text_on",4.5),("graphic_on",3.0)):
         if key in s:
             bgs=list(SURF)+[flat(D.get(b,spec[b]["value"]),P) for b in s[key]]
