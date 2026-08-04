@@ -1524,6 +1524,11 @@ class Handler(BaseHTTPRequestHandler):
                     prev = _cached_scores(conn, p_since, p_until)
                     if subj is not None:
                         delta = store.score_delta(sc, prev, login)
+                        if delta is not None:
+                            # A comparison has to say what it compared with. The window is
+                            # derived here, so it is the only place that knows.
+                            delta["since"] = p_since[:10]
+                            delta["until"] = p_until[:10]
                     # Per row, only the total: the counterfactual split is an explanation
                     # for the page's subject, not a column to skim eighty-seven of.
                     for r in board:

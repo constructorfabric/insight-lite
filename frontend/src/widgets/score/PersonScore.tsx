@@ -37,6 +37,8 @@ export type PillarBand = { band: string; tone: string } | null;
 // number would make a claim about the wrong one.
 export type ScoreDelta = {
   prev: number; now: number; total: number; team: number; you: number;
+  /** The window compared against — a delta that does not name it is not a comparison. */
+  since?: string; until?: string;
   pillars: Record<string, { prev: number | null; now: number | null;
                             prev_points: number | null; now_points: number | null }>;
 };
@@ -291,13 +293,23 @@ function Ingredients({ row, active, weights, tm, wsum, signals, scale }: {
 // person moves AND when the team moves past them. On production one person fell 18 points of
 // which 11 was the team, and another fell 26 of which 10 was. "You dropped 18" is not a
 // rounder version of that, it is a different claim — and the wrong one.
+function fmtDay(s: string | undefined): string {
+  if (!s) return "";
+  try {
+    return new Date(`${s}T00:00:00`).toLocaleDateString(undefined,
+      { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return s;
+  }
+}
+
 function WhatsChanged({ d, boardHasDeltas }: { d: ScoreDelta | null; boardHasDeltas: boolean }) {
   if (!d) {
     // Absent for two different reasons, and they are not the same news.
     return (
       <p className="dsc-nodelta">
         {boardHasDeltas
-          ? "No comparison: this person was not scored in the previous window."
+          ? "No comparison: this person was not scored in the window before this one."
           : "No comparison: there is no data for the window before this one."}
       </p>
     );
@@ -307,7 +319,12 @@ function WhatsChanged({ d, boardHasDeltas }: { d: ScoreDelta | null; boardHasDel
   return (
     <div className="dsc-card">
       <div className="dsc-card-h">
-        <h3>What&rsquo;s changed</h3>
+        <h3>
+          What&rsquo;s changed{" "}
+          {d.since && d.until && (
+            <span className="dsc-vs">vs {fmtDay(d.since)} &ndash; {fmtDay(d.until)}</span>
+          )}
+        </h3>
         <p>
           The score is a percentile, so it moves when you move and when the team moves around
           you. Only one of those is yours to act on.

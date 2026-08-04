@@ -590,6 +590,9 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-card{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-xl);
     padding:var(--space-4) var(--space-5) var(--space-2);margin-top:var(--space-4)}
   .dsc-card-h h3{margin:0 0 4px;font-size:15px}
+  /* Which window the delta compared against. In the heading, not the body: a
+     comparison that does not name its baseline is not a comparison. */
+  .dsc-vs{font-size:11.5px;font-weight:500;color:var(--mut);white-space:nowrap}
   .dsc-card-h p{margin:0 0 var(--space-3);color:var(--mut);font-size:12px;max-width:70ch}
 
   /* What's changed: three numbers, because the score is a percentile and moves for two
