@@ -130,9 +130,11 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .card.good{border-color:var(--good-line)} .card.warn{border-color:var(--warn-line)}
   .card h3{margin:0 0 var(--space-1);font-size:17px} .card .hint{color:var(--mut);font-size:13px;margin:0 0 var(--space-3)}
   .quality{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-3);margin:0 0 var(--space-5)}
-  .qitem{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line2);
+  /* State colours the whole border, matching .card.good/.card.warn above rather than
+     hanging a 3px bracket off the left edge of a rounded box. */
+  .qitem{background:var(--panel);border:1px solid var(--line);
     border-radius:var(--r-lg);padding:var(--space-4) var(--space-4);transition:box-shadow .15s,transform .15s}
-  .qitem.ok{border-left-color:var(--good)}.qitem.warn{border-left-color:var(--c-spec)}.qitem.bad{border-left-color:var(--c-bug)}
+  .qitem.ok{border-color:var(--good)}.qitem.warn{border-color:var(--c-spec)}.qitem.bad{border-color:var(--c-bug)}
   .qitem .qv{font-size:22px;font-weight:800;letter-spacing:-.02em}.qitem .ql{font-size:12.5px;color:var(--ink2);margin-top:3px}
   a.qitem{text-decoration:none;color:inherit;display:block}
   a.qitem:hover{box-shadow:var(--elev);transform:translateY(-2px)}

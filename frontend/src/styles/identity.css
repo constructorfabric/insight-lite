@@ -40,7 +40,10 @@ h1{font-size:22px;margin:0} .eyebrow{font-size:11px;font-weight:700;letter-spaci
 .row{display:grid;grid-template-columns:20px 1fr auto;gap:var(--space-3);align-items:center;background:var(--panel);
   border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 13px;cursor:pointer;transition:.1s}
 .row:hover{border-color:var(--line2)} .row.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
-.row.attn{border-left:3px solid var(--warn)} .row.dup{border-left:3px solid var(--dup)}
+/* Whole border, like .row.sel above — a 3px left edge on a rounded row bracketed it.
+   These stay AFTER :hover and .sel deliberately: the state then survives a hover, and a
+   selected row that is also attn/dup still reads as selected through .sel's ring. */
+.row.attn{border-color:var(--warn)} .row.dup{border-color:var(--dup)}
 .cbox{width:17px;height:17px;border:1.5px solid var(--line2);border-radius:var(--r-xs);cursor:pointer;
   display:grid;place-items:center;background:var(--panel)}
 .cbox.on{background:var(--acc);border-color:var(--acc)}
