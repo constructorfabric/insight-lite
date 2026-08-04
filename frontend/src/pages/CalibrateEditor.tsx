@@ -16,6 +16,8 @@ type Weights = { cur: Record<string, number>; def: Record<string, number> };
 type Bands = {
   cur: Record<string, number>; def: Record<string, number>;
   suggested: Record<string, number> | null;
+  /** The banded scores, sorted — so a floor can be shown as the share it captures. */
+  dist: number[];
 };
 type Data = { rater: string; board: Person[]; weights: Weights; bands: Bands };
 
@@ -26,6 +28,17 @@ const BAND_KEYS: [string, string][] = [
   ["Solid", "Solid from"],
   ["Strong", "Strong from"],
 ];
+
+// A floor is a SCORE, not a percentile of people, and the two are easy to confuse because
+// the score is built out of percentiles. It is a weighted MEAN of them, and averaging pulls
+// values toward the middle: on production a floor of 30 captures the bottom 11% rather than
+// the bottom 30%, and the whole population sits inside roughly 18-85 instead of 0-100. Only
+// 50 lines up, because that is the median by construction. So the editor shows the share
+// each floor captures rather than leaving a bare number to be read as a percentage.
+function shareBelow(dist: number[], floor: number): number | null {
+  if (!dist.length) return null;
+  return (100 * dist.filter((s) => s < floor).length) / dist.length;
+}
 
 const KEYS: [string, string][] = [
   ["engagement", "Engagement"],
@@ -245,7 +258,15 @@ export default function CalibrateEditor() {
                   setBdStatus({ text: "", color: "var(--mut)" });
                 }}
               />
-              <span className="wtval">{Math.round(bd[k] || 0)}</span>
+              <span className="wtval">
+                {Math.round(bd[k] || 0)}
+                <span className="eff">
+                  {(() => {
+                    const sh = shareBelow(data?.bands.dist ?? [], Math.round(bd[k] || 0));
+                    return sh === null ? "score" : `score · ${Math.round(sh)}% below`;
+                  })()}
+                </span>
+              </span>
             </div>
           ))}
         </div>
@@ -254,6 +275,13 @@ export default function CalibrateEditor() {
             {data?.bands.suggested
               ? <>This window suggests <b>{BAND_KEYS.map(([k]) => data.bands.suggested?.[k]).join(" · ")}</b></>
               : <>too few scored people this window to suggest a scale</>}
+            {(data?.bands.dist.length ?? 0) > 0 && (
+              <>
+                {" · "}the {data?.bands.dist.length} banded scores run{" "}
+                <b>{data?.bands.dist[0]}</b>&ndash;<b>{data?.bands.dist[(data?.bands.dist.length ?? 1) - 1]}</b>,
+                so a floor outside that captures everyone or nobody
+              </>
+            )}
           </span>
           <span className="wtbtns">
             {data?.bands.suggested && (

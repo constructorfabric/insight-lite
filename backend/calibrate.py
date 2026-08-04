@@ -26,6 +26,15 @@ def calibrate_json(rater: str = "") -> dict:
         # a suggestion: floors pinned to quantiles every window would make a person's label
         # move when the team moves, on top of the score already doing so.
         suggested = store.suggest_score_bands(conn, SINCE, UNTIL)
+        # The scores that actually get banded, sorted. Sent so the editor can say what
+        # share a floor CAPTURES as the slider moves — the number you actually want when
+        # setting a threshold, and the one that stops a floor being read as a percentile.
+        # A floor is a SCORE, and the score is a weighted mean of percentiles, so the two
+        # are not the same scale: 30 sits near the 11th percentile of people, not the 30th,
+        # and averaging keeps the whole population inside roughly 18-85 rather than 0-100.
+        act = store.developer_scores(conn, SINCE, UNTIL)["active_pillars"]
+        dist = sorted(p["score"] for p in board
+                      if all(p["pillars"].get(k) is not None for k in act))
     finally:
         conn.close()
     rows = []
@@ -39,4 +48,4 @@ def calibrate_json(rater: str = "") -> dict:
             "weights": {"cur": store._score_weights(), "def": dict(store._SCORE_WEIGHTS)},
             "bands": {"cur": store._score_band_floors(),
                       "def": {b: lo for lo, b, _ in store._SCORE_BANDS},
-                      "suggested": suggested}}
+                      "suggested": suggested, "dist": dist}}
