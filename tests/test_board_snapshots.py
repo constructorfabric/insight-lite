@@ -1,11 +1,13 @@
 """The board-snapshot reads, and the sharing that keeps them from happening twice.
 
-work_item_status is the biggest table in the store — 88 daily snapshots of every
+work_item_status is the biggest table in the store — 99 daily snapshots of every
 tracked item, 141k rows on the Constructor org — and three metric functions read it.
 Two of them now accept a read to walk instead of doing their own (board_snapshot_rows),
-and the third stopped reading rows at all (board_cfd counts in SQL). Each of those is a
-performance change whose whole point is that the ANSWER does not move, which is the
-kind of change that breaks quietly: a metric that is 40% off still renders.
+the third stopped reading rows at all (board_cfd counts in SQL), and the read itself no
+longer touches work_item_status: it takes the 3.3k rows where a status CHANGED from a
+derived cache. Each of those is a performance change whose whole point is that the ANSWER
+does not move, which is the kind of change that breaks quietly: a metric that is 40% off
+still renders.
 
 So these tests are about equality, not about speed. Every one of them asserts that the
 fast path agrees with the slow one, or that a hand-counted fixture comes back exactly.
@@ -34,7 +36,8 @@ class BoardSnapshotFixture(unittest.TestCase):
 
     def setUp(self):
         self._tmp = TemporaryDirectory()
-        with patch.dict(os.environ, {"REPORT_DB": str(Path(self._tmp.name) / "t.db")}):
+        self._db = str(Path(self._tmp.name) / "t.db")
+        with patch.dict(os.environ, {"REPORT_DB": self._db}):
             self.conn = store.connect()
         self.conn.execute(
             "INSERT INTO pull_request (repo,number,author_login) VALUES ('o/r',7,'alice')")
@@ -110,6 +113,282 @@ class SharedReadTest(BoardSnapshotFixture):
 
     def test_an_empty_scope_reads_nothing(self):
         self.assertEqual(sm.board_snapshot_rows(self.conn, []), [])
+
+
+def _full_read(conn, repos=None):
+    """What board_snapshot_rows used to be: every snapshot row, no cache involved.
+
+    The derived read is only correct because the rows it drops cannot change an answer,
+    so the tests below assert exactly that — the fast read and this one agree.
+    """
+    rf, rp = sm._repo_filter(repos)
+    return conn.execute(
+        "SELECT taken_at, updated_at, item_id, repo, number, item_type, status_raw, title "
+        "FROM work_item_status WHERE status_raw IS NOT NULL" + rf +
+        " ORDER BY item_id, taken_at", rp).fetchall()
+
+
+class _CountingConn:
+    """A connection that counts commits, for asserting how many transactions a write uses.
+
+    sqlite3.Connection takes no instance attributes, so this delegates instead of patching.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.commits = 0
+
+    def commit(self):
+        self.commits += 1
+        self._conn.commit()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+class DerivedKeyTableTest(BoardSnapshotFixture):
+    """work_item_key / work_item_instant: a rebuildable cache of the rows that matter.
+
+    The snapshots are a daily photograph, so nearly every row repeats the previous one's
+    status. These tests pin the two halves that make dropping them safe — the cache holds
+    the right subset, and it can never lag the table it derives from."""
+
+    def test_the_cache_holds_changes_and_last_sightings_only(self):
+        n = self.conn.execute("SELECT COUNT(*) FROM work_item_status").fetchone()[0]
+        keys = [(r["item_id"], r["taken_at"][:10], r["status_raw"]) for r in self.conn.execute(
+            "SELECT item_id, taken_at, status_raw FROM work_item_key "
+            "ORDER BY item_id, taken_at")]
+        self.assertEqual(n, 8, "two items over four days")
+        self.assertEqual(keys, [
+            # item 7 moves every day, so every row is a change
+            ("IT7", "2026-06-01", "Backlog"),
+            ("IT7", "2026-06-02", "In Progress"),
+            ("IT7", "2026-06-03", "QA"),
+            ("IT7", "2026-06-04", "In Progress"),
+            # item 9 never moves: its first sighting, and its last
+            ("IT9", "2026-06-01", "Done"),
+            ("IT9", "2026-06-04", "Done"),
+        ])
+
+    def test_nothing_is_dropped_from_the_snapshots_themselves(self):
+        # The whole promise of the cache: it is derived, and the photograph is intact.
+        before = store.read_work_item_status(self.conn)
+        store.refresh_work_item_key(self.conn)
+        self.assertEqual(store.read_work_item_status(self.conn), before)
+
+    def test_the_instants_are_every_snapshot_not_every_change(self):
+        # 99 instants against 141k rows in production, and the reason they are a separate
+        # read: "which days did we capture" is a property of the snapshot SET, and the row
+        # list deliberately is not the whole set.
+        self.assertEqual(sm.board_snapshot_instants(self.conn, None),
+                         ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04"])
+
+    def test_an_instant_where_nothing_moved_is_still_an_instant(self):
+        """The case that separates the two reads, and the reason both exist.
+
+        On a quiet day no item changes status, so the day contributes no change row —
+        and if it is also not the last day, no last-sighting row either. It is still a
+        snapshot we took. Deriving the instants from the change rows loses it, and with
+        it a column of the CFD and a day of n_dates."""
+        for date in ("2026-06-05", "2026-06-06"):
+            store.write_work_item_status(self.conn, date, [
+                {"item_id": "IT7", "project": "P", "item_type": "PullRequest",
+                 "repo": "o/r", "number": 7, "status_raw": "In Progress", "title": "widget"},
+                {"item_id": "IT9", "project": "P", "item_type": "Issue",
+                 "repo": "o/other", "number": 9, "status_raw": "Done", "title": "thing"},
+            ])
+        rows = sm.board_snapshot_rows(self.conn, None)
+        self.assertNotIn("2026-06-05", {r["taken_at"] for r in rows},
+                         "nothing moved and it is not the last day")
+        self.assertIn("2026-06-05", sm.board_snapshot_instants(self.conn, None))
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(sm.stage_dwell(self.conn, None, None, None)["n_dates"], 6)
+
+    def test_a_second_snapshot_that_day_is_an_instant_too(self):
+        self._second_snapshot_that_day("2026-06-03", "Done")
+        store.refresh_work_item_key(self.conn)
+        self.assertEqual(sm.board_snapshot_instants(self.conn, None),
+                         ["2026-06-01", "2026-06-02", "2026-06-03",
+                          "2026-06-03T18:00:00Z", "2026-06-04"])
+
+    def test_the_derived_read_answers_what_the_full_read_answers(self):
+        full = _full_read(self.conn)
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(sm.board_rewind_scan(self.conn, None, full),
+                             sm.board_rewind_scan(self.conn, None))
+            self.assertEqual(sm.stage_dwell(self.conn, None, None, None, full),
+                             sm.stage_dwell(self.conn, None, None, None))
+            self.assertEqual(sm.flow_report(self.conn, None, None, None, None, full),
+                             sm.flow_report(self.conn, None, None, None))
+
+    def test_the_derived_read_answers_what_the_full_read_answers_when_scoped(self):
+        # In production one item's repo changes mid-history, which puts a first-sighting
+        # row in the scoped change set that the global one does not have. It moves no
+        # metric — dwell skips the first observed run and a rewind needs a predecessor —
+        # and this is the assertion that would catch it if that ever stopped being true.
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(
+                sm.stage_dwell(self.conn, ["o/r"], None, None, _full_read(self.conn, ["o/r"]),
+                               sm.board_snapshot_instants(self.conn, ["o/r"])),
+                sm.stage_dwell(self.conn, ["o/r"], None, None))
+
+    def test_n_dates_counts_snapshots_not_change_rows(self):
+        # Reading it off the row list instead reported 17 of 19 days on production, and
+        # would have taken the "waiting now" lens with it: that asks whether an item's
+        # newest row is the newest SNAPSHOT, which an item that never moves fails.
+        with patch.object(semantic, "stage_for", _stage):
+            dwell = sm.stage_dwell(self.conn, None, None, None)
+            full = sm.stage_dwell(self.conn, None, None, None, _full_read(self.conn))
+        self.assertEqual(dwell["n_dates"], 4)
+        self.assertEqual(dwell["stages"], full["stages"])
+
+    def test_current_items_are_still_seen_as_waiting(self):
+        # item 9 sits in Done (terminal, excluded), so give item 7 a non-terminal present.
+        with patch.object(semantic, "stage_for", _stage):
+            dwell = sm.stage_dwell(self.conn, None, None, None)
+        current = {s["key"]: s["n_current"] for s in dwell["stages"]}
+        self.assertEqual(current.get("in_progress"), 1, "item 7's latest stage")
+
+    def test_a_rerun_of_one_instant_refreshes_the_cache(self):
+        # The case a cheap staleness marker misses: same instant, same row count, same
+        # newest timestamp — different statuses. Only rebuilding on the writer catches it.
+        before = self.conn.execute(
+            "SELECT COUNT(*), MAX(taken_at) FROM work_item_status").fetchone()
+        store.write_work_item_status(self.conn, "2026-06-04", [
+            {"item_id": "IT7", "project": "P", "item_type": "PullRequest",
+             "repo": "o/r", "number": 7, "status_raw": "Done", "title": "widget"},
+            {"item_id": "IT9", "project": "P", "item_type": "Issue",
+             "repo": "o/other", "number": 9, "status_raw": "Done", "title": "thing"},
+        ])
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*), MAX(taken_at) FROM work_item_status").fetchone(), before,
+            "nothing a count-or-max check could notice")
+        self.assertEqual(self.conn.execute(
+            "SELECT status_raw FROM work_item_key WHERE item_id='IT7' "
+            "ORDER BY taken_at DESC LIMIT 1").fetchone()[0], "Done")
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(sm.board_rewind_scan(self.conn, None)["events"], [],
+                             "QA -> In Progress became QA -> Done: no rewind left")
+
+    def test_the_status_write_and_the_cache_rebuild_are_one_transaction(self):
+        """The cache cannot lag the table only if both land at once.
+
+        Committing the statuses and then the rebuild left a window where a reader on
+        another connection saw the new statuses against the old cache — and _board_key
+        cannot notice, because its guard rebuilds an EMPTY cache and a stale one is merely
+        behind. Under WAL that reader does not block, so the window is observable. Counting
+        commits is the deterministic way to pin this; racing two connections is not."""
+        counted = _CountingConn(self.conn)
+        store.write_work_item_status(counted, "2026-06-05", [
+            {"item_id": "IT7", "project": "P", "item_type": "PullRequest",
+             "repo": "o/r", "number": 7, "status_raw": "QA", "title": "widget"},
+        ])
+        self.assertEqual(counted.commits, 1,
+                         "two commits means a window where the cache disagrees")
+        self.assertEqual(self.conn.execute(
+            "SELECT status_raw FROM work_item_key WHERE item_id='IT7' "
+            "ORDER BY taken_at DESC LIMIT 1").fetchone()[0], "QA",
+            "and the one transaction still leaves the cache current")
+
+    def test_half_a_cache_is_still_a_missing_cache(self):
+        """Deleting the derived cache is documented as always safe. That has to hold when
+        only one of its two tables goes: the guard checked work_item_key alone, so an
+        emptied work_item_instant went unnoticed and unscoped board_snapshot_instants read
+        straight from it — n_dates came back 0 with no error anywhere."""
+        self.conn.execute("DELETE FROM work_item_instant")
+        self.conn.commit()
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(len(sm.board_snapshot_instants(self.conn, None)), 4,
+                             "rebuilt because the instants were gone, not the keys")
+        # and the same the other way round, which the original guard did catch
+        self.conn.execute("DELETE FROM work_item_key")
+        self.conn.commit()
+        with patch.object(semantic, "stage_for", _stage):
+            self.assertEqual(len(sm.board_snapshot_rows(self.conn, None)), 6)
+
+    def test_the_lazy_rebuild_still_commits_on_its_own(self):
+        """refresh_work_item_key defaults to committing, because _board_key calls it with
+        no write of its own to bundle with. A second connection is the proof: an uncommitted
+        rebuild would be invisible there, and the next reader would rebuild all over again."""
+        self.conn.execute("DELETE FROM work_item_key")
+        self.conn.execute("DELETE FROM work_item_instant")
+        self.conn.commit()
+        store.refresh_work_item_key(self.conn)
+        with patch.dict(os.environ, {"REPORT_DB": self._db}):
+            other = store.connect()
+        self.addCleanup(other.close)
+        self.assertEqual(other.execute("SELECT COUNT(*) FROM work_item_key").fetchone()[0], 6,
+                         "visible from another connection, so it was committed")
+
+    def test_a_database_with_no_cache_builds_one_on_read(self):
+        # Databases written before the cache existed, and any database whose cache was
+        # deleted — which must always be safe, because it is derived.
+        self.conn.execute("DELETE FROM work_item_key")
+        self.conn.execute("DELETE FROM work_item_instant")
+        self.conn.commit()
+        with patch.object(semantic, "stage_for", _stage):
+            rows = sm.board_snapshot_rows(self.conn, None)
+            self.assertEqual(len(rows), 6, "rebuilt on the way past")
+            self.assertEqual(len(sm.board_snapshot_instants(self.conn, None)), 4)
+            self.assertEqual(sm.stage_dwell(self.conn, None, None, None, _full_read(self.conn)),
+                             sm.stage_dwell(self.conn, None, None, None))
+
+    def test_every_row_says_which_of_the_three_kinds_it_is(self):
+        """prev_status_raw makes the cache the board's transition log, and makes a
+        last-sighting row distinguishable from a real move without looking at neighbours."""
+        rows = self.conn.execute(
+            "SELECT item_id, taken_at, prev_status_raw, status_raw FROM work_item_key "
+            "ORDER BY item_id, taken_at").fetchall()
+        kind = {(r["item_id"], r["taken_at"]):
+                ("first" if r["prev_status_raw"] is None else
+                 "moved" if r["prev_status_raw"] != r["status_raw"] else "still")
+                for r in rows}
+        self.assertEqual(kind, {
+            ("IT7", "2026-06-01"): "first",
+            ("IT7", "2026-06-02"): "moved",
+            ("IT7", "2026-06-03"): "moved",
+            ("IT7", "2026-06-04"): "moved",
+            ("IT9", "2026-06-01"): "first",
+            ("IT9", "2026-06-04"): "still",   # never moved; here as its last sighting
+        })
+        moves = [(r["prev_status_raw"], r["status_raw"]) for r in rows
+                 if r["prev_status_raw"] and r["prev_status_raw"] != r["status_raw"]]
+        self.assertEqual(moves, [("Backlog", "In Progress"), ("In Progress", "QA"),
+                                 ("QA", "In Progress")])
+
+    def test_a_cache_from_before_prev_status_is_migrated_and_refilled(self):
+        # Emptying it IS the migration: it is derived, so the next read rebuilds it.
+        self.conn.execute("DROP TABLE work_item_key")
+        self.conn.execute(
+            "CREATE TABLE work_item_key (taken_at TEXT NOT NULL, updated_at TEXT, "
+            "item_id TEXT NOT NULL, repo TEXT, number INTEGER, item_type TEXT, "
+            "status_raw TEXT, title TEXT)")
+        self.conn.execute(
+            "INSERT INTO work_item_key (taken_at, item_id, status_raw) "
+            "VALUES ('2026-06-01','IT7','Backlog')")   # non-empty, so no lazy rebuild yet
+        self.conn.commit()
+        db = Path(self.conn.execute("PRAGMA database_list").fetchone()[2])
+        self.conn.close()
+        with patch.dict(os.environ, {"REPORT_DB": str(db)}):
+            self.conn = store.connect()
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info(work_item_key)")]
+        self.assertIn("prev_status_raw", cols)
+        self.assertEqual(len(sm.board_snapshot_rows(self.conn, None)), 6, "refilled on read")
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM work_item_key WHERE prev_status_raw IS NOT NULL"
+        ).fetchone()[0], 4, "three moves and item 9's unchanged last sighting")
+
+    def test_a_database_with_no_snapshots_does_not_thrash(self):
+        # An empty cache is indistinguishable from a stale one, so the lazy build has to
+        # stop somewhere: no snapshots, nothing to build, and no rebuild attempt per read.
+        with TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "e.db")}):
+                conn = store.connect()
+            with patch.object(store, "refresh_work_item_key") as refresh:
+                self.assertEqual(sm.board_snapshot_rows(conn, None), [])
+                self.assertEqual(sm.board_snapshot_instants(conn, None), [])
+            refresh.assert_not_called()
+            conn.close()
 
 
 class BoardCfdTest(BoardSnapshotFixture):

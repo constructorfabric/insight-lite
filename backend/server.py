@@ -1273,20 +1273,22 @@ class Handler(BaseHTTPRequestHandler):
             repos = None
             if scope:
                 repos, _proj = discovery.repos_for_scope(conn, level, target)
-            # ONE read of work_item_status for this whole request. Two things want it —
-            # the rewind scan and the stage dwell — and the scan is then windowed twice,
-            # for this period (the panel) and the preceding one (the tile's delta).
-            # Left to themselves these would read the same 141k rows three times.
+            # ONE snapshot read for this whole request. Two things want it — the rewind
+            # scan and the stage dwell — and the scan is then windowed twice, for this
+            # period (the panel) and the preceding one (the tile's delta). Left to
+            # themselves these would each read for themselves, three times over.
             board_rows = semantic_metrics.board_snapshot_rows(conn, repos)
-            rewind_scan = semantic_metrics.board_rewind_scan(conn, repos, board_rows)
+            instants = semantic_metrics.board_snapshot_instants(conn, repos)
+            rewind_scan = semantic_metrics.board_rewind_scan(conn, repos, board_rows,
+                                                             instants)
             # in_flight takes no since/until on purpose — it is a point-in-time
             # quantity that must not move with the period control (see store.in_flight).
             block = semantic_metrics.flow_report(conn, repos, since, until, rewind_scan,
-                                                 board_rows)
-            # 93MB of snapshot rows, and nothing below this line wants them. Dropped
-            # explicitly because the handler runs on for a while yet (in_flight,
-            # abandoned_prs, the deltas) and concurrent flow requests each hold their
-            # own copy.
+                                                 board_rows, instants)
+            # Nothing below this line wants the snapshot rows. Dropped explicitly
+            # because the handler runs on for a while yet (in_flight, abandoned_prs,
+            # the deltas) and concurrent flow requests each hold their own copy —
+            # cheaper since the change read replaced the full one, but still per-request.
             board_rows = None
             # period-over-period deltas vs the preceding equal window (skipped for
             # all-time / >2y spans) — same rule and same best-effort handling the
