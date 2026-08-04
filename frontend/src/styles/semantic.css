@@ -14,40 +14,40 @@
      .05em, so letter-spacing is omitted here (base value stands). */
 *{box-sizing:border-box}
 body{margin:0;font-size:14px;line-height:1.5}
-.wrap{padding:20px 24px 90px;max-width:940px}
-h1{font-size:22px;margin:0 0 4px} .sub{color:var(--mut);font-size:13px;margin:0 0 14px}
+.wrap{padding:var(--space-5) var(--space-6) 90px;max-width:940px}
+h1{font-size:22px;margin:0 0 var(--space-1)} .sub{color:var(--mut);font-size:13px;margin:0 0 var(--space-4)}
 .scopebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 6px}
 .scopebar b{font-size:13px}
 .bar{position:sticky;top:0;z-index:30;background:var(--bg);padding:10px 0;display:flex;
   gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line)}
 .bar input[type=text]{flex:1;min-width:150px;padding:7px 10px;border:1px solid var(--line);
-  border-radius:8px;background:var(--panel);color:var(--ink)}
+  border-radius:var(--r-md);background:var(--panel);color:var(--ink)}
 button{font:inherit;font-weight:600}
 .lbl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mut)}
-h2{font-size:15px;margin:22px 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+h2{font-size:15px;margin:var(--space-6) 0 var(--space-2);padding-top:var(--space-4);border-top:1px solid var(--line)}
 h2 .c{color:var(--mut);font-weight:600;font-size:12px}
-h3{font-size:12px;text-transform:uppercase;color:var(--mut);margin:12px 0 4px}
-.row{display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:7px}
+h3{font-size:12px;text-transform:uppercase;color:var(--mut);margin:var(--space-3) 0 var(--space-1)}
+.row{display:flex;align-items:center;gap:10px;padding:5px var(--space-2);border-radius:var(--r-sm)}
 .row:hover{background:var(--panel2)}
 .row.overridden{background:rgba(9,105,218,.07)}
 .row.unassigned{background:rgba(154,103,0,.09)}
-.nm{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;flex:1;
+.nm{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;flex:1;
   min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ct{font-size:11px;color:var(--mut);min-width:30px;text-align:right}
 select{min-width:150px;background-image:none}
 .status{font-size:12px;color:var(--good);min-height:16px;margin-left:6px}
-.empty{color:var(--mut);font-size:12px;padding:6px 8px}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.seg button{border:0;border-radius:0;padding:6px 12px}
-.seg button.on{background:var(--acc);color:#fff}
-.chain{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:8px 0 4px}
-.chain .pill{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);
+.empty{color:var(--mut);font-size:12px;padding:6px var(--space-2)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.seg button{border:0;border-radius:0;padding:6px var(--space-3)}
+.seg button.on{background:var(--acc);color:var(--on-solid)}
+.chain{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:var(--space-2) 0 var(--space-1)}
+.chain .pill{font-size:11px;padding:2px 9px;border-radius:var(--r-pill);border:1px solid var(--line);
   background:var(--panel2);color:var(--mut)}
 .chain .pill.act{border-color:var(--acc);background:rgba(9,105,218,.10);color:var(--acc)}
 .chain i{color:var(--mut);font-style:normal}
-.bkt{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;min-width:74px;text-align:center;
+.bkt{font-size:11px;font-weight:700;padding:2px 9px;border-radius:var(--r-pill);min-width:74px;text-align:center;
   background:var(--panel2);color:var(--ink)}
 .bkt.un{background:rgba(154,103,0,.14);color:var(--warn)}
-.frm{font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap;
+.frm{font-size:11px;padding:2px var(--space-2);border-radius:var(--r-pill);white-space:nowrap;
   background:var(--panel2);color:var(--mut);border:1px solid var(--line)}
 .frm.ov{background:rgba(9,105,218,.10);color:var(--acc);border-color:transparent}

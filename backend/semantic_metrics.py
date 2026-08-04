@@ -13,6 +13,7 @@ import statistics
 from datetime import datetime, timedelta
 
 import metrics_registry as _reg
+import tokens          # GENERATED — see tools/gen_tokens.py, design/tokens.json
 import semantic
 
 
@@ -315,10 +316,13 @@ def pr_metrics(conn, since: str, until: str, repos=None) -> dict:
 
 # ordered delivery pipeline for the workflow panel (matches the taxonomy stage axis)
 _FLOW_STAGES = [
-    ("backlog", "Backlog", "#9aa3b2"), ("ready", "Ready for dev", "#06b6d4"),
-    ("in_progress", "In progress", "#8b5cf6"), ("review", "In review", "#f59e0b"),
-    ("qa", "QA / Test", "#2f80ed"), ("done", "Done", "#10b981"),
-    ("released", "Released", "#5b5bf0"),
+    ("backlog", "Backlog", tokens.FLOW_STAGE_COLORS["backlog"]),
+    ("ready", "Ready for dev", tokens.FLOW_STAGE_COLORS["ready"]),
+    ("in_progress", "In progress", tokens.FLOW_STAGE_COLORS["in_progress"]),
+    ("review", "In review", tokens.FLOW_STAGE_COLORS["review"]),
+    ("qa", "QA / Test", tokens.FLOW_STAGE_COLORS["qa"]),
+    ("done", "Done", tokens.FLOW_STAGE_COLORS["done"]),
+    ("released", "Released", tokens.FLOW_STAGE_COLORS["released"]),
 ]
 
 
@@ -1105,10 +1109,10 @@ def flow_cycle_bar(items: list) -> dict:
     share = ttfr_share_of(full)
     legs = [{"key": "ttfr", "label": "Waiting for a first review",
              "sub": "opened → somebody looked", "h": _median([r["ttfr"] for r in full]),
-             "pct": round(100.0 * share, 1), "color": "#f59e0b"},
+             "pct": round(100.0 * share, 1), "color": tokens.SERIES_COLORS["rework"]},
             {"key": "review_to_merge", "label": "In review until merged",
              "sub": "first review → merged", "h": _median([r["r2m"] for r in full]),
-             "pct": round(100.0 - 100.0 * share, 1), "color": "#2f80ed"}]
+             "pct": round(100.0 - 100.0 * share, 1), "color": tokens.SERIES_COLORS["first_pass"]}]
     totals = sorted(r["ttm"] for r in full)
 
     def q(p):

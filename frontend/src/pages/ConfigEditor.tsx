@@ -11,12 +11,13 @@
 //
 // SSR-safe: no top-level window/document access — only inside effects / handlers.
 import { useEffect, useReducer, useRef, useState } from "react";
+import { CATEGORY_SWATCHES, css, token } from "../lib/tokens";
 
 type RepoType = { id: string; name: string; color?: string; default: boolean };
 type Repo = { name: string; org: string; commits: number; type: string; element: string };
 type Domain = { domain: string; company: string; source: string; edited?: boolean };
 
-const COLORS = ["#5b5bf0", "#8b5cf6", "#f59e0b", "#06b6d4", "#10b981", "#ef4444", "#2f80ed", "#d946ef"];
+const COLORS = CATEGORY_SWATCHES;
 const IGNORE = "ignore";
 
 export default function ConfigEditor() {
@@ -261,7 +262,7 @@ export default function ConfigEditor() {
           const n = REPOS.current.filter((r) => r.type === t.id).length;
           return (
             <div className="tcard" data-type={t.id} key={t.id}>
-              <span className="sw" style={{ background: t.color || "#888" }}></span>
+              <span className="sw" style={{ background: t.color || css("swatch-empty") }}></span>
               <span>
                 <span className="tn">{t.name}</span>
                 {t.default ? <span className="df">default</span> : null}
@@ -325,7 +326,7 @@ export default function ConfigEditor() {
       bar: TYPES.current.map((t) => {
         const v = by[t.id] || 0;
         return v ? (
-          <i key={t.id} style={{ width: ((100 * v) / tot).toFixed(1) + "%", background: t.color || "#888" }} title={t.name}></i>
+          <i key={t.id} style={{ width: ((100 * v) / tot).toFixed(1) + "%", background: t.color || css("swatch-empty") }} title={t.name}></i>
         ) : null;
       }),
       leg: TYPES.current.map((t) => {
@@ -333,7 +334,7 @@ export default function ConfigEditor() {
         if (!v) return null;
         return (
           <span key={t.id}>
-            <span className="sw" style={{ background: t.color || "#888" }}></span>
+            <span className="sw" style={{ background: t.color || css("swatch-empty") }}></span>
             {t.name} <b>{Math.round((100 * v) / tot)}%</b> · {v.toLocaleString()}
           </span>
         );
@@ -847,7 +848,9 @@ export default function ConfigEditor() {
             <tbody>
               {COMPANIES.current.map((co) => {
                 const pinned = CO_PINS.current[co];
-                const effective = pinned || CO_GEN.current[co] || "#8b949e";
+                // A literal, not css(): `effective` is also the <input type="color"> value
+                // below and is printed as text — neither accepts var(--x).
+                const effective = pinned || CO_GEN.current[co] || token["company-empty"];
                 return (
                   <tr key={co}>
                     <td>
@@ -952,7 +955,7 @@ export default function ConfigEditor() {
                       force();
                     }}
                     style={{
-                      width: "100%", minHeight: 180, fontFamily: "ui-monospace, monospace",
+                      width: "100%", minHeight: 180, fontFamily: "'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
                       fontSize: 12.5, lineHeight: 1.5, padding: 10,
                       border: "1px solid var(--line2)", borderRadius: "var(--r-sm)",
                       background: "var(--panel)", color: "var(--ink)", resize: "vertical",

@@ -15,6 +15,7 @@
 import { useState } from "react";
 
 import { fmtNum, jr } from "../../lib/format";
+import { PILLAR_COLORS, token } from "../../lib/tokens";
 
 // ---- types (mirror render.person_json's score payload) ---------------------
 export type ScorePillars = Record<string, number | null>;
@@ -43,9 +44,9 @@ export type ScoreBlock = {
 // ---- score-specific format helpers -----------------------------------------
 function scol(v: number | null): string {
   if (v === null || v === undefined) return "var(--mut)";
-  if (v >= 67) return "#10b981";
-  if (v >= 45) return "#f59e0b";
-  return "#ef4444";
+  if (v >= 67) return token["score-good"];
+  if (v >= 45) return token["score-mid"];
+  return token["score-bad"];
 }
 const PLABELS: Record<string, [string, string]> = {
   engagement: ["Engagement", "output + reviews & specs"],
@@ -53,9 +54,7 @@ const PLABELS: Record<string, [string, string]> = {
   craft: ["Craft & rework", "review rounds · merge rate"],
   flow: ["Flow", "forward-flow through stages"],
 };
-const PCOLOR: Record<string, string> = {
-  engagement: "#5b5bf0", delivery: "#06b6d4", craft: "#10b981", flow: "#f59e0b",
-};
+const PCOLOR = PILLAR_COLORS;
 const PILLAR_ORDER = ["engagement", "delivery", "craft", "flow"];
 function nodataMetric(pillar: string): string {
   if (pillar === "flow") return "no flow data";

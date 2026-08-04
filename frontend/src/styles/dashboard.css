@@ -13,38 +13,35 @@
   box-sizing: border-box;
 }
 main.wrap {
-  padding: 24px 28px 56px;
+  padding: var(--space-6) 28px 56px;
 }
 @media (max-width: 900px) {
   main.wrap {
-    padding: 16px;
+    padding: var(--space-4);
   }
 }
 h1 {
   font-size: 22px;
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 .ctrls {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: var(--space-4);
 }
 .grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 14px;
+  gap: var(--space-4);
 }
-.cell {
-  grid-column: span var(--w, 2);
+.cell {grid-column: span var(--w, 2);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 12px;
-  min-height: 80px;
-  box-shadow: var(--sh);
-}
+  border-radius: var(--r-lg);
+  padding: var(--space-3);
+  min-height: 80px}
 .dp-err {
   color: var(--bad);
   font-size: 12px;

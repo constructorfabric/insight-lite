@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 import yaml
 
 import paths
+import tokens          # GENERATED — see tools/gen_tokens.py, design/tokens.json
 import store
 import metrics_registry as _mreg
 _m = _mreg.metric
@@ -72,8 +73,8 @@ def is_bot(login: str, bot_logins: list[str]) -> bool:
 
 # Default set when config.yaml predates configurable types (platform vs app).
 _DEFAULT_REPO_TYPES = [
-    {"id": "platform", "name": "Platform", "color": "#5b5bf0"},
-    {"id": "app", "name": "App", "color": "#8b5cf6", "default": True},
+    {"id": "platform", "name": "Platform", "color": tokens.ELEMENT_DEFAULTS["platform"]},
+    {"id": "app", "name": "App", "color": tokens.ELEMENT_DEFAULTS["app"], "default": True},
 ]
 
 

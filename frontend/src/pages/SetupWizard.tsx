@@ -1,6 +1,8 @@
 // /setup — first-run wizard (token → org/repos → first collection), migrated to
-// React (Manage migration). Reproduces server.SETUP_HTML's markup + classes (see
-// ../styles/setup.css) and ports the inline-JS behaviours 1:1. Initial config +
+// React (Manage migration). Markup, classes and inline-JS behaviours were ported 1:1
+// from the pre-React server.SETUP_HTML page, which has since been deleted as dead
+// code — `git log -- backend/server.py` has it if a detail ever needs checking.
+// Styles: ../styles/setup.css. Initial config +
 // token status come from the server via render_spa_page bootstrap (#spa-bootstrap);
 // the collect step polls GET /api/status, and the three steps POST to the existing
 // /api/setup/{token,token/clear,save,collect} endpoints.

@@ -3,30 +3,28 @@
    shell.BASE_CSS + this). Unlike /metrics, the legacy /views template carries
    NO body/box-sizing/font reset of its own, so none is reproduced here — the
    React base.css/shell.css leave the same browser defaults the legacy page had.
-   EXCEPTION: body `margin:0` now comes from the shared BASE_CSS — the browser's
-   default 8px shifted this whole route (sidebar included) right+down vs every
-   other page; both React and legacy get the reset, so parity holds.
+   EXCEPTION: body `margin:0` now comes from the shared BASE_CSS — the browser's default var(--space-2) shifted this whole route (sidebar included) right+down vs every other page; both React and legacy get the reset, so parity holds.
    The extra tokens (--acc-soft/--code-bg/--code-fg/--c-bug) use inline var()
    fallbacks matching their real values, so no :root block is needed. */
-main.wrap{padding:20px 34px 90px}
-h1{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
-.sub{color:var(--mut,#656d76);font-size:13.5px;margin:0 0 14px;max-width:82ch}
-.vg{font-size:16px;font-weight:800;letter-spacing:-.02em;margin:22px 0 10px}
-.vg .gc{color:var(--mut,#656d76);font-size:12px;font-weight:700}
-.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
-.vc{border:1px solid var(--line);border-radius:var(--r-sm,11px);background:var(--panel);padding:14px 16px}
-.vc-h{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.vname{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:14px}
+main.wrap{padding:var(--space-5) var(--space-8) 90px}
+h1{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 var(--space-1)}
+.sub{color:var(--mut);font-size:13.5px;margin:0 0 var(--space-4);max-width:82ch}
+.vg{font-size:16px;font-weight:800;letter-spacing:-.02em;margin:var(--space-6) 0 10px}
+.vg .gc{color:var(--mut);font-size:12px;font-weight:700}
+.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:var(--space-4)}
+.vc{border:1px solid var(--line);border-radius:var(--r-sm,11px);background:var(--panel);padding:var(--space-4) var(--space-4)}
+.vc-h{display:flex;align-items:center;gap:var(--space-2);margin-bottom:6px}
+.vname{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;font-size:14px}
 .kind{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
-  padding:2px 8px;border-radius:999px;background:var(--acc-soft,#edecfe);color:var(--acc)}
+  padding:2px var(--space-2);border-radius:var(--r-pill);background:var(--acc-soft);color:var(--acc)}
 .vp{font-size:13px;margin:0 0 6px}
-.vw{font-size:12.5px;color:var(--mut,#656d76);margin:0 0 8px}
-.vparams{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 8px}
-.vparams th{text-align:left;color:var(--mut,#656d76);font-weight:700;border-bottom:1px solid var(--line);padding:3px 6px}
+.vw{font-size:12.5px;color:var(--mut);margin:0 0 var(--space-2)}
+.vparams{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 var(--space-2)}
+.vparams th{text-align:left;color:var(--mut);font-weight:700;border-bottom:1px solid var(--line);padding:3px 6px}
 .vparams td{padding:3px 6px;vertical-align:top;border-bottom:1px solid var(--line)}
-.vparams .ty{color:var(--mut,#656d76);font-family:ui-monospace,Menlo,monospace}
-.req{color:var(--c-bug,#ef4444);font-size:10px;font-weight:700}
-.vlbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--mut,#656d76);margin:6px 0 3px}
-.vex{background:var(--code-bg,#0d1117);color:var(--code-fg,#c9d1d9);border-radius:8px;padding:9px 11px;
-  overflow:auto;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.5;white-space:pre-wrap;margin:0}
-.vsrc{font-size:11px;color:var(--mut,#656d76);margin-top:8px}
+.vparams .ty{color:var(--mut);font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.req{color:var(--c-bug-fg);font-size:10px;font-weight:700}
+.vlbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:6px 0 3px}
+.vex{background:var(--code-bg);color:var(--code-fg);border-radius:var(--r-md);padding:9px 11px;
+  overflow:auto;font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5;white-space:pre-wrap;margin:0}
+.vsrc{font-size:11px;color:var(--mut);margin-top:var(--space-2)}

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from html import escape as _e
 
+import tokens          # GENERATED — see tools/gen_tokens.py, design/tokens.json
+
 # ── Navigation model ─────────────────────────────────────────────────────────
 #
 # ONE model, rendered twice: this module renders it to HTML, and render_spa_page
@@ -154,10 +156,10 @@ SHELL_CSS = """
   .nav-backdrop{display:none}
   .app{display:flex;align-items:flex-start}
   .sidebar{position:sticky;top:0;flex:0 0 236px;width:236px;height:100vh;overflow-y:auto;font-size:14.5px;line-height:1.55;
-    padding:20px 14px;border-right:1px solid var(--line);background:var(--bg,#f5f6f9);z-index:40;
+    padding:var(--space-5) var(--space-4);border-right:1px solid var(--line);background:var(--bg);z-index:40;
     display:flex;flex-direction:column}
   .sidebar .brand{font-size:15px;font-weight:800;
-    line-height:1.15;margin:0 6px 18px;letter-spacing:-.02em}
+    line-height:1.15;margin:0 6px var(--space-5);letter-spacing:-.02em}
   .sidebar .brand span{display:block;font-size:11px;font-weight:600;color:var(--mut);margin-top:2px}
   /* Rail + pane, the shape the big Insight's portal shell has. 56 + 180 = the 236px
      the single column already occupied, so the content area loses nothing.
@@ -166,7 +168,7 @@ SHELL_CSS = """
      item and the pane always shows whichever zone the CURRENT page belongs to. Same
      look, no client state, and the Python and React renderers emit the same markup —
      which is what keeps React mounting over it from moving anything. */
-  .sb-cols{display:flex;flex:1 1 auto;min-height:0;gap:8px}
+  .sb-cols{display:flex;flex:1 1 auto;min-height:0;gap:var(--space-2)}
   /* The rail keeps a fixed 44px SLOT in the flow and its hover expansion is pure
      DECORATION: the widened panel and the labels are painted by a pseudo-element and
      an absolutely-positioned span, both pointer-events:none, while the clickable
@@ -200,12 +202,12 @@ SHELL_CSS = """
      because the pane runs to that edge: any narrower and its rows show past the fill as
      a sliver of half-covered menu down the side of the open rail. */
   .sb-rail::before{content:"";position:absolute;inset:0 auto 0 0;width:208px;
-    pointer-events:none;background:var(--bg,#f5f6f9);
+    pointer-events:none;background:var(--bg);
     opacity:0;transition:opacity 0s .1s}
   .sb-rail:hover::before,.sb-rail:focus-within::before{opacity:1;transition:opacity 0s .18s}
   .sb-rail-inner{display:flex;flex-direction:column;gap:3px;width:44px;height:100%}
   .sb-pane{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0;
-    padding-left:8px;border-left:1px solid var(--line)}
+    padding-left:var(--space-2);border-left:1px solid var(--line)}
   /* Manage sits at the bottom of the rail, the way it sat at the bottom of the
      single column — it is tooling, not a view of the data. */
   .sb-rail .rz-bottom{margin-top:auto}
@@ -223,7 +225,7 @@ SHELL_CSS = """
      `center` put it in a 44px box, so nothing moves between the two states. */
   .rz{position:relative;display:flex;align-items:center;justify-content:flex-start;
     padding-left:12.5px;box-sizing:border-box;
-    width:44px;height:40px;flex:none;color:var(--ink2,#475467);
+    width:44px;height:40px;flex:none;color:var(--ink2);
     text-decoration:none;cursor:pointer;
     transition:width 0s .1s}
   /* Timed to the fill (see .sb-rail::before): the hit area may never be wider than the
@@ -239,18 +241,21 @@ SHELL_CSS = """
      on open it snaps at .18s, the moment the surface starts appearing; on close it snaps
      back at .1s, once the surface has gone. Either way the change happens while this
      element is invisible or the panel behind it is, so nothing is seen to stretch. */
-  .rz::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;border-radius:11px;
+  .rz::before{content:"";position:absolute;inset:0 auto 0 0;width:44px;border-radius:var(--r-lg);
     pointer-events:none;transition:background .13s ease,box-shadow .13s ease,width 0s .1s}
   .sb-rail:hover .rz::before,.sb-rail:focus-within .rz::before{width:196px;
     transition:background .13s ease,box-shadow .13s ease,width 0s .18s}
   .rz svg{position:relative;flex:none;width:19px;height:19px;stroke:currentColor;
     stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
   .rz:hover{color:var(--ink)}
-  .rz:hover::before{background:var(--panel2,#eaeef2)}
-  .rz.active{color:var(--acc-ink,#4a45d6)}
-  .rz.active::before{background:var(--panel,#fff);
+  .rz:hover::before{background:var(--panel2)}
+  .rz.active{color:var(--acc-ink)}
+  .rz.active::before{background:var(--panel);
     box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08))}
-  .rz.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
+  .rz.active svg{opacity:1;stroke:var(--acc)}
+  /* The theme toggle is a <button> in a rail of <a>s: same box, no button chrome. */
+  /* The theme toggle is a <button> in a rail of <a>s: same box, no button chrome.
+     NO margin-top:auto here — .rz-bottom (Manage) already has one, and a second auto margin makes flexbox split the free space BETWEEN them, which parks the button at the floor with a hole above it. Following Manage in the flow puts it directly under Manage, which is where a rail-footer control belongs. */ .rz-theme{border:none;background:none;font:inherit;cursor:pointer}
   /* Always in the DOM so a screen reader gets it; clipped out of sight when the rail
      is closed, and never a pointer target. */
   /* The labels are the only thing that actually moves: a short slide in from under the
@@ -282,7 +287,7 @@ SHELL_CSS = """
   .navgroup{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--mut);padding:2px 11px 6px}
   .sb-pane .tab{display:flex;align-items:center;gap:10px;text-align:left;text-decoration:none;
-    border:none;background:transparent;color:var(--ink2,#475467);border-radius:10px;padding:8px 10px;
+    border:none;background:transparent;color:var(--ink2);border-radius:var(--r-md);padding:var(--space-2) 10px;
     font:600 13px/1.4 inherit;cursor:pointer;min-width:0}
   /* The label is its own span so it can ellipsis: as a bare text node it was a flex
      child that overflow:hidden simply CUT, mid-glyph. Labels are short by policy (see
@@ -290,19 +295,19 @@ SHELL_CSS = """
   .sb-pane .tab>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sb-pane .tab svg{flex:none;width:17px;height:17px;stroke:currentColor;stroke-width:1.9;
     fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
-  .sb-pane .tab:hover{background:var(--panel2,#eaeef2);color:var(--ink)}
-  .sb-pane .tab.active{background:var(--panel,#fff);color:var(--acc-ink,#4a45d6);
+  .sb-pane .tab:hover{background:var(--panel2);color:var(--ink)}
+  .sb-pane .tab.active{background:var(--panel);color:var(--acc-ink);
     box-shadow:var(--sh,0 1px 2px rgba(16,24,40,.08));font-weight:700}
-  .sb-pane .tab.active svg{opacity:1;stroke:var(--acc,#5b5bf0)}
+  .sb-pane .tab.active svg{opacity:1;stroke:var(--acc)}
   .wrap{flex:1 1 auto;min-width:0}
   @media(max-width:900px){
     .app{display:block}
-    .navbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:60;
-      background:var(--panel);border-bottom:1px solid var(--line);padding:9px 14px}
+    .navbar{display:flex;align-items:center;gap:var(--space-3);position:sticky;top:0;z-index:60;
+      background:var(--panel);border-bottom:1px solid var(--line);padding:9px var(--space-4)}
     .navburger{display:inline-flex;align-items:center;justify-content:center;flex:none;
-      width:40px;height:36px;border:1px solid var(--line);border-radius:9px;
-      background:var(--bg,#fff);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
-    .navburger:active{background:var(--panel2,#eaeef2)}
+      width:40px;height:36px;border:1px solid var(--line);border-radius:var(--r-md);
+      background:var(--bg);color:var(--ink);font-size:18px;line-height:1;cursor:pointer;padding:0}
+    .navburger:active{background:var(--panel2)}
     .navbar-title{font-weight:800;font-size:14px;letter-spacing:-.01em;line-height:1.1}
     .navbar-title span{display:block;font-size:10px;font-weight:600;color:var(--mut)}
     .sidebar{position:fixed;top:0;left:0;height:100vh;width:250px;max-width:82vw;flex:none;
@@ -324,49 +329,22 @@ SHELL_CSS = """
 #
 # The font is served same-origin from /assets/jakarta.woff2 (server.py) rather than
 # base64-embedded, so the Manage pages stay small.
-BASE_CSS = """
+# The @font-face pair is the ONE part of the visual base that is NOT shared with the
+# React path: font-display is `swap` here and `block` in frontend/src/styles/base.css
+# (the monolith inlines the font as base64 so swap is instant anyway; on the React MPA
+# swap flashed the fallback font on every navigation). Everything else comes out of
+# tokens.py, generated by tools/gen_tokens.py — it used to be a hand-kept copy of
+# base.css. See docs/design-system.md.
+_FONTS_CSS = """
   @font-face{font-family:'Jakarta';font-style:normal;font-weight:400 800;
     font-display:swap;src:url(/assets/jakarta.woff2) format('woff2')}
   @font-face{font-family:'Inter';font-style:normal;font-weight:100 900;
     font-display:swap;src:url(/assets/inter.woff2) format('woff2')}
-  :root{
-    --bg:#f5f6f9; --panel:#ffffff; --panel2:#eef1f5; --line:#eceef2; --line2:#e2e6ec;
-    --ink:#101828; --ink2:#475467; --mut:#8a93a3;
-    --acc:#5b5bf0; --acc-ink:#4a45d6; --good:#0f9d58; --good-bg:#e7f6ee;
-    --warn:#b7791f; --bad:#e5484d; --bad-bg:#fdeaea;
-    --r:16px; --r-sm:12px; --sh:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
-    --sh-lift:0 10px 30px rgba(16,24,40,.10);
-  }
-  /* Always reserve the vertical scrollbar so navigating between short pages (no
-     scrollbar) and tall ones (scrollbar) doesn't shift the layout — the sidebar
-     visibly "jumped" horizontally by the scrollbar width on each route change. */
-  html{overflow-y:scroll}
-  /* margin:0 belongs here, not per page: /identity and /views never reset it, so
-     the browser default 8px shifted the whole page (sidebar included) right+down
-     on those routes. Shared, so React + legacy both get it (parity holds). */
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font-family:'Jakarta','Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-  h1,h2,h3{letter-spacing:-.02em}
-  h1{font-weight:800} h2,h3{font-weight:700}
-  .num{font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-  a{color:var(--acc-ink)}
-  /* Buttons — pill-ish, Jakarta, indigo primary. Matches the report chrome. */
-  button,.btn,a.btn,input[type=submit]{border:1px solid var(--line2);background:var(--panel);
-    color:var(--ink);border-radius:10px;padding:8px 14px;font:600 13.5px/1.4 inherit;cursor:pointer;
-    box-shadow:var(--sh);transition:border-color .12s,background .12s,box-shadow .12s}
-  button:hover,.btn:hover,a.btn:hover{border-color:var(--line2);box-shadow:var(--sh-lift)}
-  button.primary,.btn.primary,a.btn.primary,input[type=submit]{background:var(--acc);
-    border-color:var(--acc);color:#fff;box-shadow:0 4px 12px rgba(91,91,240,.28)}
-  button.primary:hover,.btn.primary:hover{background:var(--acc-ink);border-color:var(--acc-ink)}
-  button:disabled,.btn:disabled{opacity:.5;cursor:default;box-shadow:none}
-  /* Form controls */
-  input,select,textarea{border:1px solid var(--line2);border-radius:10px;padding:8px 11px;
-    font:inherit;font-size:14px;background:var(--panel);color:var(--ink)}
-  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);
-    box-shadow:0 0 0 3px rgba(91,91,240,.14)}
-  code{background:var(--panel2);padding:1px 5px;border-radius:6px;font-size:12.5px}
+  @font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:100 800;
+    font-display:swap;src:url(/assets/jetbrains-mono.woff2) format('woff2')}
 """
+
+BASE_CSS = _FONTS_CSS + tokens.TOKENS_CSS + tokens.ELEMENTS_CSS
 
 # CSS for the chart panels a dashboard renders into. The container survived the move
 # off Vega-Lite because the server-rendered panel preview still emits it and the
@@ -379,6 +357,27 @@ CHART_CSS = """
 # Shared drawer toggle. Inlined once inside sidebar_html so every page (report,
 # identity, portal) gets identical behaviour without touching its own JS block.
 _SIDEBAR_JS = """
+<script>(function(){
+  // Theme: system -> light -> dark -> system. "system" removes the attribute and lets
+  // the prefers-color-scheme rule decide, rather than storing a snapshot of what the OS
+  // happened to say at the time.
+  var KEY='insight-theme', root=document.documentElement;
+  function label(m){ return 'Theme: '+m; }
+  function apply(m,persist){
+    if(m==='system'){ root.removeAttribute('data-theme'); }
+    else { root.setAttribute('data-theme',m); }
+    if(persist){ try{ m==='system'?localStorage.removeItem(KEY):localStorage.setItem(KEY,m); }catch(e){} }
+    var b=document.querySelector('[data-theme-toggle]');
+    if(b){ b.setAttribute('aria-label',label(m)); b.title=label(m); }
+  }
+  var stored=null; try{ stored=localStorage.getItem(KEY); }catch(e){}
+  apply(stored==='dark'||stored==='light'?stored:'system',false);
+  var tb=document.querySelector('[data-theme-toggle]');
+  if(tb) tb.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme')||'system';
+    apply(cur==='system'?'light':cur==='light'?'dark':'system',true);
+  });
+})();</script>
 <script>(function(){
   var burger=document.querySelector('.navburger'),
       side=document.querySelector('.sidebar'),
@@ -490,6 +489,32 @@ def _carry_href(href: str, carry: dict | None) -> str:
     return f"{path}?{qs}&{extra}" if qs else f"{path}?{extra}"
 
 
+# The theme toggle, at the bottom of the rail. ONE definition of the markup: React's
+# Sidebar renders the same DOM, because mounting over a different tree would move the
+# sidebar on every page load. It cycles system -> light -> dark; the icon does NOT change
+# with state (a state-dependent icon would mean the server and React disagree on the
+# first paint), so the current mode is carried by title/aria-label, which JS updates.
+_THEME_ICON = ('<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+               ' stroke-width="1.8" aria-hidden="true">'
+               '<circle cx="12" cy="12" r="9"/>'
+               '<path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>')
+THEME_BTN = ('<button class="rz rz-theme" type="button" data-theme-toggle'
+             ' aria-label="Theme: system" title="Theme: system">'
+             + _THEME_ICON + '<span class="rz-l">Theme</span></button>')
+
+
+# Inlined in <head> BEFORE the stylesheet (see render.render_spa_page). It has to run
+# before the first paint: with the choice stored in localStorage rather than in the
+# markup, a dark preference would otherwise paint one light frame on every navigation —
+# and every route here is a full page load, so that is a flash on every click.
+#
+# No stored choice means no attribute, which leaves the @media (prefers-color-scheme)
+# rule in tokens.css in charge. That is the "system" state, not a third palette.
+THEME_BOOT = ("<script>(function(){try{var t=localStorage.getItem('insight-theme');"
+              "if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);"
+              "}catch(e){}})();</script>")
+
+
 def sidebar_html(active: str, carry: dict | None = None) -> str:
     """Full sidebar markup, rendered from NAV_ZONES. `active` = which page this is,
     matched against an item's `key`.
@@ -555,7 +580,7 @@ def sidebar_html(active: str, carry: dict | None = None) -> str:
         '<span>' + (caption or "Contribution &amp; Usage") + '</span></div></div>'
         '<div class="sb-cols">'
         '<nav class="sb-rail" aria-label="Sections">'
-        '<div class="sb-rail-inner">' + "".join(rail) + '</div></nav>'
+        '<div class="sb-rail-inner">' + "".join(rail) + THEME_BTN + '</div></nav>'
         '<nav class="sb-pane" aria-label="' + current["label"] + '">' + "".join(pane) + '</nav>'
         '</div>'
         '</aside>' + _SIDEBAR_JS)

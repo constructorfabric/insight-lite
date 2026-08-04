@@ -1,0 +1,36 @@
+/* The element base — html/body reset, headings, buttons, form controls, code.
+   THE one copy. Both render paths get exactly this text:
+     - the React path imports it from base.css (Vite inlines it)
+     - the Python path gets it as tokens.ELEMENTS_CSS, which tools/gen_tokens.py
+       copies out of this file into backend/tokens.py
+   It used to live twice, hand-copied, and the copies had to be reconciled by eye.
+   Do not add @font-face here: that is the ONE rule the two paths must NOT share
+   (block on React, swap on Python — see base.css for why). */
+
+  /* Always reserve the vertical scrollbar so navigating between short pages (no
+     scrollbar) and tall ones (scrollbar) doesn't shift the layout — the sidebar
+     was visibly "jumping" horizontally by the scrollbar width on each route
+     change (each React route is a full page load). No-op where scrollbars are
+     overlay (macOS trackpad) or where the page already scrolls. */
+  html{overflow-y:scroll}
+  /* margin:0 belongs here, not per page: most pages reset it in their own CSS but /identity and /views never did (their legacy templates didn't either), so the browser's default var(--space-2) shifted the WHOLE page — sidebar included — right and down on those routes. Shared = both the React shell and the legacy pages get the reset, so pixel-parity holds while the routes stop disagreeing. */ body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Inter','Jakarta',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+  h1,h2,h3{letter-spacing:-.02em}
+  h1{font-weight:800} h2,h3{font-weight:700}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  a{color:var(--acc-ink)}
+  /* Buttons — indigo primary, on the kit's control radius. Matches the report chrome. */
+  button,.btn,a.btn,input[type=submit]{border:1px solid var(--line2);background:var(--panel);
+    color:var(--ink);border-radius:var(--r-md);padding:var(--space-2) var(--space-4);font:600 13.5px/1.4 inherit;cursor:pointer;transition:border-color .12s,background .12s,box-shadow .12s}
+  button:hover,.btn:hover,a.btn:hover{border-color:var(--line2);box-shadow:var(--elev)}
+  button.primary,.btn.primary,a.btn.primary,input[type=submit]{background:var(--acc);
+    border-color:var(--acc);color:var(--on-solid);box-shadow:0 4px 12px rgba(91,91,240,.28)}
+  button.primary:hover,.btn.primary:hover{background:var(--acc-ink);border-color:var(--acc-ink)}
+  button:disabled,.btn:disabled{opacity:.5;cursor:default;box-shadow:none}
+  /* Form controls */
+  input,select,textarea{border:1px solid var(--line2);border-radius:var(--r-md);padding:var(--space-2) 11px;
+    font:inherit;font-size:14px;background:var(--panel);color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);
+    box-shadow:0 0 0 3px rgba(91,91,240,.14)}
+  code{background:var(--panel2);padding:1px 5px;border-radius:var(--r-sm);font-size:12.5px}

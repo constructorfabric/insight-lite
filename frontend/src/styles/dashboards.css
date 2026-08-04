@@ -2,17 +2,17 @@
    server.dashboards_list_page()'s inline <style> — page-block rules + the resets
    the standalone Jinja page carried (body margin:0, *{box-sizing}, body 14px/1.5).
    The legacy table.u was declared twice (border-radius:8px, then after BASE_CSS
-   overridden to var(--r-sm) + box-shadow); merged to the effective result.
+   overridden to var(--r-lg) + box-shadow); merged to the effective result.
    NOTE: separate from dashboard.css (the dashboard VIEW page). */
 *{box-sizing:border-box}
 body{margin:0;font-size:14px;line-height:1.5}
-main.wrap{padding:24px 28px 56px}
-h1{font-size:24px;margin:0 0 4px}
-@media(max-width:900px){main.wrap{padding:16px}}
-.sub{color:var(--mut);margin:0 0 14px;max-width:74ch}
+main.wrap{padding:var(--space-6) 28px 56px}
+h1{font-size:24px;margin:0 0 var(--space-1)}
+@media(max-width:900px){main.wrap{padding:var(--space-4)}}
+.sub{color:var(--mut);margin:0 0 var(--space-4);max-width:74ch}
 table.u{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
-  border-radius:var(--r-sm);box-shadow:var(--sh);overflow:hidden;font-size:13px}
-table.u th,table.u td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+  border-radius:var(--r-lg);overflow:hidden;font-size:13px}
+table.u th,table.u td{text-align:left;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--line)}
 table.u thead th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
 table.u tbody tr:last-child td{border-bottom:none}
-.empty{color:var(--mut);padding:12px;font-size:13px}
+.empty{color:var(--mut);padding:var(--space-3);font-size:13px}

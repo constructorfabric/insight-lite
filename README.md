@@ -349,6 +349,7 @@ MCP_TOKEN=… python backend/mcp_server.py         # local, serves /mcp on :8082
 - [Data & storage](docs/data.md) — sources, the SQLite store, and what cannot be recovered
 - [Operating it](docs/operating.md) — Docker, deployment, tuning, pre-share checks
 - [Semantic taxonomy](docs/semantic-config.md) — mapping labels to work types
+- [Design system & visual tokens](docs/design-system.md) — where every visual setting lives, and the plan to keep it in one place
 - [Contributing](CONTRIBUTING.md) — dev loop, test runners, review expectations
 
 ## Licence

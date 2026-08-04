@@ -27,6 +27,7 @@ import statistics
 from datetime import datetime, date, timedelta, timezone
 
 import metrics_registry as _mreg
+import tokens          # GENERATED — see tools/gen_tokens.py, design/tokens.json
 import paths
 _m = _mreg.metric
 
@@ -503,7 +504,7 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_owner ON dashboard(owner_login);
 # colours elsewhere in the codebase, so all three families behave alike.
 #
 # "Other" is the catch-all bucket and keeps a deliberate grey; it is never generated.
-OTHER_COMPANY_COLOR = "#8b949e"
+OTHER_COMPANY_COLOR = tokens.VALUES["company-empty"]
 # Eight, and deliberately not more: padding this list out to lower the collision odds
 # meant adding a second red and a second blue, which buys a statistic at the cost of the
 # thing a palette is for — telling two series apart at a glance. Eight distinguishable
@@ -511,8 +512,7 @@ OTHER_COMPANY_COLOR = "#8b949e"
 # The teal here was #0a7ea4, which sits 58 units from the blue in RGB — close enough
 # that two adjacent series read as the same colour. #14b8a6 is 95 from its nearest
 # neighbour; the palette's tightest pair is now the purple/magenta one at 89.
-COMPANY_PALETTE = ["#0969da", "#8250df", "#1a7f37", "#bf8700", "#cf222e",
-                   "#14b8a6", "#d946ef", "#6e7781"]
+COMPANY_PALETTE = tokens.COMPANY_PALETTE
 
 
 def _name_hash(s) -> int:
@@ -1295,7 +1295,8 @@ def _repo_type_meta():
         return [(t["id"], t.get("name") or t["id"].title(), t.get("color"))
                 for t in collect.repo_types(cfg)]
     except Exception:                       # noqa: BLE001 — never break the report
-        return [("platform", "Platform", "#5b5bf0"), ("app", "App", "#8b5cf6")]
+        return [("platform", "Platform", tokens.ELEMENT_DEFAULTS["platform"]),
+            ("app", "App", tokens.ELEMENT_DEFAULTS["app"])]
 
 
 def aggregate(conn: sqlite3.Connection, since: str, until: str,
@@ -1468,7 +1469,7 @@ def aggregate(conn: sqlite3.Connection, since: str, until: str,
         GROUP BY pr.classification""", args + rp):
         by_cls_p[r["cls"] or ""] = r["n"]
 
-    _PAL = ["#5b5bf0", "#8b5cf6", "#f59e0b", "#06b6d4", "#10b981", "#ef4444", "#2f80ed", "#d946ef"]
+    _PAL = tokens.CATEGORY_SWATCHES
     meta = _repo_type_meta()                 # [(id, name, color)] from config
     meta_ids = {m[0] for m in meta}
     extra = sorted(c for c in (set(by_cls_c) | set(by_cls_p))
@@ -2391,7 +2392,7 @@ def person_profile(conn: sqlite3.Connection, login: str, since: str, until: str,
     _pids = {m[0] for m in _pmeta}
     _pextra = sorted(c for c in by_cls if c not in _pids and c not in ("ignore", "unclassified"))
     _pordered = list(_pmeta) + [(c, c.replace("-", " ").replace("_", " ").title(), None) for c in _pextra]
-    _ppal = ["#5b5bf0", "#8b5cf6", "#f59e0b", "#06b6d4", "#10b981", "#ef4444", "#2f80ed", "#d946ef"]
+    _ppal = tokens.CATEGORY_SWATCHES
     split_types = [{"id": tid, "name": tn, "color": tc or _ppal[i % len(_ppal)], "commits": by_cls.get(tid, 0)}
                    for i, (tid, tn, tc) in enumerate(_pordered)]
     split = {"types": split_types, "total": sum(t["commits"] for t in split_types)}

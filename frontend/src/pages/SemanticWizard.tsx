@@ -11,9 +11,9 @@
 import { Fragment, useEffect, useReducer, useRef, useState } from "react";
 
 const STEPS = ["Scope", "Categories", "Flow", "CI", "Review"];
-const CATBK: Record<string, string> = { bug: "--c-bug", feature: "--c-feature", task: "--c-task", epic: "--c-epic", spec: "--c-spec", docs: "--c-docs", test: "--c-test" };
-const CIBK: Record<string, string> = { gate: "--c-feature", release: "--c-task", nightly: "--c-spec", ignore: "--c-other" };
-const LANEBK: Record<string, string> = { backlog: "--c-other", ready: "--c-docs", in_progress: "--c-task", review: "--c-spec", qa: "--c-test", done: "--c-feature", released: "--c-epic" };
+const CATBK: Record<string, string> = { bug: "--cat-bug", feature: "--cat-feature", task: "--cat-task", epic: "--cat-epic", spec: "--cat-spec", docs: "--cat-docs", test: "--cat-test" };
+const CIBK: Record<string, string> = { gate: "--cat-feature", release: "--cat-task", nightly: "--cat-spec", ignore: "--cat-other" };
+const LANEBK: Record<string, string> = { backlog: "--cat-other", ready: "--cat-docs", in_progress: "--cat-task", review: "--cat-spec", qa: "--cat-test", done: "--cat-feature", released: "--cat-epic" };
 const CAP = 8;
 const cap = (b: string) => (b ? b.charAt(0).toUpperCase() + b.slice(1).replace(/_/g, " ") : b);
 
@@ -226,7 +226,7 @@ export default function SemanticWizard() {
     const current = sel.current[key] || "";
     return (
       <span className="pillsel">
-        <span className="dot" style={{ background: "var(" + (col[current] || "--c-other") + ")" }}></span>
+        <span className="dot" style={{ background: "var(" + (col[current] || "--cat-other") + ")" }}></span>
         <select value={current} onChange={(e) => onItemSelect(axis, mk, name, e.target.value)}>
           {includeLeave ? <option value="">— leave —</option> : null}
           {keys.map((b) => (
@@ -628,7 +628,7 @@ export default function SemanticWizard() {
                 {i > 0 ? <div className="lane-arrow">→</div> : null}
                 <div className="lane">
                   <div className="lane-h">
-                    <span className="ldot" style={{ background: "var(" + (LANEBK[l.key] || "--c-other") + ")" }}></span>
+                    <span className="ldot" style={{ background: "var(" + (LANEBK[l.key] || "--cat-other") + ")" }}></span>
                     {l.name}
                     <span className="lc">{laneCount(l.key)}</span>
                   </div>

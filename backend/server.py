@@ -504,160 +504,6 @@ def _usage_range(qs):
     return (date.today() - timedelta(days=n)).isoformat(), date.today().isoformat()
 
 
-SETUP_HTML = r"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Set up — Constructor Insight</title>
-<style>
-  :root{--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--ink:#1f2328;--mut:#656d76;
-    --acc:#0969da;--good:#1a7f37;--bad:#cf222e;--warn:#9a6700;--panel2:#eaeef2}
-  *{box-sizing:border-box}
-  [hidden]{display:none!important}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .wrap{max-width:720px;margin:0 auto;padding:32px 20px 80px}
-  h1{font-size:24px;margin:0 0 4px} .lead{color:var(--mut);margin:0 0 24px}
-  .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:0 0 16px}
-  .step h2{font-size:16px;margin:0 0 4px} .step.done{border-color:var(--good)}
-  .snum{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--panel2);
-    color:var(--mut);text-align:center;font-size:12px;font-weight:700;line-height:22px;margin-right:8px}
-  .step.done .snum{background:var(--good);color:#fff}
-  .hint{color:var(--mut);font-size:13px;margin:4px 0 12px}
-  label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
-  input{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 11px;
-    font:inherit;font-size:14px;background:var(--bg);color:var(--ink)}
-  .row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
-  .btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;
-    padding:8px 15px;font:600 14px inherit;cursor:pointer}
-  .btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
-  .btn:disabled{opacity:.5;cursor:default}
-  .msg{font-size:13px} .msg.ok{color:var(--good)} .msg.err{color:var(--bad)}
-  code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
-  pre{background:#0d1117;color:#c9d1d9;border-radius:8px;padding:12px;overflow:auto;font-size:12px;max-height:220px}
-  a{color:var(--acc)}
-  """ + shell.BASE_CSS + r"""
-  .step{border-radius:var(--r-sm);box-shadow:var(--sh)} .step.done{border-color:var(--good)}
-</style></head>
-<body><div class="wrap">
-<h1>Set up Constructor&nbsp;Insight</h1>
-<p class="lead">Connect a GitHub organization and run the first collection. You can refine
-classification, elements and identities afterwards from the report portal.</p>
-
-<div class="step" id="s1">
-  <h2><span class="snum">1</span>GitHub token</h2>
-  <p class="hint">Create a <b>fine-grained</b> personal access token with <b>read-only</b> access to the
-    org's repositories (Contents, Metadata, Pull requests, Issues) at
-    <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens</a>.
-    It is stored server-side only, never shown again, never written to files or git.</p>
-  <label for="token">Token</label>
-  <input id="token" type="password" autocomplete="off" placeholder="github_pat_… / ghp_…">
-  <div class="row">
-    <button class="btn primary" id="tok-save">Verify &amp; save token</button>
-    <button class="btn" id="tok-clear" hidden>Clear saved token</button>
-    <span class="msg" id="tok-msg"></span>
-  </div>
-</div>
-
-<div class="step" id="s2">
-  <h2><span class="snum">2</span>Organization &amp; repositories</h2>
-  <p class="hint">Primary org whose history is collected. Extra orgs / individual repos are optional
-    (comma-separated) — e.g. an old org after a migration.</p>
-  <label for="org">Primary org</label>
-  <input id="org" placeholder="my-github-org" value="__ORG__">
-  <label for="extra-orgs">Extra orgs (comma-separated)</label>
-  <input id="extra-orgs" placeholder="old-org, another-org" value="__EXTRA_ORGS__">
-  <label for="extra-repos">Extra repos (org/repo, comma-separated)</label>
-  <input id="extra-repos" placeholder="vendor/pkg-repo" value="__EXTRA_REPOS__">
-  <div class="row">
-    <button class="btn primary" id="scope-save">Save scope</button>
-    <span class="msg" id="scope-msg"></span>
-  </div>
-</div>
-
-<div class="step" id="s3">
-  <h2><span class="snum">3</span>First collection</h2>
-  <p class="hint">Clones the repos and fetches PRs / issues from GitHub, then builds the report.
-    This can take a few minutes on a large org.</p>
-  <div class="row">
-    <button class="btn primary" id="collect-start">Start first collection</button>
-    <span class="msg" id="collect-msg"></span>
-  </div>
-  <pre id="collect-log" hidden></pre>
-  <div class="row" id="done-row" hidden><a class="btn primary" href="/report">Open report →</a></div>
-</div>
-
-<script>
-const api = (p) => location.origin + p;
-const TOKEN_STATUS = "__TOKEN_STATUS__";
-function msg(id, t, cls){ const s=document.getElementById(id); s.textContent=t; s.className='msg'+(cls?(' '+cls):''); }
-function markDone(id){ document.getElementById(id).classList.add('done'); }
-
-if(TOKEN_STATUS === 'db'){
-  msg('tok-msg','A token is saved here. Enter a new one to replace it.','ok'); markDone('s1');
-  document.getElementById('tok-clear').hidden=false;
-} else if(TOKEN_STATUS === 'env'){
-  msg('tok-msg','Using the environment token. Save one here to manage it from the UI (it takes over).'); markDone('s1');
-}
-document.getElementById('tok-clear').addEventListener('click', async () => {
-  if(!confirm('Remove the saved token? Collection falls back to the environment token if one is set.')) return;
-  const r=await fetch(api('/api/setup/token/clear'),{method:'POST'}); const j=await r.json();
-  msg('tok-msg','Cleared — active source: '+(j.token_source||'none'), j.token_source==='none'?'err':'');
-  document.getElementById('tok-clear').hidden = (j.token_source!=='db');
-});
-
-document.getElementById('tok-save').addEventListener('click', async () => {
-  const token = document.getElementById('token').value.trim();
-  if(!token){ msg('tok-msg','Paste a token first.','err'); return; }
-  const b=document.getElementById('tok-save'); b.disabled=true; msg('tok-msg','Verifying…');
-  try{
-    const r=await fetch(api('/api/setup/token'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
-    const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'failed');
-    document.getElementById('token').value='';
-    msg('tok-msg', 'Saved ✓ '+(j.login?('as '+j.login+' · '):'')+(j.remaining!=null?(j.remaining+' API calls left'):''), 'ok');
-    markDone('s1');
-  }catch(e){ msg('tok-msg', e.message, 'err'); }
-  b.disabled=false;
-});
-function csv(id){ return document.getElementById(id).value.split(',').map(s=>s.trim()).filter(Boolean); }
-document.getElementById('scope-save').addEventListener('click', async () => {
-  const org=document.getElementById('org').value.trim();
-  if(!org){ msg('scope-msg','Primary org is required.','err'); return; }
-  const b=document.getElementById('scope-save'); b.disabled=true; msg('scope-msg','Saving…');
-  try{
-    const r=await fetch(api('/api/setup/save'),{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({org, extra_orgs:csv('extra-orgs'), extra_repos:csv('extra-repos')})});
-    const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'failed');
-    msg('scope-msg','Saved ✓','ok'); markDone('s2');
-  }catch(e){ msg('scope-msg', e.message, 'err'); }
-  b.disabled=false;
-});
-let poll=null;
-document.getElementById('collect-start').addEventListener('click', async () => {
-  const b=document.getElementById('collect-start'); b.disabled=true; msg('collect-msg','Starting…');
-  try{
-    const r=await fetch(api('/api/setup/collect'),{method:'POST'});
-    const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'failed');
-    document.getElementById('collect-log').hidden=false;
-    if(poll) clearInterval(poll); poll=setInterval(pollStatus, 2000); pollStatus();
-  }catch(e){ msg('collect-msg', e.message, 'err'); b.disabled=false; }
-});
-async function pollStatus(){
-  try{
-    const s=await (await fetch(api('/api/status'))).json();
-    document.getElementById('collect-log').textContent = s.job.log || s.job.message || '';
-    document.getElementById('collect-log').scrollTop = 1e9;
-    msg('collect-msg', s.job.status + (s.job.running?'…':''));
-    if(!s.job.running && s.job.status==='success'){ clearInterval(poll); markDone('s3');
-      msg('collect-msg','Done ✓','ok'); document.getElementById('done-row').hidden=false; }
-    else if(!s.job.running && s.job.status==='failed'){ clearInterval(poll);
-      msg('collect-msg','Collection failed — see log.','err');
-      document.getElementById('collect-start').disabled=false; }
-  }catch(e){}
-}
-</script>
-</div></body></html>"""
-
-
 # Shared model cache. build_model runs on the first hit after any collect/edit and
 # is cached until the DB changes, feeding every /api/report/* view. Keyed on
 # store.report_version() — a content token that moves the instant any run blob or
@@ -845,6 +691,16 @@ def _nav_view(path: str, default: str, allowed: tuple) -> str:
     return v if v in allowed else default
 
 
+
+# The three faces the portal serves, each a variable latin subset. The request path drops
+# the "-latin" so the URL does not promise a subset that could later widen; the file name
+# keeps it so the checkout says what is actually in there.
+_FONT_FILES = {
+    "/assets/jakarta.woff2": "jakarta-latin.woff2",
+    "/assets/inter.woff2": "inter-latin.woff2",
+    "/assets/jetbrains-mono.woff2": "jetbrains-mono-latin.woff2",
+}
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -865,15 +721,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_bytes(path.read_bytes(), ctype)
-
-    def send_html_file_with_nav(self, path: Path, active: str) -> None:
-        if not path.exists() or not path.is_file():
-            self.send_error(HTTPStatus.NOT_FOUND)
-            return
-        # The report/identity pages now bake the full sidebar shell (incl. the
-        # Update/Report/Identity switch at the sidebar bottom), so no top-bar
-        # injection is needed — serve the file as-is.
-        self.send_bytes(path.read_bytes(), "text/html; charset=utf-8")
 
     def _oauth_user(self) -> str:
         """Best-effort identity of the signed-in user from the oauth2-proxy headers
@@ -2716,8 +2563,8 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
             self.send_json({"ok": True, "data": data})
-        elif path in ("/assets/jakarta.woff2", "/assets/inter.woff2"):
-            fp = ROOT / "assets" / ("jakarta-latin.woff2" if "jakarta" in path else "inter-latin.woff2")
+        elif path in _FONT_FILES:
+            fp = ROOT / "assets" / _FONT_FILES[path]
             if not fp.exists():
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
