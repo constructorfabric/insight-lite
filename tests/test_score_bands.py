@@ -22,25 +22,32 @@ import store  # noqa: E402
 
 
 def _cfg(bands):
-    """store._score_band_floors reads the merged config, so a test overrides that."""
+    """store._score_band_floors reads the merged config, so a test overrides that.
+
+    Passing {} is how a test asserts the BUILT-IN scale: without it these read the real
+    config.yaml plus whatever override the machine happens to carry, so a deployment that
+    tunes its floors would fail the suite for describing its own settings correctly."""
     return patch("configstore.apply_overlay", return_value={"developer_score_bands": bands})
 
 
 class BandScaleTest(unittest.TestCase):
     def test_the_default_scale_is_the_one_that_was_chosen(self):
-        self.assertEqual(store._score_band_floors(),
-                         {"Building": 0, "Developing": 30, "Solid": 50, "Strong": 70})
+        with _cfg({}):
+            self.assertEqual(store._score_band_floors(),
+                             {"Building": 0, "Developing": 30, "Solid": 50, "Strong": 70})
 
     def test_the_middle_floor_is_the_median_the_score_defines(self):
         """Not a coincidence worth losing: the score's median is 50 by construction, so this
         boundary documents itself as "above or below the middle of the team"."""
-        self.assertEqual(store._score_band_floors()["Solid"], 50)
+        with _cfg({}):
+            self.assertEqual(store._score_band_floors()["Solid"], 50)
 
     def test_labels_change_exactly_at_their_floor(self):
-        for v, want in ((0, "Building"), (29, "Building"), (30, "Developing"),
-                        (49, "Developing"), (50, "Solid"), (69, "Solid"),
-                        (70, "Strong"), (100, "Strong")):
-            self.assertEqual(store._score_band(v)[0], want, f"score {v}")
+        with _cfg({}):
+            for v, want in ((0, "Building"), (29, "Building"), (30, "Developing"),
+                            (49, "Developing"), (50, "Solid"), (69, "Solid"),
+                            (70, "Strong"), (100, "Strong")):
+                self.assertEqual(store._score_band(v)[0], want, f"score {v}")
 
     def test_no_score_has_no_band_rather_than_the_lowest_one(self):
         self.assertEqual(store._score_band(None), ("—", "na"))
@@ -73,6 +80,8 @@ class BandScaleTest(unittest.TestCase):
             self.assertEqual(store._score_band_floors()["Strong"], 70)
 
     def test_the_spec_the_client_draws_matches_the_labels_it_reads(self):
+        # Deliberately NOT pinned to {}: this holds for whatever scale is configured, which
+        # is the point — the drawing and the labelling must agree either way.
         spec = store.score_band_spec()
         floors = store._score_band_floors()
         self.assertEqual([s["min"] for s in spec], sorted(s["min"] for s in spec),
@@ -89,18 +98,16 @@ class BandSuggestionTest(unittest.TestCase):
     so; a human accepts a scale and then it holds still."""
 
     def test_it_declines_rather_than_guessing_from_a_handful(self):
-        with patch.object(store, "developer_scores", return_value={
-                "active_pillars": ["engagement"],
-                "board": [{"score": s, "pillars": {"engagement": s}} for s in range(4)]}):
-            self.assertIsNone(store.suggest_score_bands(None, "a", "b"))
+        self.assertIsNone(store.suggest_score_bands({
+            "active_pillars": ["engagement"],
+            "board": [{"score": s, "pillars": {"engagement": s}} for s in range(4)]}))
 
     def test_it_ascends_even_when_the_distribution_is_flat(self):
         # Everyone on the same score collapses every quantile onto one value; the result
         # still has to be a scale _score_band can walk.
-        with patch.object(store, "developer_scores", return_value={
-                "active_pillars": ["engagement"],
-                "board": [{"score": 50, "pillars": {"engagement": 50}} for _ in range(20)]}):
-            got = store.suggest_score_bands(None, "a", "b")
+        got = store.suggest_score_bands({
+            "active_pillars": ["engagement"],
+            "board": [{"score": 50, "pillars": {"engagement": 50}} for _ in range(20)]})
         floors = [got[b] for _, b, _ in store._SCORE_BANDS]
         self.assertEqual(floors[0], 0)
         self.assertEqual(floors, sorted(set(floors)), f"not a walkable scale: {floors}")
@@ -111,9 +118,8 @@ class BandSuggestionTest(unittest.TestCase):
         room for a data gap."""
         full = [{"score": 50 + i, "pillars": {"engagement": 1, "flow": 1}} for i in range(20)]
         thin = [{"score": 2, "pillars": {"engagement": 1, "flow": None}} for _ in range(20)]
-        with patch.object(store, "developer_scores", return_value={
-                "active_pillars": ["engagement", "flow"], "board": full + thin}):
-            got = store.suggest_score_bands(None, "a", "b")
+        got = store.suggest_score_bands({"active_pillars": ["engagement", "flow"],
+                                         "board": full + thin})
         self.assertGreater(got["Developing"], 40,
                            "the bottom floor followed the unbanded rows down")
 

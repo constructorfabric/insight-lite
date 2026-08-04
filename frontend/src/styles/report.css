@@ -638,6 +638,9 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-ing td.pt .u{font-size:11px}
   .dsc-ing td.cv{width:26px;color:var(--mut)}
   .dsc-ing td.cv svg{display:block;margin:0 auto}
+  /* The keyboard-reachable control. Looks like the glyph it replaced. */
+  .dsc-cvbtn{display:block;margin:0 auto;padding:0;border:0;background:none;color:inherit;cursor:pointer}
+  .dsc-cvbtn:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:var(--r-xs)}
   /* A pillar row and its drill row are ONE unit: the rule goes under the pair. */
   .dsc-ing tr.drill>td{border-bottom:1px solid var(--line);padding:0 var(--space-2) var(--space-3)}
   .dsc-ing tr:has(+tr.drill)>td{border-bottom:none;padding-bottom:var(--space-2)}

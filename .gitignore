@@ -43,7 +43,12 @@ exports/
 **/history/prod-copy.db
 **/history/prod-copy.db-shm
 **/history/prod-copy.db-wal
+# pull-db.sh accepts ANY destination, and SQLite writes a -wal and a -shm beside whatever it
+# opens. The wildcard covered the database and not its sidecars, and a -wal holds the same
+# personal data as the file it belongs to.
 **/history/*-copy.db
+**/history/*-copy.db-shm
+**/history/*-copy.db-wal
 
 # Collected aggregates. These were TRACKED internally as a "text backup of the DB" and
 # that was a mistake for a public repo: snapshots.jsonl carries per-company commit / LOC

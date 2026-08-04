@@ -541,8 +541,15 @@ def _report_version():
         conn.close()
 
 
-# developer_scores is expensive — 2.7s for a one-year window on production — and the person
-# page called it fresh on EVERY request, for every person, before this cache existed. Keyed on
+# developer_scores runs per request, and the person page needs TWO windows now (this one and
+# the one before it, for the delta). Measured inside a warm request on a copy of production:
+# 33ms for the current window and 26ms for the previous, against ~78ms for the whole endpoint
+# — so the scoring is most of it, and caching takes the endpoint to ~21ms.
+#
+# NOT the "2.7s per call" an earlier version of this comment claimed. That number was the
+# FIRST call in a fresh process on a 180MB database: process warm-up and cold page cache, not
+# the scorer. Worth stating because it is the sort of figure that gets repeated.
+# Keyed on
 # store.report_version() exactly like _RENDER above: a content token that moves the instant any
 # run blob or override is written, which the DB file mtime does not under WAL. Bounded, because
 # a window is a user-chosen string and an unbounded dict keyed on one is a slow memory leak.
@@ -1506,8 +1513,20 @@ class Handler(BaseHTTPRequestHandler):
         import store
         try:
             sc = _cached_scores(conn, since, until)
-            subj = sc["by_login"].get(login)
-            board = sc["board"]           # full board; the UI reveals past the top 15
+            # The cache hands back the SAME board list to every request, and this method
+            # annotates rows per subject — vs_self below, and delta further down. Writing
+            # those onto the cached object corrupts other requests two ways, and neither is
+            # theoretical: the server is a ThreadingHTTPServer, so a concurrent request can
+            # overwrite rows while this one serialises them; and sequentially, a person with
+            # no score skips the vs_self loop entirely and would ship the PREVIOUS subject's
+            # comparisons. Reproduced before fixing — asking for an unscored person returned
+            # all 46 rows still measured against the person requested before them.
+            #
+            # A shallow row copy is enough because only top-level keys are written here; the
+            # nested pillars / contributions / drivers dicts are read and never mutated.
+            board = [dict(r) for r in sc["board"]]
+            by_login = {r["login"]: r for r in board}
+            subj = by_login.get(login)
             if subj is not None:
                 for r in board:
                     r["vs_self"] = store.compare_row_to(r, subj, sc["active_pillars"])

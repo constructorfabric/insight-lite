@@ -154,10 +154,12 @@ export default function CalibrateEditor() {
           setBdStatus({ text: "saved", color: "var(--good)" });
         } else {
           // The server validates the SCALE, not each field, so its message names the rule.
-          setBdStatus({ text: j.error || "not saved", color: "var(--bad)" });
+          // Prefixed, so the text alone distinguishes the two outcomes — colour is
+          // not the only carrier and is no carrier at all when read aloud.
+          setBdStatus({ text: `not saved — ${j.error || "rejected"}`, color: "var(--bad)" });
         }
       })
-      .catch(() => setBdStatus({ text: "not saved", color: "var(--bad)" }))
+      .catch(() => setBdStatus({ text: "not saved — request failed", color: "var(--bad)" }))
       .finally(() => setBdSaving(false));
   }
 
@@ -395,7 +397,11 @@ export default function CalibrateEditor() {
             <button type="button" className="btn" disabled={bdSaving} onClick={saveBands}>
               Save floors
             </button>
-            <span className="wtsaved" style={{ color: bdStatus.color }}>{bdStatus.text}</span>
+            {/* aria-live, like the per-person status cell above: without it, pressing
+                Save is silent to a screen reader, including when the server rejects
+                the scale and its message is the only explanation. */}
+            <span className="wtsaved" role="status" aria-live="polite"
+                  style={{ color: bdStatus.color }}>{bdStatus.text}</span>
           </span>
         </div>
       </section>
@@ -455,7 +461,8 @@ export default function CalibrateEditor() {
             <button type="button" id="wtSave" className="btn" disabled={wtSaving} onClick={saveWeights}>
               Save weights
             </button>
-            <span id="wtStatus" className="wtsaved" style={{ color: wtStatus.color }}>
+            <span id="wtStatus" className="wtsaved" role="status" aria-live="polite"
+                  style={{ color: wtStatus.color }}>
               {wtStatus.text}
             </span>
           </span>

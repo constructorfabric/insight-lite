@@ -163,14 +163,17 @@ export function verdict(mine: number | null, med: number | null, higherIsBetter:
   return { text: `${fixed(hi / lo, 1)}× ${better ? "better" : "worse"}`, good: better };
 }
 
-function FactorRows({ row, tm, signals }: {
+function FactorRows({ row, tm, signals, whose }: {
   row: ScoreRow; tm: Record<string, number | null>; signals: ScoreSignal[];
+  /** Whose values these are. Ingredients renders for the page's subject AND for every team
+      row, so a hardcoded "You" labelled bob's numbers as yours on alice's page. */
+  whose: string;
 }) {
   const dv = row.drivers as unknown as Record<string, number | null>;
   return (
     <table className="dsc-fac">
       <thead>
-        <tr><th>Factor</th><th>You</th><th>Team</th><th>Standing</th></tr>
+        <tr><th>Factor</th><th>{whose}</th><th>Team</th><th>Standing</th></tr>
       </thead>
       <tbody>
         {signals.map((s) => {
@@ -211,10 +214,10 @@ function coverage(row: ScoreRow, active: string[]): number {
 // and the weight was a 10px superscript — read left to right it argued the opposite of the
 // score, which is exactly how a reviewer concluded the total was unexplained. Weight,
 // percentile and points now each own a column, and the total row states the sum.
-function Ingredients({ row, active, weights, tm, wsum, signals, scale }: {
+function Ingredients({ row, active, weights, tm, wsum, signals, scale, whose }: {
   row: ScoreRow; active: string[]; weights: Record<string, number>;
   tm: Record<string, number | null>; wsum: number; signals: ScoreSignal[];
-  scale: BandStop[];
+  scale: BandStop[]; whose: string;
 }) {
   // One pillar open at a time, and the whole row is the control. <details> put the
   // toggle inside the drill, i.e. under the row it belongs to, which reads as a stray
@@ -256,7 +259,23 @@ function Ingredients({ row, active, weights, tm, wsum, signals, scale }: {
                     : <span className="mut">{on ? nodataMetric(key) : "team data gap"}</span>}
                 </td>
                 <td className="pt">{on ? <><b>{row.contributions[key] ?? 0}</b> <span className="u">pts</span></> : "—"}</td>
-                <td className="cv">{canOpen && (isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}</td>
+                <td className="cv">
+                  {/* A real button, not just a click handler on the row. The row stays
+                      clickable because that is the nicer target, but without this the whole
+                      breakdown was mouse-only — and the team rows below, which are
+                      <details>/<summary>, were keyboard-operable, so the same content had two
+                      different answers. stopPropagation so the row's handler does not undo
+                      this one's toggle. */}
+                  {canOpen && (
+                    <button
+                      type="button" className="dsc-cvbtn" aria-expanded={isOpen}
+                      aria-label={`${isOpen ? "Hide" : "Show"} what drives ${PLABELS[key][0]}`}
+                      onClick={(e) => { e.stopPropagation(); setOpen(isOpen ? null : key); }}
+                    >
+                      {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
+                  )}
+                </td>
               </tr>
               {canOpen && isOpen && (
                 // Its own full-width row: inside a cell the factor table inherits that
@@ -265,10 +284,10 @@ function Ingredients({ row, active, weights, tm, wsum, signals, scale }: {
                   <td colSpan={5}>
                     <div className="dsc-drill-in">
                       <span className="dsc-drill-h">
-                        {PLABELS[key][0]} sits at the <b>{v ?? 0}th percentile</b> of the team.
+                        {PLABELS[key][0]} sits at the <b>{ordinal(v ?? 0)} percentile</b> of the team.
                         What that is made of:
                       </span>
-                      <FactorRows row={row} tm={tm} signals={sigs} />
+                      <FactorRows row={row} tm={tm} signals={sigs} whose={whose} />
                     </div>
                   </td>
                 </tr>
@@ -293,14 +312,22 @@ function Ingredients({ row, active, weights, tm, wsum, signals, scale }: {
 // person moves AND when the team moves past them. On production one person fell 18 points of
 // which 11 was the team, and another fell 26 of which 10 was. "You dropped 18" is not a
 // rounder version of that, it is a different claim — and the wrong one.
+// "61th" / "1th" / "22th" — percentiles run 0-100, so the naive suffix is wrong for most of
+// them. 11/12/13 are the exceptions that make a lookup on the last digit alone insufficient.
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+}
+
 function fmtDay(s: string | undefined): string {
   if (!s) return "";
-  try {
-    return new Date(`${s}T00:00:00`).toLocaleDateString(undefined,
-      { day: "numeric", month: "short", year: "numeric" });
-  } catch {
-    return s;
-  }
+  // new Date("garbage") returns an Invalid Date rather than throwing, so a try/catch never
+  // fires and the heading reads "vs Invalid Date". Check the timestamp and fall back to the
+  // raw string, which at least says something true.
+  const d = new Date(`${s}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 function WhatsChanged({ d, boardHasDeltas }: { d: ScoreDelta | null; boardHasDeltas: boolean }) {
@@ -472,7 +499,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                 <h3>Score ingredients</h3>
                 <p>What the score is made of. Open a pillar to see its factors against the team.</p>
               </div>
-              <Ingredients row={sc} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} scale={score.bands_scale ?? []} />
+              <Ingredients row={sc} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} scale={score.bands_scale ?? []} whose={score.is_self_view ? "You" : sc.name} />
               {/* Inside the card, as its footer. Loose under it, this read as debris — and
                   .dsc-ctx is a flex row, so WhyRankAbove's <p> broke the line in the
                   middle of the AI-leverage sentence. */}
@@ -593,7 +620,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                   </summary>
                   <div className="dsc-drow-body">
                     <VsSelfLine v={r.vs_self ?? null} you={you} />
-                    <Ingredients row={r} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} scale={score.bands_scale ?? []} />
+                    <Ingredients row={r} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} scale={score.bands_scale ?? []} whose={r.name} />
                   </div>
                 </details>
                 );

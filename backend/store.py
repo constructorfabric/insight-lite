@@ -2631,16 +2631,19 @@ def score_band_spec() -> list[dict]:
     return [{"min": floors[b], "band": b, "tone": t} for _, b, t in _SCORE_BANDS]
 
 
-def _score_band(s):
+def _score_band(s, spec=None):
+    """The band for a score. `spec` lets a caller resolve the scale ONCE and reuse it:
+    _score_band_floors reads the merged config, and developer_scores would otherwise pay
+    that for the total plus every pillar of every person — five reads per row."""
     if s is None:
         return ("—", "na")
-    for stop in reversed(score_band_spec()):
+    for stop in reversed(spec if spec is not None else score_band_spec()):
         if s >= stop["min"]:
             return (stop["band"], stop["tone"])
     return (_SCORE_BANDS[0][1], _SCORE_BANDS[0][2])
 
 
-def suggest_score_bands(conn, since: str, until: str) -> dict | None:
+def suggest_score_bands(sc: dict) -> dict | None:
     """Floors the CURRENT window's distribution would put the chosen shape at, as
     {band: floor} — a suggestion for the Calibrate page, never applied on its own.
 
@@ -2651,9 +2654,12 @@ def suggest_score_bands(conn, since: str, until: str) -> dict | None:
     Computed over people with FULL pillar coverage only, because those are the only rows
     that get banded — a missing pillar counts as zero, and letting those scores into the
     quantiles would drag the bottom floor down to accommodate a data gap. Returns None when
-    there is too little to fit, which is not the same as a scale of zeros."""
+    there is too little to fit, which is not the same as a scale of zeros.
+
+    Takes a developer_scores RESULT rather than a window, because it used to score the window
+    itself — so the Calibrate page ran the full scorer three times for one request, over a
+    2008-2099 span at that."""
     import statistics
-    sc = developer_scores(conn, since, until)
     act = sc["active_pillars"]
     scores = sorted(r["score"] for r in sc["board"]
                     if all(r["pillars"].get(p) is not None for p in act))
@@ -3254,6 +3260,7 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
     # ("40h · team 15h"), so the relative score reads against real work.
     team_medians = {k: (statistics.median(v) if v else None) for k, v in dists.items()}
 
+    band_spec = score_band_spec()        # once per run; see _score_band
     board = []
     for lg in eligible:
         e = raw[lg]
@@ -3270,7 +3277,7 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
         rem = score - sum(contrib.values())
         for p in sorted(active, key=lambda p: cf[p] - int(cf[p]), reverse=True)[:max(0, rem)]:
             contrib[p] += 1
-        band, tone = _score_band(score)
+        band, tone = _score_band(score, band_spec)
         # A band PER PILLAR, not just for the total. This deliberately runs the total's
         # thresholds over a pillar's percentile, which is a choice and not a derivation:
         # a pillar percentile and a weighted mean of pillar percentiles are different
@@ -3281,7 +3288,7 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
         pillar_bands = {}
         for p in _SCORE_WEIGHTS:
             if p in active and pillars[p] is not None:
-                pb, pt = _score_band(pillars[p])
+                pb, pt = _score_band(pillars[p], band_spec)
                 pillar_bands[p] = {"band": pb, "tone": pt}
             else:
                 pillar_bands[p] = None
@@ -3322,6 +3329,10 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             "theirs": ab["drivers"].get(prim["key"]) if prim else None,
         } if gp else None
     return {"weights": {k: round(v) for k, v in weights.items()},
+            # Unrounded, for anything that has to REPRODUCE this run's arithmetic rather
+            # than display it — score_delta's counterfactual would otherwise weight with
+            # rounded numbers the scoring never used.
+            "weights_raw": dict(weights),
             "active_pillars": active, "team_medians": team_medians,
             "min_activity": _SCORE_MIN_ACTIVITY,
             "n_eligible": len(eligible), "n_ranked": len(board), "board": board,
@@ -3354,7 +3365,7 @@ def score_delta(cur: dict, prev: dict, login: str) -> dict | None:
     a, b = prev.get("by_login", {}).get(login), cur.get("by_login", {}).get(login)
     if not a or not b:
         return None
-    dists, weights = cur["dists"], cur["weights"]
+    dists, weights = cur["dists"], (cur.get("weights_raw") or cur["weights"])
     active = cur["active_pillars"]
 
     def pctl(key, v, direction):
