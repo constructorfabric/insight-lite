@@ -587,6 +587,22 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-card-h h3{margin:0 0 4px;font-size:15px}
   .dsc-card-h p{margin:0 0 var(--space-3);color:var(--mut);font-size:12px;max-width:70ch}
 
+  /* What's changed: three numbers, because the score is a percentile and moves for two
+     independent reasons. Tiles rather than a sentence — the split is the point. */
+  .dsc-split{display:flex;gap:var(--space-3);margin:0 var(--space-5) var(--space-4)}
+  .dsc-split>div{flex:1;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4)}
+  .dsc-split .lb{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+  .dsc-split b{display:block;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .dsc-split .why{display:block;font-size:11.5px;color:var(--ink2)}
+  .dsc-chg{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 var(--space-2)}
+  .dsc-chg th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:var(--space-2) var(--space-2) 4px 0;border-bottom:1px solid var(--line2)}
+  .dsc-chg th:first-child{text-align:left;padding-left:var(--space-5)}
+  .dsc-chg th:last-child,.dsc-chg td:last-child{padding-right:var(--space-5)}
+  .dsc-chg td{padding:6px var(--space-2) 6px 0;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+  .dsc-chg td:first-child{text-align:left;padding-left:var(--space-5);font-weight:600;font-variant-numeric:normal}
+  .dsc-chg tr:last-child td{border-bottom:none}
+  .dsc-nodelta{margin:0 0 var(--space-4);font-size:12px;color:var(--mut)}
+
   /* Score ingredients. Three things to SEE per row — an icon, the pillar with its share,
      and a rating pill. Points sit quietly on the right and the percentile moved into the
      drill: a bare "39" says nothing at a glance, and the pill already said it. The earlier
@@ -686,6 +702,22 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-card-h h3{margin:0 0 4px;font-size:15px}
   .dsc-card-h p{margin:0 0 var(--space-3);color:var(--mut);font-size:12px;max-width:70ch}
 
+  /* What's changed: three numbers, because the score is a percentile and moves for two
+     independent reasons. Tiles rather than a sentence — the split is the point. */
+  .dsc-split{display:flex;gap:var(--space-3);margin:0 var(--space-5) var(--space-4)}
+  .dsc-split>div{flex:1;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4)}
+  .dsc-split .lb{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+  .dsc-split b{display:block;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .dsc-split .why{display:block;font-size:11.5px;color:var(--ink2)}
+  .dsc-chg{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 var(--space-2)}
+  .dsc-chg th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:var(--space-2) var(--space-2) 4px 0;border-bottom:1px solid var(--line2)}
+  .dsc-chg th:first-child{text-align:left;padding-left:var(--space-5)}
+  .dsc-chg th:last-child,.dsc-chg td:last-child{padding-right:var(--space-5)}
+  .dsc-chg td{padding:6px var(--space-2) 6px 0;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+  .dsc-chg td:first-child{text-align:left;padding-left:var(--space-5);font-weight:600;font-variant-numeric:normal}
+  .dsc-chg tr:last-child td{border-bottom:none}
+  .dsc-nodelta{margin:0 0 var(--space-4);font-size:12px;color:var(--mut)}
+
   /* Score ingredients. Three things to SEE per row — an icon, the pillar with its share,
      and a rating pill. Points sit quietly on the right and the percentile moved into the
      drill: a bare "39" says nothing at a glance, and the pill already said it. The earlier
@@ -752,9 +784,14 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-leg{display:flex;flex-wrap:wrap;gap:var(--space-3);margin:2px 0 var(--space-2);font-size:11px;color:var(--mut)}
   .dsc-leg .dsc-legi{display:inline-flex;align-items:center;gap:5px}
   .dsc-leg i{width:10px;height:10px;border-radius:var(--r-xs);display:inline-block}
+  /* Same grid as .dsc-drow summary, so the labels sit over their columns. */
+  .dsc-rowh{display:grid;grid-template-columns:26px 1fr 130px 42px 112px 44px 40px;align-items:center;
+    gap:var(--space-3);padding:0 10px var(--space-2);font-size:10px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+  .dsc-rowh .r{text-align:right}
   .dsc-drow{border-top:1px solid var(--line)}
   .dsc-drow.me{background:var(--acc-soft)}
-  .dsc-drow summary{display:grid;grid-template-columns:26px 1fr 130px 42px 118px 46px;align-items:center;gap:var(--space-3);
+  .dsc-drow summary{display:grid;grid-template-columns:26px 1fr 130px 42px 112px 44px 40px;align-items:center;gap:var(--space-3);
     padding:7px var(--space-2);cursor:pointer;list-style:none}
   .dsc-drow summary::-webkit-details-marker{display:none}
   .dsc-drow summary:hover{background:var(--panel2)}
@@ -766,6 +803,7 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-drow summary .bnd{text-align:left}
   /* Coverage of the pillars scored this window. Red when short, because a low score with
      a short count is a different statement from a low score. */
+  .dsc-drow summary .dlt{font-size:12px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
   .dsc-drow summary .cov{font-size:12px;font-weight:700;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums;cursor:help}
   .dsc-drow summary .cov.thin{color:var(--bad)}
   .dsc-drow[open] summary{background:var(--panel2)}

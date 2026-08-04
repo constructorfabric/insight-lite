@@ -32,11 +32,21 @@ export type ScoreAbove = {
 export type VsSelf = { self?: boolean; delta?: number; pillar?: string; metric_label?: string | null;
                        row_val?: number | null; anchor_val?: number | null } | null;
 export type PillarBand = { band: string; tone: string } | null;
+// store.score_delta: the move split into the part that is the person's and the part that is
+// the team moving around them. The score is a percentile, so both happen, and reporting one
+// number would make a claim about the wrong one.
+export type ScoreDelta = {
+  prev: number; now: number; total: number; team: number; you: number;
+  pillars: Record<string, { prev: number | null; now: number | null;
+                            prev_points: number | null; now_points: number | null }>;
+};
 export type ScoreRow = {
   login: string; name: string; score: number; band: string; tone: string;
   pillars: ScorePillars; pillar_bands?: Record<string, PillarBand>;
   contributions: Record<string, number | null>; drivers: ScoreDrivers;
   rank: number; above?: ScoreAbove | null; vs_self?: VsSelf;
+  /** Total move against the previous window; null when they were not scored then. */
+  delta?: number | null;
 };
 // store.score_band_spec(): the band scale, ascending by floor. The gauge must draw its
 // boundaries at exactly the thresholds the labels come from, so it reads them rather
@@ -52,7 +62,7 @@ export type ScoreBlock = {
   self: ScoreRow | null; board: ScoreRow[]; weights: Record<string, number>;
   n_eligible: number; n_ranked: number; active_pillars: string[];
   team_medians: Record<string, number | null>; min_activity: number; is_self_view: boolean;
-  signals?: ScoreSignal[]; bands_scale?: BandStop[];
+  signals?: ScoreSignal[]; bands_scale?: BandStop[]; delta?: ScoreDelta | null;
 };
 
 // A colour per band STEP, taken from the band's position in the scale — not from its tone.
@@ -277,6 +287,69 @@ function Ingredients({ row, active, weights, tm, wsum, signals, scale }: {
 // ordinary panel; see report.css for why it is not the dark card the reference uses.
 // Deliberately no "what's changed" affordance yet: the delta it would open does not exist,
 // and this file already carries the scar of a button that shipped inert.
+// Why this is three numbers and not one: the score is a percentile, so it moves when the
+// person moves AND when the team moves past them. On production one person fell 18 points of
+// which 11 was the team, and another fell 26 of which 10 was. "You dropped 18" is not a
+// rounder version of that, it is a different claim — and the wrong one.
+function WhatsChanged({ d, boardHasDeltas }: { d: ScoreDelta | null; boardHasDeltas: boolean }) {
+  if (!d) {
+    // Absent for two different reasons, and they are not the same news.
+    return (
+      <p className="dsc-nodelta">
+        {boardHasDeltas
+          ? "No comparison: this person was not scored in the previous window."
+          : "No comparison: there is no data for the window before this one."}
+      </p>
+    );
+  }
+  const sign = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+  const col = (v: number) => (v === 0 ? "var(--mut)" : v > 0 ? token["good"] : token["bad"]);
+  return (
+    <div className="dsc-card">
+      <div className="dsc-card-h">
+        <h3>What&rsquo;s changed</h3>
+        <p>
+          The score is a percentile, so it moves when you move and when the team moves around
+          you. Only one of those is yours to act on.
+        </p>
+      </div>
+      <div className="dsc-split">
+        {([["Total", d.total, `${d.prev} → ${d.now}`],
+           ["The team moved", d.team, "your metrics held, theirs changed"],
+           ["You moved", d.you, "your own work"]] as [string, number, string][])
+          .map(([label, v, why]) => (
+            <div key={label}>
+              <span className="lb">{label}</span>
+              <b style={{ color: col(v) }}>{sign(v)}</b>
+              <span className="why">{why}</span>
+            </div>
+          ))}
+      </div>
+      <table className="dsc-chg">
+        <thead>
+          <tr><th>Pillar</th><th>Was</th><th>Now</th><th>Δ pctl</th><th>Δ points</th></tr>
+        </thead>
+        <tbody>
+          {PILLAR_ORDER.filter((k) => d.pillars[k]).map((k) => {
+            const p = d.pillars[k];
+            const dp = (p.now ?? 0) - (p.prev ?? 0);
+            const dpt = (p.now_points ?? 0) - (p.prev_points ?? 0);
+            return (
+              <tr key={k}>
+                <td>{PLABELS[k][0]}</td>
+                <td>{p.prev ?? "—"}</td>
+                <td>{p.now ?? "—"}</td>
+                <td style={{ color: col(dp) }}>{sign(dp)}</td>
+                <td style={{ color: col(dpt) }}>{sign(dpt)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Hero({ row, n, scale }: { row: ScoreRow; n: number; scale: BandStop[] }) {
   const stops = scale.length ? scale : [{ min: 0, band: row.band, tone: row.tone }];
   const col = bandColor(bandIndex(row.band, stops), stops.length);
@@ -375,6 +448,8 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
         {sc && sc.score !== null && sc.score !== undefined ? (
           <>
             <Hero row={sc} n={score.n_ranked || score.n_eligible} scale={score.bands_scale ?? []} />
+            <WhatsChanged d={score.delta ?? null}
+                          boardHasDeltas={(score.board ?? []).some((r) => r.delta !== null && r.delta !== undefined)} />
             <div className="dsc-card">
               <div className="dsc-card-h">
                 <h3>Score ingredients</h3>
@@ -445,6 +520,18 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                 <span key={k} className="dsc-legi"><i style={{ background: PCOLOR[k] }} />{PLABELS[k][0]}</span>
               ))}
             </div>
+            {/* Column labels on the same grid as the rows. Seven columns with a delta among
+                them cannot go unlabelled — a bare "+7" beside a score invites being read as
+                part of it. */}
+            <div className="dsc-rowh">
+              <span />
+              <span>Person</span>
+              <span>Make-up</span>
+              <span className="r">Score</span>
+              <span>Band</span>
+              <span className="r" data-tip="against the window before this one">&Delta;</span>
+              <span className="r" data-tip="pillars with data, of those scored this window">Data</span>
+            </div>
             <div className={`dsc-rows${capped ? " capped" : ""}`}>
               {score.board.map((r) => {
                 const cov = coverage(r, active);
@@ -474,6 +561,14 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                       {partial
                         ? <span className="mut">not banded</span>
                         : <span className="dsc-pill"><i style={{ background: bandColor(bandIndex(r.band, bscale), bscale.length) }} />{r.band}</span>}
+                    </span>
+                    <span className="dlt">
+                      {r.delta === null || r.delta === undefined
+                        ? <span className="mut" data-tip="not scored in the previous window">—</span>
+                        : <span style={{ color: r.delta === 0 ? "var(--mut)"
+                                                : r.delta > 0 ? token["good"] : token["bad"] }}>
+                            {r.delta > 0 ? `+${r.delta}` : r.delta}
+                          </span>}
                     </span>
                     <span className={`cov${partial ? " thin" : ""}`} data-tip={`data for ${cov} of the ${nAct} pillars scored this window`}>
                       {cov}/{nAct}

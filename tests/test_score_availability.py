@@ -129,12 +129,22 @@ class ScoreBlockBuilderTest(unittest.TestCase):
 
     def test_the_person_endpoint_uses_the_shared_builder(self):
         """There is one person endpoint since the legacy /api/person fragment went with
-        the monolith, and it must still go through the shared builder rather than
-        growing its own copy of the score logic."""
+        the monolith, and it must still go through the shared builder rather than growing
+        its own copy of the score logic.
+
+        Two doors now, not one. developer_scores costs seconds, so the handler reaches it
+        through _cached_scores; a direct call from the handler would be correct and slow,
+        which is the kind of regression nothing else notices. So: the builder is called
+        once, the handler never calls the scorer itself, and the module has exactly one
+        place that does."""
         import inspect
-        src = inspect.getsource(server.Handler)
-        self.assertEqual(src.count("self._developer_score_block("), 1)
-        self.assertEqual(src.count("store.developer_scores("), 1)
+        handler = inspect.getsource(server.Handler)
+        module = inspect.getsource(server)
+        self.assertEqual(handler.count("self._developer_score_block("), 1)
+        self.assertEqual(handler.count("store.developer_scores("), 0,
+                         "the handler must go through _cached_scores, not the scorer")
+        self.assertEqual(module.count("store.developer_scores("), 1,
+                         "one door to the scorer, and it is the cache")
 
 
 # --- render side: the gate that decides whether the panel is drawn -------------

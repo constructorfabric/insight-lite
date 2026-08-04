@@ -3325,7 +3325,65 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             "active_pillars": active, "team_medians": team_medians,
             "min_activity": _SCORE_MIN_ACTIVITY,
             "n_eligible": len(eligible), "n_ranked": len(board), "board": board,
+            # The per-signal sorted lists this run ranked against. Returned so a delta can
+            # score one person's PREVIOUS drivers against THIS window's distribution — the
+            # counterfactual that separates "the team moved" from "you moved". Rebuilding
+            # them at the call site would be a second copy of the ranking rule.
+            "dists": dists,
             "by_login": {r["login"]: r for r in board}}
+
+
+def score_delta(cur: dict, prev: dict, login: str) -> dict | None:
+    """How a person's score moved between two windows, split into the part that is theirs
+    and the part that is the team moving around them. None when they are not in both.
+
+    The score is a PERCENTILE, so it moves for two independent reasons and only one of them
+    is anyone's to act on. Telling somebody they dropped eighteen points when eleven of those
+    are the team improving is not a smaller version of the truth, it is a different claim —
+    and it is the claim that gets made if a delta is reported as one number.
+
+    The split is a counterfactual: score their PREVIOUS drivers against the CURRENT window's
+    distribution. That is "you did not change, only the team did", so the difference from
+    their previous score is the team's contribution and the rest is theirs. Measured on
+    production this is not a rounding detail — one person fell 18 points, of which 11 was the
+    team; another fell 26, of which 10 was.
+
+    Uses cur["dists"], the very lists the current run ranked against, so the counterfactual
+    and the real score cannot disagree about the ranking rule."""
+    import bisect                    # local, as in developer_scores
+    a, b = prev.get("by_login", {}).get(login), cur.get("by_login", {}).get(login)
+    if not a or not b:
+        return None
+    dists, weights = cur["dists"], cur["weights"]
+    active = cur["active_pillars"]
+
+    def pctl(key, v, direction):
+        vals = dists.get(key) or []
+        n = len(vals)
+        if n <= 1:
+            return 0.5
+        below = bisect.bisect_left(vals, v)
+        equal = bisect.bisect_right(vals, v) - below
+        p = (below + 0.5 * equal) / n
+        return p if direction > 0 else (1.0 - p)
+
+    buckets: dict = {}
+    for pillar, key, direction in _SCORE_SIGNALS:
+        v = a["drivers"].get(key)
+        if v is not None:
+            buckets.setdefault(pillar, []).append(pctl(key, v, direction))
+    pil = {p: (round(100 * sum(buckets[p]) / len(buckets[p])) if p in buckets else None)
+           for p in _SCORE_WEIGHTS}
+    den = sum(weights[p] for p in active) or 1
+    counterfactual = round(sum(weights[p] * (pil[p] or 0) for p in active) / den)
+
+    team = counterfactual - a["score"]
+    return {"prev": a["score"], "now": b["score"], "total": b["score"] - a["score"],
+            "team": team, "you": b["score"] - counterfactual,
+            "pillars": {p: {"prev": a["pillars"].get(p), "now": b["pillars"].get(p),
+                            "prev_points": a["contributions"].get(p),
+                            "now_points": b["contributions"].get(p)}
+                        for p in _SCORE_WEIGHTS if p in active}}
 
 
 def compare_row_to(row, anchor, active):

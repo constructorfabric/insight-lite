@@ -541,6 +541,58 @@ def _report_version():
         conn.close()
 
 
+# developer_scores is expensive — 2.7s for a one-year window on production — and the person
+# page called it fresh on EVERY request, for every person, before this cache existed. Keyed on
+# store.report_version() exactly like _RENDER above: a content token that moves the instant any
+# run blob or override is written, which the DB file mtime does not under WAL. Bounded, because
+# a window is a user-chosen string and an unbounded dict keyed on one is a slow memory leak.
+_SCORES: dict = {}
+_SCORES_LOCK = threading.Lock()
+_SCORES_MAX = 8
+
+
+def _cached_scores(conn, since: str, until: str) -> dict:
+    """developer_scores for a window, cached until the data changes.
+
+    Two windows are needed per person page now (this one and the one before it, for the
+    delta), so without a cache the page paid twice over — and the second window is the SAME
+    for every person, which is exactly what a cache is for.
+
+    Keyed on the DB PATH as well as the version, because report_version is a content hash:
+    two different databases holding the same runs and overrides produce the same token, so a
+    version-only key hands one store's board to another. One database in production, but the
+    test suite runs several with identical seeds and caught it immediately.
+
+    A version of None means the token could not be read. That is the one case where caching
+    is worse than not: nothing would ever invalidate the entry, so it would serve the same
+    board until the process restarted. Pay the cost instead.
+
+    The window is keyed to the HOUR (`[:13]` of an ISO stamp), not to the second, and without
+    that the cache could never hit at all: a preset window is resolved from "now", so two
+    requests three seconds apart asked for 2026-05-06T15:34:21Z and ...:24Z and missed every
+    time. Rounding the KEY while computing the exact window is sound here rather than merely
+    tolerable, because report_version already moves on any collect or edit — so within one
+    version no new data exists for a later window edge to include, and the numbers for
+    15:34:21 and 15:34:24 are the same numbers."""
+    import store
+    version = _report_version()
+    # A None key means "do not cache this at all", which keeps the scorer to ONE call site.
+    key = None if version is None else (store.db_path(), version,
+                                        since[:13], until[:13])
+    if key is not None:
+        with _SCORES_LOCK:
+            hit = _SCORES.get(key)
+        if hit is not None:
+            return hit
+    built = store.developer_scores(conn, since, until)
+    if key is not None:
+        with _SCORES_LOCK:
+            if len(_SCORES) >= _SCORES_MAX:
+                _SCORES.clear()      # whole-sale, rather than guessing which to evict
+            _SCORES[key] = built
+    return built
+
+
 def _cached_report_model():
     """The cached model if it is present AND current, else None. Never builds.
 
@@ -1453,12 +1505,33 @@ class Handler(BaseHTTPRequestHandler):
         """
         import store
         try:
-            sc = store.developer_scores(conn, since, until)
+            sc = _cached_scores(conn, since, until)
             subj = sc["by_login"].get(login)
             board = sc["board"]           # full board; the UI reveals past the top 15
             if subj is not None:
                 for r in board:
                     r["vs_self"] = store.compare_row_to(r, subj, sc["active_pillars"])
+            # The window before this one, of the same length, so a delta compares like with
+            # like. Cached, so the second window is paid once per data version rather than
+            # once per person page — and every person on the page shares it.
+            delta, board_deltas = None, {}
+            try:
+                span = (datetime.fromisoformat(until.replace("Z", "+00:00"))
+                        - datetime.fromisoformat(since.replace("Z", "+00:00")))
+                if span.total_seconds() > 0:
+                    p_until = since
+                    p_since = (datetime.fromisoformat(since.replace("Z", "+00:00")) - span).isoformat()
+                    prev = _cached_scores(conn, p_since, p_until)
+                    if subj is not None:
+                        delta = store.score_delta(sc, prev, login)
+                    # Per row, only the total: the counterfactual split is an explanation
+                    # for the page's subject, not a column to skim eighty-seven of.
+                    for r in board:
+                        was = prev["by_login"].get(r["login"])
+                        r["delta"] = (r["score"] - was["score"]) if was else None
+            except Exception as exc:           # noqa: BLE001 — a delta must never take the panel
+                log_degraded(f"score delta for {login} ({since[:10]}->{until[:10]})", exc)
+
             viewer = None
             for ident in self._oauth_idents():
                 viewer = store.person_login_for(conn, ident)
@@ -1471,6 +1544,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Which pillar each signal belongs to, which way is better, and how to
                     # print it. Sent so the client stops carrying its own copy — the
                     # direction is not derivable from anywhere else it can see.
+                    "delta": delta,
                     "signals": store.score_signal_spec(),
                     # the band scale, so the gauge draws its boundaries at the same
                     # thresholds the labels come from
