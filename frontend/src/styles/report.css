@@ -553,20 +553,44 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   /* why-this-rank line + the real-work → team → score chain (card & row expansions) */
   .dsc-whyrank{font-size:12.5px;color:var(--ink2);margin:0 0 9px;line-height:1.45}
   .dsc-whyrank.dsc-selfrow{color:var(--acc);font-weight:700}
-  .dsc-chain{width:100%;border-collapse:collapse;font-size:12px}
-  .dsc-chain th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:left;padding:0 var(--space-2) var(--space-1) 0;border-bottom:1px solid var(--line)}
-  .dsc-chain td{padding:5px var(--space-2) 5px 0;border-bottom:1px solid var(--line);vertical-align:baseline}
-  .dsc-chain tr.off{opacity:.55}
-  .dsc-chain td.pil{font-weight:700;white-space:nowrap}
-  .dsc-chain td.pil .w{font-weight:600;color:var(--mut);font-size:10.5px}
-  .dsc-chain td.work{color:var(--ink)}
-  .dsc-chain td.vs{color:var(--mut);white-space:nowrap}
-  .dsc-chain td.sp{white-space:nowrap;font-variant-numeric:tabular-nums}
-  .dsc-chain td.sp b{font-weight:800}
-  .dsc-chain td.sp .ar{color:var(--mut);margin-left:5px}
-  .dsc-chain tr.gap td.work,.dsc-chain tr.gap td.sp b{color:var(--c-bug-fg)}
-  .dsc-chain tr.tot td{border-bottom:none;font-weight:800;padding-top:7px}
-  .dsc-chain tr.tot td.sp b{font-size:15px}
+  /* Score ingredients. Weight, percentile and points each own a column and the total
+     row states the sum, so the arithmetic reads before any prose does. Numbers are
+     right-aligned and tabular — a column of figures is never flush left. */
+  .dsc-ing{width:100%;border-collapse:collapse;font-size:12px}
+  .dsc-ing th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:0 var(--space-2) var(--space-1) 0;border-bottom:1px solid var(--line)}
+  .dsc-ing th:first-child{text-align:left}
+  .dsc-ing td{padding:6px var(--space-2) 6px 0;border-bottom:1px solid var(--line);vertical-align:middle;text-align:right;font-variant-numeric:tabular-nums}
+  .dsc-ing td.pil{text-align:left;font-variant-numeric:normal;white-space:nowrap}
+  .dsc-ing td.pil .w{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+  .dsc-ing td.pil .nm{font-weight:700}
+  .dsc-ing td.pc,.dsc-ing td.pt{font-weight:700;width:78px}
+  .dsc-ing td.ex{text-align:left;width:88px}
+  .dsc-ing tr.off{opacity:.55}
+  /* A pillar row and its drill row are ONE unit: the rule goes under the pair, not
+     between a row and its own detail. */
+  .dsc-ing tr.drill>td{border-bottom:1px solid var(--line);padding:0 0 var(--space-2)}
+  .dsc-ing tr:has(+tr.drill)>td{border-bottom:none;padding-bottom:2px}
+  .dsc-ing tr.gap td.pt{color:var(--c-bug-fg)}
+  .dsc-ing tr.tot td{border-bottom:none;font-weight:800;padding-top:8px;text-align:left}
+  .dsc-ing tr.tot td.pt{text-align:right}
+  .dsc-drill>summary{cursor:pointer;color:var(--acc-ink);font-size:11.5px}
+  .dsc-drill[open]>summary{margin-bottom:var(--space-2)}
+
+  /* Factor drill. One axis for the whole table: multiples of the team median on a log
+     scale with the median at the centre, so two factors in different units stay
+     comparable and the good side is always the coloured side. */
+  .dsc-fac{width:100%;border-collapse:collapse;font-size:11.5px;margin:0 0 var(--space-2)}
+  .dsc-fac th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:0 var(--space-2) 3px 0;border-bottom:1px solid var(--line2)}
+  .dsc-fac th:first-child{text-align:left}
+  .dsc-fac th:last-child{text-align:center;font-variant-numeric:tabular-nums}
+  .dsc-fac td{padding:4px var(--space-2) 4px 0;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+  .dsc-fac td.fn{text-align:left;font-weight:600;font-variant-numeric:normal}
+  .dsc-fac td.fr{font-weight:700}
+  .dsc-fac tr:last-child td{border-bottom:none}
+  .dsc-ax{position:relative;display:block;height:12px;min-width:110px}
+  .dsc-ax::before{content:"";position:absolute;left:0;right:0;top:5px;height:2px;background:var(--line2);border-radius:var(--r-pill)}
+  .dsc-ax u{position:absolute;top:1px;bottom:1px;left:50%;width:1px;background:var(--ink2)}
+  .dsc-ax b{position:absolute;top:2px;width:8px;height:8px;border-radius:50%;transform:translateX(-50%)}
   .dsc-leg{display:flex;flex-wrap:wrap;gap:var(--space-3);margin:2px 0 var(--space-2);font-size:11px;color:var(--mut)}
   .dsc-leg .dsc-legi{display:inline-flex;align-items:center;gap:5px}
   .dsc-leg i{width:10px;height:10px;border-radius:var(--r-xs);display:inline-block}

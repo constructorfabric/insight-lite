@@ -2527,6 +2527,49 @@ _PILLAR_PRIMARY = {
     "craft":      {"key": "rounds", "label": "review rounds/PR", "lower_better": True},
     "flow":       {"key": "flow", "label": "friction/item", "lower_better": True},
 }
+# How each signal is NAMED and PRINTED. Split from _SCORE_SIGNALS above so the tuple
+# stays the machine-readable definition, but kept next to it because they have to
+# describe the same ten keys — tests/test_developer_score.py asserts exactly that.
+#
+# This exists so the UI does not carry its own copy. A client that hardcodes "rounds is
+# lower-is-better" drifts the first time the model changes, and the direction is not
+# recoverable from anywhere else: the metric registry (_m) has no direction field, so
+# _SCORE_SIGNALS is the only place that knows, and score_signal_spec() is how it travels.
+# `fmt` is a hint, not a format string — the client owns rendering:
+#   int    plain integer, thousands-separated
+#   f1/f2  one / two decimals
+#   hours  one decimal with an h suffix
+#   pct01  a 0..1 ratio printed as a percentage
+_SCORE_SIGNAL_META = {
+    "commits":       ("Commits", "int"),
+    "loc":           ("Meaningful LOC", "int"),
+    "prs_merged":    ("PRs merged", "int"),
+    "reviews_given": ("Reviews given", "int"),
+    "specs":         ("Spec edits", "int"),
+    "ttm":           ("Median merge time", "hours"),
+    "size":          ("PR size", "f1"),
+    "rounds":        ("Review rounds per PR", "f2"),
+    "merge_rate":    ("Merge rate", "pct01"),
+    "flow":          ("Friction per item", "f3"),
+}
+
+
+def score_signal_spec() -> list[dict]:
+    """The score's signals as the UI needs them: which pillar, which way is better, and
+    how to name and print each one. Derived from _SCORE_SIGNALS so the two cannot disagree.
+
+    Ordered by pillar (heaviest weight first) and, inside a pillar, by _SCORE_SIGNALS'
+    own order, so the client can render without sorting and every person's page agrees."""
+    order = sorted(_SCORE_WEIGHTS, key=lambda p: -_SCORE_WEIGHTS[p])
+    out = []
+    for pillar in order:
+        for p, key, direction in _SCORE_SIGNALS:
+            if p != pillar:
+                continue
+            label, fmt = _SCORE_SIGNAL_META[key]
+            out.append({"pillar": pillar, "key": key, "label": label,
+                        "fmt": fmt, "higher_is_better": direction > 0})
+    return out
 
 
 def _score_band(s):

@@ -12,7 +12,7 @@
 // components/SegBar, whose DOM is `<span class="segbar">` with a per-segment
 // data-tip). Swapping in SegBar here would change the class + data-tip
 // structure and break parity, so it is kept verbatim as `.comp`.
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { fmtNum, jr } from "../../lib/format";
 import { PILLAR_COLORS, token } from "../../lib/tokens";
@@ -35,10 +35,17 @@ export type ScoreRow = {
   pillars: ScorePillars; contributions: Record<string, number | null>; drivers: ScoreDrivers;
   rank: number; above?: ScoreAbove | null; vs_self?: VsSelf;
 };
+// store.score_signal_spec(): which pillar a signal feeds, which way is better, and how
+// to print it. Sent by the server precisely so this file does not keep its own copy —
+// the direction is not derivable from anything else the client can see.
+export type ScoreSignal = {
+  pillar: string; key: string; label: string; fmt: string; higher_is_better: boolean;
+};
 export type ScoreBlock = {
   self: ScoreRow | null; board: ScoreRow[]; weights: Record<string, number>;
   n_eligible: number; n_ranked: number; active_pillars: string[];
   team_medians: Record<string, number | null>; min_activity: number; is_self_view: boolean;
+  signals?: ScoreSignal[];
 };
 
 // ---- score-specific format helpers -----------------------------------------
@@ -76,42 +83,153 @@ function fmtValScore(pillar: string, v: number | null): string {
   return `${fmtNum(v)} commits`;
 }
 
-function ScoreChain({ row, active, weights, tm, wsum }: {
-  row: ScoreRow; active: string[]; weights: Record<string, number>;
-  tm: Record<string, number | null>; wsum: number;
+// toFixed, not the jr() used everywhere else, and deliberately. jr() exists for byte
+// parity with the Jinja path: it appends ".0" to a whole number and otherwise prints
+// whatever String() gives, so jr(1, 2) is "1.0" while jr(5.18, 2) is "5.18". Down a
+// column of the same metric that reads as two different formats — "1.0" against "5.18",
+// "0.0" against "0.175" — which is the exact sloppiness this table was rebuilt to remove.
+// These factor columns have no Jinja counterpart to stay parity-identical with, so they
+// pad to a fixed width instead. jr() itself must not change: every other number in the
+// product is rendered through it.
+function fixed(v: number, p: number): string {
+  return v.toFixed(p);
+}
+function fmtSignal(fmt: string, v: number | null): string {
+  if (v === null || v === undefined) return "—";
+  if (fmt === "int") return fmtNum(v);
+  if (fmt === "hours") return `${fixed(v, 1)}h`;
+  if (fmt === "pct01") return `${fixed(100 * v, 1)}%`;
+  if (fmt === "f1") return fixed(v, 1);
+  if (fmt === "f2") return fixed(v, 2);
+  if (fmt === "f3") return fixed(v, 3);
+  return String(v);
+}
+
+// One axis for every factor: multiples of the team median on a log scale, median fixed
+// at the centre. A linear axis cannot serve this data — ratios in production run from
+// 0.1x (merge time well under the median) to 27x (reviews given), so a linear bar pins
+// nearly every row at its maximum and stops distinguishing anything. Returns null when
+// the ratio is undefined, which is not the same as "at the median".
+function axisPos(v: number | null, med: number | null): number | null {
+  if (v === null || v === undefined || !med || med <= 0 || v <= 0) return null;
+  const pos = 50 + 50 * Math.log10(v / med);
+  return Math.max(2, Math.min(98, pos));
+}
+
+function FactorRows({ row, tm, signals }: {
+  row: ScoreRow; tm: Record<string, number | null>; signals: ScoreSignal[];
 }) {
-  const dv = row.drivers;
+  const dv = row.drivers as unknown as Record<string, number | null>;
   return (
-    <table className="dsc-chain">
-      <thead><tr><th>Pillar</th><th>Your real work</th><th>vs team</th><th>Score → pts</th></tr></thead>
+    <table className="dsc-fac">
+      <thead>
+        <tr><th>Factor</th><th>You</th><th>Team</th><th>×median</th><th>0.1× · 1× · 10×</th></tr>
+      </thead>
       <tbody>
-        {PILLAR_ORDER.map((key) => {
-          const on = active.includes(key);
-          const v = row.pillars[key];
-          const pts = row.contributions[key];
-          const work = key === "engagement"
-            ? `${fmtNum(dv.commits)} commits · ${fmtNum(dv.prs_merged)} PRs · ${fmtNum(dv.reviews_given)} reviews · ${fmtNum(dv.specs)} specs`
-            : key === "delivery"
-              ? (dv.ttm !== null ? `${jr(dv.ttm, 1)}h to merge · ${Math.round(dv.size ?? 0)} files/PR` : "no merged PRs")
-              : key === "craft"
-                ? (dv.rounds !== null ? `${jr(dv.rounds, 1)} rounds/PR · ${Math.round(100 * (dv.merge_rate ?? 0))}% merged` : "no PRs opened")
-                : (dv.flow !== null ? `${jr(dv.flow, 2)} friction/item` : "no timeline data");
+        {signals.map((s) => {
+          const mine = dv[s.key] ?? null;
+          const med = tm[s.key] ?? null;
+          const ratio = mine !== null && med !== null && med > 0 ? mine / med : null;
+          const pos = axisPos(mine, med);
+          // "good" is a statement about the ratio and the direction together, which is
+          // the whole reason the direction has to travel with the signal.
+          const good = ratio === null ? null : s.higher_is_better ? ratio >= 1 : ratio <= 1;
+          // --good / --bad, not the chart fills --c-story / --c-bug. tokens.json is explicit
+          // that those are FILLS which measured 3.76:1 as type, which is why --c-bug-fg
+          // exists at all; this column is type, and --good/--bad declare text_on panel.
+          const col = good === null ? "var(--mut)" : good ? token["good"] : token["bad"];
           return (
-            <tr key={key} className={`${!on ? "off" : ""}${on && v === null ? " gap" : ""}`.trim() || undefined}>
-              <td className="pil">{PLABELS[key][0]}{on && <> <span className="w">{Math.round((100 * weights[key]) / wsum)}%</span></>}</td>
-              <td className="work">{work}</td>
-              <td className="vs">
-                {!on ? <span className="mut">not scored (team data gap)</span>
-                  : key === "engagement" ? `team ${fmtNum(tm.prs_merged ?? 0)} PRs`
-                    : key === "delivery" ? (tm.ttm !== null && tm.ttm !== undefined ? `team ${jr(tm.ttm, 1)}h` : "—")
-                      : key === "craft" ? (tm.rounds !== null && tm.rounds !== undefined ? `team ${jr(tm.rounds, 1)} rounds` : "—")
-                        : (tm.flow !== null && tm.flow !== undefined ? `team ${jr(tm.flow, 2)}` : "—")}
+            <tr key={s.key}>
+              <td className="fn">{s.label}</td>
+              <td>{fmtSignal(s.fmt, mine)}</td>
+              <td>{fmtSignal(s.fmt, med)}</td>
+              <td className="fr" style={{ color: col }}>{ratio === null ? "—" : `${fixed(ratio, 1)}×`}</td>
+              <td>
+                <span className="dsc-ax">
+                  <u />
+                  {pos !== null && <b style={{ left: `${pos}%`, background: col }} />}
+                </span>
               </td>
-              <td className="sp">{on ? <><b>{v ?? 0}</b><span className="ar">→ +{pts}</span></> : <span className="mut">—</span>}</td>
             </tr>
           );
         })}
-        <tr className="tot"><td colSpan={3}>Score</td><td className="sp"><b>{row.score}</b></td></tr>
+      </tbody>
+    </table>
+  );
+}
+
+// The pillar breakdown, led by the arithmetic rather than by prose. The previous version
+// showed the same numbers, but a wide free-text "your real work" column dominated the row
+// and the weight was a 10px superscript — read left to right it argued the opposite of the
+// score, which is exactly how a reviewer concluded the total was unexplained. Weight,
+// percentile and points now each own a column, and the total row states the sum.
+function Ingredients({ row, active, weights, tm, wsum, signals }: {
+  row: ScoreRow; active: string[]; weights: Record<string, number>;
+  tm: Record<string, number | null>; wsum: number; signals: ScoreSignal[];
+}) {
+  const order = PILLAR_ORDER.slice().sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+  const parts = order.filter((k) => active.includes(k)).map((k) => row.contributions[k] ?? 0);
+  return (
+    <table className="dsc-ing">
+      <thead>
+        <tr><th>Pillar</th><th>Percentile</th><th>Points</th><th /></tr>
+      </thead>
+      <tbody>
+        {order.map((key) => {
+          const on = active.includes(key);
+          const v = row.pillars[key];
+          const sigs = signals.filter((s) => s.pillar === key);
+          const head = (
+            <>
+              <td className="pil">
+                <span className="w" style={{ color: PCOLOR[key] }}>
+                  {on ? `${Math.round((100 * weights[key]) / wsum)}% of score` : "not scored"}
+                </span>
+                <span className="nm">{PLABELS[key][0]}</span>
+                <span className="mut"> · {sigs.length} factor{sigs.length === 1 ? "" : "s"}</span>
+              </td>
+              <td className="pc">{on ? (v ?? 0) : "—"}</td>
+              <td className="pt">{on ? row.contributions[key] ?? 0 : "—"}</td>
+            </>
+          );
+          // A pillar with no data for this person is a real zero, not a missing row, and a
+          // pillar the whole team lacks is not this person's shortfall — both say so here
+          // rather than looking like a small number.
+          if (!on || !sigs.length) {
+            return (
+              <tr key={key} className={!on ? "off" : undefined}>
+                {head}
+                <td className="ex">{!on && <span className="mut">team data gap</span>}</td>
+              </tr>
+            );
+          }
+          // The drill gets its OWN full-width row rather than a fourth cell. Inside a cell
+          // it inherits that column's width, and a five-column factor table squeezed into
+          // ~90px wraps every label onto three lines — which is how a table meant to make
+          // the numbers legible ends up less legible than the prose it replaced.
+          return (
+            <Fragment key={key}>
+              <tr className={v === null ? "gap" : undefined}>
+                {head}
+                <td className="ex" />
+              </tr>
+              <tr className="drill">
+                <td colSpan={4}>
+                  <details className="dsc-drill">
+                    <summary>{v === null ? nodataMetric(key) : "factors"}</summary>
+                    <FactorRows row={row} tm={tm} signals={sigs} />
+                  </details>
+                </td>
+              </tr>
+            </Fragment>
+          );
+        })}
+        <tr className="tot">
+          <td>Total <span className="mut">— {parts.join(" + ")}</span></td>
+          <td />
+          <td className="pt"><b>{row.score}</b></td>
+          <td />
+        </tr>
       </tbody>
     </table>
   );
@@ -164,6 +282,9 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
   const active = score.active_pillars && score.active_pillars.length
     ? score.active_pillars : PILLAR_ORDER;
   const wsum = active.reduce((s, k) => s + (score.weights[k] || 0), 0) || 1;
+  // Absent only on a payload from before the spec was sent; the pillar rows still
+  // render, they just have nothing to drill into.
+  const signals = score.signals ?? [];
   const you = score.is_self_view ? "you" : login;
   const C = 326.726;
   return (
@@ -191,7 +312,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
             </div>
             <div className="dsc-pillars">
               <WhyRankAbove row={sc} />
-              <ScoreChain row={sc} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} />
+              <Ingredients row={sc} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} />
               <div className="dsc-ctx">
                 <span className="dsc-chip">AI leverage {sc.drivers.ai_share}%</span> share of AI-marked commits — context, not scored.
               </div>
@@ -238,7 +359,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                   </summary>
                   <div className="dsc-drow-body">
                     <VsSelfLine v={r.vs_self ?? null} you={you} />
-                    <ScoreChain row={r} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} />
+                    <Ingredients row={r} active={active} weights={score.weights} tm={score.team_medians} wsum={wsum} signals={signals} />
                   </div>
                 </details>
               ))}

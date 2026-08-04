@@ -62,3 +62,7 @@ frontend/visual/diff/
 
 # per-installation deploy target (host/key/dir) — never in git
 scripts/deploy.env
+
+# Design mockups served against the real stylesheets (scripts serve the repo root).
+# Throwaway by nature and often carry pulled data — not source.
+mockups/

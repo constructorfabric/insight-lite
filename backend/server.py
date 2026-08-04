@@ -1468,6 +1468,10 @@ class Handler(BaseHTTPRequestHandler):
                     "n_eligible": sc["n_eligible"], "n_ranked": sc["n_ranked"],
                     "active_pillars": sc["active_pillars"], "team_medians": sc["team_medians"],
                     "min_activity": sc["min_activity"],
+                    # Which pillar each signal belongs to, which way is better, and how to
+                    # print it. Sent so the client stops carrying its own copy — the
+                    # direction is not derivable from anywhere else it can see.
+                    "signals": store.score_signal_spec(),
                     "is_self_view": (viewer is not None and viewer == login)}, None
         except Exception as exc:           # noqa: BLE001 — never break the dashboard
             log_degraded(f"developer score for {login} ({since[:10]}→{until[:10]})", exc)
