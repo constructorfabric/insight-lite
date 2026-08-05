@@ -296,7 +296,18 @@ function WeeklyTable({ pw }: { pw: Weekly }) {
             Only the LEAF header row is sortable, plus Week. The group row's repo headers are
             colSpan=2, and the sorter maps a header's index within its own row onto cells[idx]
             of the body rows, so a spanning header would read the wrong column. */}
-        <table className="grouped person-weekly dt">
+        {/* Keyed on the data, so new data REMOUNTS the table instead of patching it. That is
+            not tidiness: installSort reorders rows with appendChild, and React reconciles its
+            children against its own record of their order without looking at the DOM. Sort by
+            commits, then change the period, and content follows the virtual list while
+            positions keep the sorted order — the table came back as 07-27, 07-06, 08-03,
+            07-13, 07-20, neither chronological nor sorted, with the header still claiming
+            Commits=descending. A remount gives React a DOM that matches what it thinks it
+            rendered, and resetting to chronological is the right answer for a new window
+            anyway. The signature has to cover everything that changes the rows: the window,
+            whose they are, and which repos became columns. */}
+        <table className="grouped person-weekly dt"
+               key={`${pw.login}|${pw.since}|${pw.until}|${cols.map((c) => c.repo).join(",")}`}>
           <thead>
             <tr className="grp">
               <th className="sortable">Week (starting)</th>
