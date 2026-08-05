@@ -24,7 +24,21 @@ import store
 import tooldefs
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-MAX_HOPS = 8                       # safety bound on tool round-trips per turn
+# Tool round-trips per turn. MAX_HOPS is what every turn gets; a turn that keeps EARNING
+# it may reach MAX_HOPS_CEILING. The axis is progress, not the question: which questions
+# deserve more cannot be known when the turn starts, but "this round got somewhere" is
+# observable — a round is productive when at least one call succeeded and it was not a
+# repeat of a call already made in this turn.
+#
+# Why not simply raise the flat cap: hops are not equal in cost. Each one re-sends the
+# whole transcript, so the last hop of a long turn is the expensive one — a turn in the
+# production log reached 102,779 input tokens with 35 KB of tool results being re-sent.
+# Paying that for a turn that is thrashing buys nothing, which is why an unproductive round
+# does not extend the budget. TOKEN_CEILING stops extension regardless, since a turn can be
+# productive and still be too expensive to keep going.
+MAX_HOPS = 8
+MAX_HOPS_CEILING = 14
+TOKEN_CEILING = 250_000
 
 _SYSTEM = """You are the Constructor Insight metrics assistant. You explain the \
 contribution/delivery report using ONLY live data fetched through the provided tools.
@@ -228,7 +242,8 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
     # when set, the config carries only cached_content (system+tools come from cache).
     cache_name = _get_cache(client)
     eff_config = _cached_config(cache_name) if cache_name else config
-    for _ in range(MAX_HOPS):
+    budget, hop, seen = MAX_HOPS, 0, set()
+    while hop < budget:
         calls, text_parts, model_parts, last_um = [], [], [], None
         for chunk in client.models.generate_content_stream(
                 model=MODEL, contents=contents, config=eff_config):
@@ -263,7 +278,7 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
         # thought_signature carried on each function_call part to be echoed back, so
         # rebuilding from bare function_call values fails with 400 INVALID_ARGUMENT.
         contents.append(types.Content(role="model", parts=model_parts))
-        results = []
+        results, productive = [], False
         for c in calls:
             fn = tooldefs.DISPATCH.get(c.name)
             args = dict(c.args or {})
@@ -277,7 +292,25 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
             if tool_log is not None:
                 tool_log.append({"name": c.name, "args": args, "result": out, "ok": ok})
             results.append(types.Part.from_function_response(name=c.name, response=out))
+            sig = (c.name, json.dumps(args, sort_keys=True, default=str))
+            productive = productive or (ok and sig not in seen)
+            seen.add(sig)
+        # Earn the next round, or don't — then say how many are left. The warning is the
+        # fix the transcript asks for directly: one capped turn composed its final combined
+        # query on the last hop it had and then had nothing left to answer with, and the
+        # finaliser is a net rather than a plan. It is computed AFTER the extension so the
+        # countdown the model sees is the budget it will actually get.
+        if productive and budget < MAX_HOPS_CEILING \
+                and (usage_acc or {}).get("input", 0) < TOKEN_CEILING:
+            budget += 1
+        left = budget - hop - 1
+        if left <= 1:
+            results.append(types.Part.from_text(
+                text=(f"[{left} tool round{'' if left == 1 else 's'} left in this turn. "
+                      "Answer now with what you already have, and say plainly what is "
+                      "missing, rather than calling another tool.]")))
         contents.append(types.Content(role="user", parts=results))
+        hop += 1
     else:
         # Loop ran the full MAX_HOPS without ever finishing (kept calling tools). Force ONE
         # final reply so the user gets a response instead of an empty turn — and if even

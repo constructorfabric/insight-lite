@@ -15,9 +15,11 @@ Two guarantees are pinned here, because either one alone leaves the hole open:
   * whatever happens, the turn emits text — through on_text, since the server assembles
     the answer from the streamed frames and a return value alone reaches nobody.
 """
+import contextlib
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 import chat_agent  # noqa: E402
@@ -32,7 +34,10 @@ class _Part:
 
 
 class _Call:
-    def __init__(self, name="describe_schema", args=None):
+    # Default to a name that is NOT in DISPATCH: the call then resolves to nothing, which
+    # keeps these tests off the real database. Using a real tool here made the first round
+    # succeed by accident, which quietly changed what the budget assertions were measuring.
+    def __init__(self, name="not_a_tool", args=None):
         self.name = name
         self.args = args or {}
 
@@ -72,6 +77,27 @@ class _Client:
         self.models = _Models(final)
 
 
+@contextlib.contextmanager
+def _one_tool_that_works():
+    """Make tool success DELIBERATE. Left to the real DISPATCH, a stub call's success is
+    incidental — passing an argument the real function does not take makes the round
+    unproductive for a reason that has nothing to do with what is being tested."""
+    import tooldefs
+    with patch.dict(tooldefs.DISPATCH, {"probe": lambda **kw: {"rows": [kw]}}, clear=False):
+        yield
+
+
+def _texts(contents):
+    """Every plain text part fed back to the model, in order."""
+    out = []
+    for c in contents:
+        for part in getattr(c, "parts", None) or []:
+            t = getattr(part, "text", None)
+            if t:
+                out.append(t)
+    return out
+
+
 def _run(final):
     """Drive one exhausting turn; return (text, emitted, degraded, client)."""
     emitted, degraded = [], []
@@ -84,8 +110,108 @@ def _run(final):
     return out, emitted, degraded, client
 
 
+class BudgetWarningTest(unittest.TestCase):
+    """The transcript's real complaint: one capped turn composed its final combined query
+    on hop 8 of 8, leaving no round to answer in. The finaliser is a net, not a plan — so
+    the turn is told when the budget is nearly gone, while it can still act on it."""
+
+    def _contents_after_an_exhausting_turn(self):
+        contents = []
+        chat_agent.ask(_Client([_Part(text="done")]), object(), contents)
+        return _texts(contents)
+
+    def test_it_warns_before_the_last_round_not_after(self):
+        warnings = [t for t in self._contents_after_an_exhausting_turn()
+                    if "tool round" in t]
+        self.assertEqual(len(warnings), 2,
+                         "one warning at 1 round left and one at 0 — earlier is noise, "
+                         "later is useless")
+
+    def test_the_warning_counts_down_and_says_what_to_do(self):
+        warnings = [t for t in self._contents_after_an_exhausting_turn()
+                    if "tool round" in t]
+        self.assertIn("1 tool round left", warnings[0])
+        self.assertIn("0 tool rounds left", warnings[1])
+        for w in warnings:
+            self.assertIn("Answer now", w)
+            self.assertIn("what is missing", w)
+
+    def test_a_short_turn_is_never_warned(self):
+        """A model that answers on hop 1 must not see budget talk at all."""
+        class _Quick(_Models):
+            def generate_content_stream(self, model=None, contents=None, config=None):
+                self.hops += 1
+                return [_Chunk([_Part(text="the answer")])]     # no calls -> loop breaks
+
+        client = _Client(None)
+        client.models = _Quick(None)
+        contents = []
+        out = chat_agent.ask(client, object(), contents)
+        self.assertEqual(out, "the answer")
+        self.assertEqual(client.models.hops, 1)
+        self.assertEqual([t for t in _texts(contents) if "tool round" in t], [])
+
+    @staticmethod
+    def _client(fresh_args: bool):
+        """A model that calls `probe` every round — with new arguments each time, or the
+        same ones. That is the whole difference between earning rounds and not."""
+        class _M(_Models):
+            def generate_content_stream(self, model=None, contents=None, config=None):
+                if getattr(config, "tool_config", None) is not None:
+                    self.final_calls += 1
+                    return [_Chunk([_Part(text="done")])]
+                self.hops += 1
+                args = {"n": self.hops} if fresh_args else {"n": 1}
+                return [_Chunk([_Part(call=_Call(name="probe", args=args))])]
+
+        c = _Client(None)
+        c.models = _M(None)
+        return c
+
+    def test_a_turn_that_keeps_getting_somewhere_reaches_the_ceiling(self):
+        with _one_tool_that_works():
+            client = self._client(fresh_args=True)
+            chat_agent.ask(client, object(), [])
+        self.assertEqual(client.models.hops, chat_agent.MAX_HOPS_CEILING)
+
+    def test_repeating_a_call_earns_nothing_after_the_first(self):
+        """Only NEW work extends the budget. A turn whose first call succeeds and is then
+        repeated gets exactly that one round more — the first was real progress, the rest
+        is the thrash the ceiling exists to bound."""
+        with _one_tool_that_works():
+            client = self._client(fresh_args=False)
+            chat_agent.ask(client, object(), [])
+        self.assertEqual(client.models.hops, chat_agent.MAX_HOPS + 1)
+
+    def test_failing_calls_earn_nothing_at_all(self):
+        """New arguments every round, but the tool errors every time. Novelty alone is not
+        progress — otherwise a turn could extend itself by varying a query that never works,
+        which is exactly the shape of the fourteen failures in the transcript."""
+        import tooldefs
+        with patch.dict(tooldefs.DISPATCH,
+                        {"probe": lambda **kw: {"error": "nope"}}, clear=False):
+            client = self._client(fresh_args=True)
+            chat_agent.ask(client, object(), [])
+        self.assertEqual(client.models.hops, chat_agent.MAX_HOPS)
+
+    def test_the_token_ceiling_stops_extension_even_when_productive(self):
+        """A turn can be productive and still be too expensive to continue, because every
+        hop re-sends the whole transcript."""
+        with _one_tool_that_works():
+            client = self._client(fresh_args=True)
+            chat_agent.ask(client, object(), [],
+                           usage_acc={"input": chat_agent.TOKEN_CEILING + 1})
+        self.assertEqual(client.models.hops, chat_agent.MAX_HOPS)
+
+    def test_the_budget_bounds_are_ordered(self):
+        self.assertLess(chat_agent.MAX_HOPS, chat_agent.MAX_HOPS_CEILING)
+        self.assertGreater(chat_agent.TOKEN_CEILING, 0)
+
+
 class OutOfStepsTest(unittest.TestCase):
     def test_the_loop_is_bounded_and_the_finaliser_is_called_once(self):
+        """_run's model calls a tool that does not exist, so no round is productive and the
+        turn stops at the base budget. The ceiling is exercised in BudgetWarningTest."""
         _, _, _, client = _run([_Part(text="here is what I found")])
         self.assertEqual(client.models.hops, chat_agent.MAX_HOPS)
         self.assertEqual(client.models.final_calls, 1)
