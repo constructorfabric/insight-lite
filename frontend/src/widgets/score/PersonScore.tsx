@@ -586,8 +586,11 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
         <div className="dsc-sidec">{(() => {
           const nAct = active.length;
           const thin = score.board.filter((r) => coverage(r, active) < nAct);
-          const lowest = (score.bands_scale ?? [])[0]?.band;
-          const thinLow = thin.filter((r) => r.band === lowest).length;
+          // No "and N of those land in <lowest band>" any more, and not only for length: the
+          // payload bands a thin row, but the TABLE prints "not banded" for it, so the claim
+          // could not be checked against the rows beside it and contradicted the sentence
+          // straight after ("those rows are left unbanded"). Verified on production — all four
+          // thin rows render "not banded" while three carried band=Building in the payload.
           // Band counts, best first — the same order the scale is drawn in the hero, read
           // right to left. Computed here because the board is the only place that knows.
           const bscale = score.bands_scale ?? [];
@@ -597,14 +600,23 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
           })).filter((b) => b.n > 0);
           return (
           <div className="dsc-card">
+            {/* Was a heading and forty words of prose, then fifty-five more under the table.
+                Everything that was a FACT is still here — the population is the meta line, the
+                unbanded count is a figure in the distribution key beside the band counts — and
+                what was a caveat is behind the "?" the page already teaches. "Open a row to
+                see how X compares" is gone: the ingredients card teaches that gesture in the
+                same panel, and teaching it twice is what made this card a wall of text. */}
             <div className="dsc-card-h">
-              <h3>Team standing</h3>
-              <p>
-                Everyone with at least {score.min_activity} commits and PRs this window, ranked.
-                A percentile only means something inside this window and scope, so these scores
-                compare to each other and to nothing else. Open a row to see how {you}{" "}
-                compare{score.is_self_view ? "" : "s"}.
-              </p>
+              <h3>
+                Team standing{" "}
+                <Help
+                  id="dsc-board-help" of="this table"
+                  text={`Scores are percentiles inside this window and scope, so they compare to each other and to nothing else. Not banded means a pillar with no data, which counts as zero — a data gap rather than a result. Anyone under ${score.min_activity} commits and PRs is not scored and is absent, so a name that is not here is not a name that is fine.`}
+                />{" "}
+                <span className="dsc-vs">
+                  {score.board.length} ranked &middot; &ge;{score.min_activity} commits+PRs
+                </span>
+              </h3>
             </div>
 
             {counts.length > 0 && (
@@ -619,6 +631,11 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                   {counts.map((b) => (
                     <em key={b.band}><i style={{ background: b.col }} />{b.band} <b>{b.n}</b></em>
                   ))}
+                  {/* Not a band, so it has no place on the bar — but it is the same question
+                      ("how many people are where?") and the reader is already counting here. */}
+                  {thin.length > 0 && (
+                    <em><i style={{ background: "var(--line2)" }} />Not banded <b>{thin.length}</b></em>
+                  )}
                 </span>
               </div>
             )}
@@ -697,19 +714,6 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                       onClick={() => setShowAll(true)}>Show all {score.board.length}</button>
             )}
 
-            <div className="dsc-gaps">
-              <b>What this table does not know.</b>{" "}
-              {thin.length > 0 && (
-                <>
-                  <b>{thin.length}</b> of the {score.board.length} have no data for at least one
-                  pillar scored this window{thinLow > 0 && <> and <b>{thinLow}</b> of those land in {lowest}</>}
-                  {" "}— a missing pillar counts as zero, so the score is a data gap and not a
-                  result. Those rows are left unbanded.{" "}
-                </>
-              )}
-              Anyone under <b>{score.min_activity}</b> commits and PRs is not scored at all and is
-              absent from this table, so a name that is not here is not a name that is fine.
-            </div>
           </div>
           );
         })()}</div>
