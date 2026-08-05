@@ -539,7 +539,6 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
     /* The first card in each column carries margin-top for the single-column rhythm; at the
        top of a grid track it would push one column below the other. */
     .dsc-sidec>.dsc-card{margin-top:0}
-    .dsc-note{grid-column:1/-1}
     /* No board (no one clears the activity floor) means no second column. Fall all the way
        back to the narrow single column: leaving the panel at 1440 would stretch the hero to
        the full width, which is the thing the cap was there to prevent. */
@@ -679,7 +678,6 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-nodelta{margin:0 0 var(--space-4);font-size:12px;color:var(--mut)}
   /* The closing caveat, on the same rhythm as the cards above it — it was 12px inline
      against their 16, which is the same "patch the gap where you notice it" habit. */
-  .dsc-note{margin:var(--space-4) 0 var(--space-2);font-size:12px;color:var(--mut);line-height:1.55}
 
   /* Score ingredients. Three things to SEE per row — an icon, the pillar with its share,
      and a rating pill. Points sit quietly on the right and the percentile moved into the

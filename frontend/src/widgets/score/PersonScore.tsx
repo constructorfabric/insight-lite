@@ -439,13 +439,19 @@ function WhatsChanged({ d, boardHasDeltas, weights, wsum }: {
   );
 }
 
-function Hero({ row, n, scale }: { row: ScoreRow; n: number; scale: BandStop[] }) {
+function Hero({ row, n, scale, caveat }: { row: ScoreRow; n: number; scale: BandStop[]; caveat: string }) {
   const stops = scale.length ? scale : [{ min: 0, band: row.band, tone: row.tone }];
   const col = bandColor(bandIndex(row.band, stops), stops.length);
   return (
     <div className="dsc-hero">
       <div className="dsc-hero-h">
+        {/* The chip is the warning label, so it is where the warning lives. This used to be
+            110 words of paragraph at the foot of the panel, about half of which the board's
+            meta line and "?" now say ("46 ranked, >=5 commits+PRs", what not banded means).
+            What is left is the part that stops the number being misused, and it hangs off the
+            word that already says be careful. */}
         <span className="dsc-exp">Experimental</span>
+        <Help id="dsc-exp-help" of="this score" text={caveat} />
         <span className="mut">org-relative · this window</span>
       </div>
       <div className="dsc-hero-n">
@@ -552,7 +558,8 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
         <div className="dsc-mainc">
         {sc && sc.score !== null && sc.score !== undefined ? (
           <>
-            <Hero row={sc} n={score.n_ranked || score.n_eligible} scale={score.bands_scale ?? []} />
+            <Hero row={sc} n={score.n_ranked || score.n_eligible} scale={score.bands_scale ?? []}
+                  caveat={`A transparent heuristic to calibrate against outcomes — not a verdict, and no ML. A scored pillar you have no data for (e.g. no PRs opened) counts as 0, a real minus, rather than dropping you from the board; a pillar with too little data across the whole team is a collection gap, not a shortfall, so it is shown not scored and left out for everyone. Known proxies: no true code-complexity signal, and quality is read from review rounds and merge rate, not blame.`} />
             <WhatsChanged d={score.delta ?? null} weights={score.weights} wsum={wsum}
                           boardHasDeltas={(score.board ?? []).some((r) => r.delta !== null && r.delta !== undefined)} />
             <div className="dsc-card">
@@ -732,15 +739,6 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
         })()}</div>
         )}
 
-        <p className="dsc-note">
-          <b>Experimental v0.</b> Each signal is a percentile within the {score.n_eligible} people active this
-          window (≥{score.min_activity} commits+PRs); pillars are averaged, weighted, and normalised.{" "}
-          <b>Everyone active is ranked</b> — a scored pillar you have no data for (e.g. no PRs opened) counts as{" "}
-          <b>0</b>, a real minus, rather than dropping you from the board. A pillar with too little data across the
-          team (a collection gap, not a person's shortfall) is shown <i>not scored</i> and left out for everyone.
-          It's a transparent heuristic to calibrate against outcomes — not a verdict, and no ML. Known proxies: no
-          true code-complexity signal, and quality is read from review rounds / merge rate, not blame.
-        </p>
       </div>
     </div>
   );

@@ -677,11 +677,18 @@ export default function Person() {
         </div>
       </div>
 
-      {/* Page footer, verbatim from the monolith (templates/report.j2 line ~1077).
-          Held back on the empty state only: every term it defines belongs to a panel
-          that is not rendered until a person is selected, so there it was three lines
-          of definitions for nothing. */}
-      {data.dashboard && (
+      {/* Page footer, verbatim from the monolith (templates/report.j2 line ~1077) and
+          duplicated across ten pages. It was already held back on the empty state, for the
+          reason that "every term it defines belongs to a panel that is not rendered" — which
+          is just as true of most VIEWS. Of the four things it defines, Person renders exactly
+          one: Specs, on Composition, which has the "Code vs specs" card. Contributing to
+          Fabric and Using-not-contributing-back describe org-report widgets this page does
+          not have, and "Platform-vs-app below" points at nothing below on any Person view —
+          the only "platform vs app" here is one word in the empty state's tab list. On Score
+          it defined none of its nine terms (measured against the rendered view), which is
+          what made it a wall of text for nothing. Narrowed to the view it speaks about.
+          Trimming the text itself is a ten-page job and is not this change. */}
+      {data.dashboard && view === "work" && (
       <p className="foot">
         Definitions — <b>Contributing to Fabric</b>: any commit, PR, spec edit, bug or user story in{" "}
         <b>any</b> repo of the org (apps included). <b>Using, not contributing back</b>: forked an org
