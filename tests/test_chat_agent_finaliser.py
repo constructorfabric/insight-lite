@@ -43,10 +43,16 @@ class _Call:
 
 
 class _Chunk:
-    def __init__(self, parts):
+    def __init__(self, parts, prompt_tokens=None):
         content = type("C", (), {"parts": parts})()
         self.candidates = [type("D", (), {"content": content})()]
-        self.usage_metadata = None
+        # None unless a test cares: the budget's token ceiling is now counted inside ask()
+        # from what the model reports, not read back out of the caller's optional
+        # accounting dict, so a test about the ceiling has to make the model report.
+        self.usage_metadata = None if prompt_tokens is None else type(
+            "U", (), {"prompt_token_count": prompt_tokens, "candidates_token_count": 0,
+                      "thoughts_token_count": 0, "cached_content_token_count": 0,
+                      "total_token_count": prompt_tokens})()
 
 
 class _Models:
@@ -152,9 +158,10 @@ class BudgetWarningTest(unittest.TestCase):
         self.assertEqual([t for t in _texts(contents) if "tool round" in t], [])
 
     @staticmethod
-    def _client(fresh_args: bool):
+    def _client(fresh_args: bool, prompt_tokens=None):
         """A model that calls `probe` every round — with new arguments each time, or the
-        same ones. That is the whole difference between earning rounds and not."""
+        same ones. That is the whole difference between earning rounds and not.
+        `prompt_tokens` makes it report usage, for the ceiling."""
         class _M(_Models):
             def generate_content_stream(self, model=None, contents=None, config=None):
                 if getattr(config, "tool_config", None) is not None:
@@ -162,7 +169,7 @@ class BudgetWarningTest(unittest.TestCase):
                     return [_Chunk([_Part(text="done")])]
                 self.hops += 1
                 args = {"n": self.hops} if fresh_args else {"n": 1}
-                return [_Chunk([_Part(call=_Call(name="probe", args=args))])]
+                return [_Chunk([_Part(call=_Call(name="probe", args=args))], prompt_tokens)]
 
         c = _Client(None)
         c.models = _M(None)
@@ -198,10 +205,29 @@ class BudgetWarningTest(unittest.TestCase):
         """A turn can be productive and still be too expensive to continue, because every
         hop re-sends the whole transcript."""
         with _one_tool_that_works():
-            client = self._client(fresh_args=True)
-            chat_agent.ask(client, object(), [],
-                           usage_acc={"input": chat_agent.TOKEN_CEILING + 1})
+            client = self._client(fresh_args=True,
+                                  prompt_tokens=chat_agent.TOKEN_CEILING + 1)
+            chat_agent.ask(client, object(), [])
         self.assertEqual(client.models.hops, chat_agent.MAX_HOPS)
+
+    def test_the_ceiling_holds_for_a_caller_that_wants_no_accounting(self):
+        """The review finding: the gate read `(usage_acc or {}).get("input", 0)`, so a
+        caller that passes no accumulator — the CLI, or any direct caller — measured zero
+        spend and got every extension however expensive the turn became."""
+        with _one_tool_that_works():
+            client = self._client(fresh_args=True,
+                                  prompt_tokens=chat_agent.TOKEN_CEILING + 1)
+            chat_agent.ask(client, object(), [], usage_acc=None)
+        self.assertEqual(client.models.hops, chat_agent.MAX_HOPS)
+
+    def test_accounting_still_reaches_the_caller_that_asks_for_it(self):
+        """Counting internally must not stop usage_acc being filled in — the server bills
+        from it."""
+        acc = {}
+        with _one_tool_that_works():
+            client = self._client(fresh_args=True, prompt_tokens=1000)
+            chat_agent.ask(client, object(), [], usage_acc=acc)
+        self.assertGreaterEqual(acc["input"], 1000 * client.models.hops)
 
     def test_the_budget_bounds_are_ordered(self):
         self.assertLess(chat_agent.MAX_HOPS, chat_agent.MAX_HOPS_CEILING)

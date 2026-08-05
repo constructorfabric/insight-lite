@@ -39,25 +39,30 @@ def _tools(seed=True):
             yield tooldefs
 
 
-def _seed(conn, logins=("alice", "bob", "carol"), n=6):
+def _seed(conn, logins=("alice", "bob", "carol"), n=6, month="06", people=True):
     """`n` commits + `n` PRs each, above the score's activity floor of 5, so the board is
-    non-empty and there is a team to be a median of."""
-    conn.execute("INSERT INTO repo (key, org, name, element) VALUES "
-                 "('o/r', 'o', 'r', 'Thing')")
+    non-empty and there is a team to be a median of. `month` so the window BEFORE the one
+    under test can be seeded too: without activity there, store.score_delta has no previous
+    board and returns None."""
+    if people:
+        conn.execute("INSERT INTO repo (key, org, name, element) VALUES "
+                     "('o/r', 'o', 'r', 'Thing')")
     for idx, lg in enumerate(logins):
-        conn.execute("INSERT INTO person (login, name) VALUES (?, ?)", (lg, lg.title()))
+        if people:
+            conn.execute("INSERT INTO person (login, name) VALUES (?, ?)", (lg, lg.title()))
         for i in range(n + idx):            # differing volumes so ranks differ
-            day = f"2026-06-{10 + i:02d}"
+            day = f"2026-{month}-{10 + i:02d}"
             conn.execute(
                 "INSERT INTO commits (repo, sha, committed_at, author_login, additions, "
                 "meaningful_additions, is_spec, ai_marked, is_bot) "
                 "VALUES ('o/r', ?, ?, ?, 10, 8, 0, 0, 0)",
-                (f"{lg}{i}", f"{day}T00:00:00Z", lg))
+                (f"{lg}{month}{i}", f"{day}T00:00:00Z", lg))
             conn.execute(
                 "INSERT INTO pull_request (repo, number, org, author_login, created_at, "
                 "merged_at, changed_files, review_count, is_revert, is_bot, is_migration) "
                 "VALUES ('o/r', ?, 'o', ?, ?, ?, 3, 1, 0, 0, 0)",
-                (100 * (idx + 1) + i, lg, f"{day}T00:00:00Z", f"{day}T06:00:00Z"))
+                (int(month) * 1000 + 100 * (idx + 1) + i, lg,
+                 f"{day}T00:00:00Z", f"{day}T06:00:00Z"))
     conn.commit()
 
 
@@ -152,12 +157,23 @@ class DeveloperScoreTest(unittest.TestCase):
             self.assertIn("change", with_change)
 
     def test_the_change_names_whose_movement_it_was(self):
+        """This test asserted nothing until review caught it. The fixture seeded June only,
+        the previous window is May, so there was no previous board, score_delta returned
+        None, and the defensive `if change is not None` guard skipped every assertion — a
+        guard written for safety that turned the test into a no-op. Both windows are seeded
+        now and the delta is required to exist."""
         with _tools() as t:
+            import store
+            conn = store.connect()
+            _seed(conn, month="05", people=False)      # the window before the one under test
+            conn.close()
             change = t.developer_score("alice", since=SINCE, until=UNTIL,
                                        compare_previous=True)["change"]
-            if change is not None:              # None when the person is new to the board
-                for k in ("prev", "now", "total", "team", "you"):
-                    self.assertIn(k, change)
+            self.assertIsNotNone(change, "both windows are seeded, so a delta must exist")
+            for k in ("prev", "now", "total", "team", "you"):
+                self.assertIn(k, change)
+            self.assertEqual(change["total"], change["team"] + change["you"],
+                             "the split must add up to the move it splits")
 
     def test_an_unscored_login_is_told_why_and_where_to_look(self):
         with _tools() as t:

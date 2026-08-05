@@ -242,7 +242,11 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
     # when set, the config carries only cached_content (system+tools come from cache).
     cache_name = _get_cache(client)
     eff_config = _cached_config(cache_name) if cache_name else config
-    budget, hop, seen = MAX_HOPS, 0, set()
+    # Input tokens are tracked HERE, not read back out of usage_acc: that argument is
+    # optional external accounting, and `(usage_acc or {}).get("input", 0)` read as zero for
+    # every caller that does not pass one — the CLI and any direct caller — so the token
+    # ceiling silently did not apply to them. Caught in review on #9.
+    budget, hop, seen, spent_in = MAX_HOPS, 0, set(), 0
     while hop < budget:
         calls, text_parts, model_parts, last_um = [], [], [], None
         for chunk in client.models.generate_content_stream(
@@ -258,16 +262,18 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
                             on_text(part.text)
                     if getattr(part, "function_call", None):
                         calls.append(part.function_call)
-        if usage_acc is not None and last_um is not None:
+        if last_um is not None:
             pin = getattr(last_um, "prompt_token_count", 0) or 0
             out = (getattr(last_um, "candidates_token_count", 0) or 0) \
                 + (getattr(last_um, "thoughts_token_count", 0) or 0)   # thoughts billed as output
             cached = getattr(last_um, "cached_content_token_count", 0) or 0
-            usage_acc["input"] = usage_acc.get("input", 0) + pin
-            usage_acc["output"] = usage_acc.get("output", 0) + out
-            usage_acc["cached"] = usage_acc.get("cached", 0) + cached
-            usage_acc["total"] = usage_acc.get("total", 0) \
-                + (getattr(last_um, "total_token_count", 0) or (pin + out))
+            spent_in += pin
+            if usage_acc is not None:
+                usage_acc["input"] = usage_acc.get("input", 0) + pin
+                usage_acc["output"] = usage_acc.get("output", 0) + out
+                usage_acc["cached"] = usage_acc.get("cached", 0) + cached
+                usage_acc["total"] = usage_acc.get("total", 0) \
+                    + (getattr(last_um, "total_token_count", 0) or (pin + out))
         if text_parts:
             answer.append("".join(text_parts))
         if not calls:
@@ -300,8 +306,7 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
         # query on the last hop it had and then had nothing left to answer with, and the
         # finaliser is a net rather than a plan. It is computed AFTER the extension so the
         # countdown the model sees is the budget it will actually get.
-        if productive and budget < MAX_HOPS_CEILING \
-                and (usage_acc or {}).get("input", 0) < TOKEN_CEILING:
+        if productive and budget < MAX_HOPS_CEILING and spent_in < TOKEN_CEILING:
             budget += 1
         left = budget - hop - 1
         if left <= 1:

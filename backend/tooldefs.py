@@ -61,12 +61,14 @@ def describe_schema() -> dict:
     `joins` before writing a WHERE or a JOIN: the repo key is the trap."""
     conn = store.connect()
     out = {}
-    for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
-                             "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
-        if t in BLOCKED_TABLES:
-            continue
-        out[t] = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
-    conn.close()
+    try:
+        for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                                 "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
+            if t in BLOCKED_TABLES:
+                continue
+            out[t] = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
+    finally:
+        conn.close()
     # The schema declares no foreign keys, so nothing in the columns above says which of
     # repo's two identifiers a `repo` column refers to — and the wrong guess does not
     # error. Measured on production: for all twelve tables with a `repo` column, joining
