@@ -512,9 +512,41 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
      reads as a box inside a box. */
   .dsc{margin-top:var(--space-5);max-width:940px}
   .dsc .mut{color:var(--mut);font-weight:500}
+  /* The chip and its "?" are one thing in a space-between row. */
+  .dsc-exp-w{display:inline-flex;align-items:center;gap:6px}
   .dsc-exp{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--exp-fg);
     background:var(--exp-bg);border:1px solid var(--exp-line);border-radius:var(--r-pill);padding:1px 7px}
   .dsc-body{padding:0}
+  /* The panel used to be capped at 940px, which left ~690px of dead space beside it on a
+     wide screen while every block inside was already at a comfortable measure. Uncapping
+     just moves the emptiness inward — measured at 1587px available: the split tiles go to
+     494px under a 26px number and the change table to 1545px between a pillar's name and
+     its numbers. So the width gets USED instead.
+     Not a 2x2 grid: the blocks are 219 / 422 / 484 / 925px tall, and a grid row is as tall
+     as its tallest cell, so pairing them off leaves 644px of holes INSIDE the panel — worse
+     than the gap it was meant to close. Independent columns instead, grouped so the heights
+     land near each other: you (219+422+484) beside everyone (925).
+     display:contents below the breakpoint means the wrappers do not exist for layout, so
+     the single-column order is the DOM order and needs no override. */
+  .dsc-mainc,.dsc-sidec{display:contents}
+  /* 1700px, not 1280: this panel sits inside the sidebar and two levels of padding, ~340px
+     of overhead here, so a 1440 laptop would get two 540px columns — narrower than the
+     900px the tables are laid out for. Below the breakpoint one 940px column is the better
+     shape anyway, and the space beside it is too small to read as a hole. */
+  @media(min-width:1700px){
+    .dsc{max-width:1440px}
+    .dsc-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+      column-gap:var(--space-4);align-items:start}
+    .dsc-mainc,.dsc-sidec{display:block;min-width:0}
+    /* The first card in each column carries margin-top for the single-column rhythm; at the
+       top of a grid track it would push one column below the other. */
+    .dsc-sidec>.dsc-card{margin-top:0}
+    /* No board (no one clears the activity floor) means no second column. Fall all the way
+       back to the narrow single column: leaving the panel at 1440 would stretch the hero to
+       the full width, which is the thing the cap was there to prevent. */
+    .dsc:not(:has(.dsc-sidec)){max-width:940px}
+    .dsc-body:not(:has(.dsc-sidec)){display:block}
+  }
   .dsc-pil{margin:0 0 11px}
   .dsc-pil-h{display:flex;align-items:baseline;gap:var(--space-2)}
   .dsc-pil-n{font-size:13px;font-weight:700}
@@ -564,15 +596,45 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-hero-n .of{color:var(--mut);padding-bottom:5px;font-size:13px}
   .dsc-hero-n .dsc-pill{margin-left:auto}
   .dsc-scale{margin-top:var(--space-4)}
-  .dsc-scale-t{position:relative;display:block;height:6px;border-radius:var(--r-pill);background:var(--line2);overflow:hidden}
-  .dsc-scale-t i{position:absolute;top:0;bottom:0;left:0;border-radius:var(--r-pill)}
-  .dsc-scale-t u{position:absolute;top:0;bottom:0;width:2px;background:var(--panel)}
-  .dsc-scale-m{position:relative;display:block;height:0}
-  /* The ring around the marker is the PAGE showing through, so it has to be the surface
-     the hero actually sits on. */
-  .dsc-scale-m b{position:absolute;top:-13px;width:13px;height:13px;border-radius:50%;border:3px solid var(--panel);transform:translateX(-50%)}
-  .dsc-scale-k{position:relative;display:block;height:15px;margin-top:4px;font-size:10.5px;font-variant-numeric:tabular-nums}
-  .dsc-scale-k em{position:absolute;transform:translateX(-50%);font-style:normal;color:var(--mut)}
+  /* Boundaries above, the gradation behind, names over it, tick below. The ramp runs
+     --bad -> --warn -> --c-story -> --good: monotonic in HUE (red, amber, green, deep green),
+     which is what makes the good end obvious without a legend. Names carry a shadow rather
+     than a per-segment colour, because the background underneath them varies continuously. */
+  .dsc-scale-k{position:relative;display:block;height:14px;font-size:10.5px;color:var(--mut);
+    font-variant-numeric:tabular-nums}
+  .dsc-scale-k em{position:absolute;transform:translateX(-50%);font-style:normal}
+  /* The end labels sit ON the ends, so centring them hangs half of each past the bar: "100"
+     at left:100% overflowed its container by 10px at any width. Align them to the edge they
+     mark instead, the way an axis does. */
+  .dsc-scale-k em:first-child{transform:none}
+  .dsc-scale-k em:last-child{transform:translateX(-100%)}
+  .dsc-scale-t{position:relative;display:block;height:20px;border-radius:var(--r-xs);
+    background:linear-gradient(to right,var(--bad) 0%,var(--warn) 34%,
+      var(--c-story) 67%,var(--good) 100%)}
+  .dsc-scale-t em{position:absolute;top:0;line-height:20px;transform:translateX(-50%);
+    font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--tooltip-fg);white-space:nowrap;
+    text-shadow:0 1px 2px rgba(0,0,0,.55)}
+  /* The names sit on their band's MIDPOINT, so what has to fit is not their total width but
+     the distance between neighbours: at shares of 30/20/20/30 the tightest pair needs
+     (65+30)/2 <= 0.20 x bar, about 238px of bar. At a 320px window the bar is 204 and
+     Building, Developing and Solid ran into each other.
+     inline-size queries resolve against the container's CONTENT box, so 300 here is asked of
+     the bar itself, not of the hero's 40px-padded outer width. It is deliberately above the
+     238 the geometry needs: band names come from config.yaml and can be renamed to anything,
+     and 21px of slack (a 375px phone gives a 259px bar) does not survive one longer word.
+     The cost is that a normal phone shows only the two ends — which is what the names are
+     load-bearing for, telling you which END is better. The band you are actually in is named
+     in the pill beside the number either way. Asked of the hero rather than the window for
+     the same reason the board row asks its card. */
+  .dsc-hero{container-type:inline-size}
+  @container (max-width:300px){
+    .dsc-scale-t em:not(:first-child):not(:last-child){display:none}
+  }
+  .dsc-scale-m{position:relative;display:block;height:12px}
+  .dsc-scale-m b{position:absolute;top:0;left:0;width:0;height:0;transform:translateX(-50%);
+    border-left:5px solid transparent;border-right:5px solid transparent;
+    border-bottom:6px solid var(--ink)}
   .dsc-hero-f{display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:12px;color:var(--mut)}
   .dsc-hero-f b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 
@@ -601,18 +663,23 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-split>div{flex:1;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-lg);padding:var(--space-3) var(--space-4)}
   .dsc-split .lb{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
   .dsc-split b{display:block;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .dsc-split .why{display:block;font-size:11.5px;color:var(--ink2)}
+  .dsc-split .why{display:block;font-size:11.5px;color:var(--ink2);margin-top:3px}
+  /* Three tiles in a row need about 170px each before the LABELS start wrapping — at
+     375px they were 75px wide and "From the team" broke over three lines. 760px is the
+     breakpoint the rest of this file uses for one-column fallbacks. */
+  @media(max-width:760px){ .dsc-split{flex-direction:column} }
   .dsc-chg{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 var(--space-2)}
   .dsc-chg th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);font-weight:700;text-align:right;padding:var(--space-2) var(--space-2) 4px 0;border-bottom:1px solid var(--line2)}
   .dsc-chg th:first-child{text-align:left;padding-left:var(--space-5)}
   .dsc-chg th:last-child,.dsc-chg td:last-child{padding-right:var(--space-5)}
   .dsc-chg td{padding:6px var(--space-2) 6px 0;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
   .dsc-chg td:first-child{text-align:left;padding-left:var(--space-5);font-weight:600;font-variant-numeric:normal}
-  .dsc-chg tr:last-child td{border-bottom:none}
+  .dsc-chg td .sh{display:block;font-weight:400;font-size:10.5px;color:var(--mut)}
+  .dsc-chg tfoot td{border-top:1px solid var(--line2);border-bottom:none;font-weight:800;
+    padding-top:8px}
   .dsc-nodelta{margin:0 0 var(--space-4);font-size:12px;color:var(--mut)}
   /* The closing caveat, on the same rhythm as the cards above it — it was 12px inline
      against their 16, which is the same "patch the gap where you notice it" habit. */
-  .dsc-note{margin:var(--space-4) 0 var(--space-2);font-size:12px;color:var(--mut);line-height:1.55}
 
   /* Score ingredients. Three things to SEE per row — an icon, the pillar with its share,
      and a rating pill. Points sit quietly on the right and the percentile moved into the
@@ -691,12 +758,8 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-dist-k em{display:inline-flex;align-items:center;gap:6px;font-style:normal}
   .dsc-dist-k i{width:8px;height:8px;border-radius:50%}
   .dsc-dist-k b{color:var(--ink);font-variant-numeric:tabular-nums}
-  .dsc-gaps{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--line);font-size:11.5px;color:var(--mut);line-height:1.5}
-  .dsc-gaps b{color:var(--ink)}
+  .dsc-dist-k em.none i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--mut)}
 
-  .dsc-leg{display:flex;flex-wrap:wrap;gap:var(--space-3);margin:2px 0 var(--space-2);font-size:11px;color:var(--mut)}
-  .dsc-leg .dsc-legi{display:inline-flex;align-items:center;gap:5px}
-  .dsc-leg i{width:10px;height:10px;border-radius:var(--r-xs);display:inline-block}
   /* Same grid as .dsc-drow summary, so the labels sit over their columns. */
   .dsc-rowh{display:grid;grid-template-columns:26px 1fr 130px 42px 112px 44px 40px;align-items:center;
     gap:var(--space-3);padding:0 10px var(--space-2);font-size:10px;font-weight:700;
@@ -722,6 +785,47 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-drow[open] summary{background:var(--panel2)}
   .dsc-drow-body{padding:var(--space-2) 10px var(--space-4) 46px}
   .dsc-rows.capped > .dsc-drow:nth-child(n+16){display:none}
+  /* NARROW LAYOUT. Two separate jobs, and the second one must NOT be measured against the
+     viewport — that was the mistake worth recording. The row lives inside a sidebar and two
+     levels of padding, so at a 901px window its container is 502px and a viewport-keyed rule
+     saw "901, plenty" while the name column was squeezed to 20px. The container is the thing
+     that decides, so the container is what gets asked.
+
+     1. CONTAINMENT. Whatever still cannot fit scrolls ITSELF, so the page never does. Keyed
+        to the viewport because a container query cannot style its own container, and set
+        generously — an earlier attempt at the computed edge (430px) still let a 431px window
+        push the page 5px sideways. A rule that only just fits does not fit.
+     2. COLUMNS. Dropped as the CONTAINER narrows, in order of what a phone can do without,
+        and the header loses the same POSITION as the row so the two cannot drift:
+          3 Make-up  the segbar, decoration at this size
+          7 Data     the coverage caveat, which the row's own drill repeats
+          5 Band     a bucketing of the score, and the score is right beside it
+        Delta stays: it is the one number on the row you cannot derive from the others.
+        Seven columns are 394px plus 72px of gaps, so they need ~566px of row before the name
+        (1fr) has anything left; the row is the card less 40px of card padding and 20px of its
+        own, hence 626. Five need 272+name, hence 412. */
+  @media(max-width:1100px){
+    .dsc-mainc .dsc-card,.dsc-drow-body{overflow-x:auto}
+  }
+  .dsc-card{container-type:inline-size}
+  @container (max-width:626px){
+    .dsc-rowh,.dsc-drow summary{grid-template-columns:26px minmax(0,1fr) 42px 112px 44px}
+    .dsc-rowh > :nth-child(3),.dsc-drow summary > :nth-child(3),
+    .dsc-rowh > :nth-child(7),.dsc-drow summary > :nth-child(7){display:none}
+  }
+  @container (max-width:412px){
+    .dsc-rowh,.dsc-drow summary{grid-template-columns:26px minmax(0,1fr) 42px 44px}
+    .dsc-rowh > :nth-child(5),.dsc-drow summary > :nth-child(5){display:none}
+    /* The same column, for the same reason, in the pillar tables. */
+    .dsc-ing .bd{display:none}
+    /* And their horizontal padding, which is where a surprising amount of the width was:
+       eight per side across five columns is 80px of a 261px table. Vertical padding is
+       untouched, so the rows keep their rhythm. */
+    .dsc-ing td{padding-left:var(--space-1);padding-right:var(--space-1)}
+    /* 46px of that indent aligns a drill under the name column on a desktop row; on a phone
+       it was spending 18% of the width on alignment. */
+    .dsc-drow-body{padding-left:var(--space-3)}
+  }
   /* segbar component — a stacked proportional bar + optional swatch legend */
   .segbar{display:flex;width:100%;border-radius:var(--r-xs);overflow:hidden;background:var(--panel2)}
   .segbar i{display:block;height:100%}

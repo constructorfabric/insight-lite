@@ -66,7 +66,11 @@ const draft: { open: boolean; from: string | null; to: string | null } = {
 // The "?" beside a control's label. `of` names the control so the button announces as
 // "What Period covers"; `text` is both the hover tooltip and, via the hidden <span>,
 // what a screen reader gets when it reaches the description.
-function Help({ id, text, of }: { id: string; text: string; of: string }) {
+//
+// Exported because the score panel needs the same affordance, and a second copy would be
+// two things to keep in step — including the hidden span, which is the part a duplicate
+// quietly loses.
+export function Help({ id, text, of }: { id: string; text: string; of: string }) {
   return (
     <>
       <button

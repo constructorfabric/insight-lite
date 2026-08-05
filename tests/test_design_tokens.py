@@ -202,6 +202,41 @@ class NoStrayColoursTest(unittest.TestCase):
         self.assertEqual(
             self._offenders(files, lambda t: re.sub(r"//[^\n]*|/\*.*?\*/", "", t, flags=re.S)), [])
 
+    def test_the_js_token_map_is_not_used_where_a_css_variable_would_flip(self):
+        """lib/tokens.ts is GENERATED from the light palette only, so a colour taken from
+        it does not change in dark mode. That is fine for a value which leaves CSS
+        altogether — recharts writes SVG presentation attributes, where var() does not
+        resolve — and wrong for anything landing in an inline `color:` / `background:`,
+        because a custom property there resolves against the active theme.
+
+        This is not hypothetical. PersonScore coloured the score-delta numbers with
+        token["bad"], so dark mode drew them in the LIGHT red: #d41e24 on the dark panel
+        is 2.93:1, under the 3:1 a 26px bold number needs. The same BAND_RAMP line had
+        already been copied into CalibrateEditor, which is what a guard is for."""
+        src = ROOT / "frontend" / "src"
+        # file -> why a real value, rather than var(), is correct there.
+        ALLOW = {
+            # Legend swatches printed beside a recharts series; they have to match the
+            # colour the chart itself puts in an SVG attribute.
+            "frontend/src/pages/Trend.tsx",
+            # Fallback for the per-company palette, which is generated at runtime and
+            # compared against by value.
+            "frontend/src/pages/ConfigEditor.tsx",
+            "frontend/src/pages/IdentityEditor.tsx",
+        }
+        use = re.compile(r"""\btoken\[\s*["']([^"']+)["']\s*\]""")
+        offenders = []
+        for path in sorted(list(src.rglob("*.tsx")) + list(src.rglob("*.ts"))):
+            rel = str(path.relative_to(ROOT))
+            if rel in ALLOW or path.name == "tokens.ts":
+                continue
+            text = re.sub(r"//[^\n]*|/\*.*?\*/", "", path.read_text(), flags=re.S)
+            for m in use.finditer(text):
+                line = text[:m.start()].count("\n") + 1
+                offenders.append(f"{rel}:{line} token[{m.group(1)!r}] "
+                                 f"— use var(--{m.group(1)}) so it flips with the theme")
+        self.assertEqual(offenders, [])
+
     def test_no_colour_literal_in_the_backend(self):
         """The backend emits colours inside API payloads, so it holds values rather
         than var() references — but they come from tokens.VALUES, not from literals.
