@@ -440,7 +440,11 @@ export function installSort(): () => void {
     const heads = th.parentNode!.children,
       idx = Array.prototype.indexOf.call(heads, th);
     const dir = th.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
-    for (let i = 0; i < heads.length; i++) heads[i].removeAttribute("aria-sort");
+    // Cleared across the WHOLE table, not just this header's row. Every dt table had a
+    // single-row thead until the person weekly table, which groups repos above a leaf row
+    // of Commits/Lines: sorting by Week (top row) and then by Commits (leaf row) left the
+    // first arrow showing, so two columns claimed to be the sort key at once.
+    table.querySelectorAll("th[aria-sort]").forEach((h) => h.removeAttribute("aria-sort"));
     th.setAttribute("aria-sort", dir);
     const all = Array.prototype.slice.call(tbody.rows) as HTMLTableRowElement[];
     const ctrl = all.filter((r) => r.classList.contains("more") || r.querySelector("td[colspan]"));
