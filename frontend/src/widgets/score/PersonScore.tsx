@@ -450,8 +450,14 @@ function Hero({ row, n, scale, caveat }: { row: ScoreRow; n: number; scale: Band
             meta line and "?" now say ("46 ranked, >=5 commits+PRs", what not banded means).
             What is left is the part that stops the number being misused, and it hangs off the
             word that already says be careful. */}
-        <span className="dsc-exp">Experimental</span>
-        <Help id="dsc-exp-help" of="this score" text={caveat} />
+        {/* Wrapped, because .dsc-hero-h is a space-between flex row and Help renders TWO
+            nodes: dropped in loose they became separate flex items, so the "?" was dealt out
+            to the middle of the row — 329px into a 716px header, 229px from the chip it
+            belongs to. One item, and it sits against the word again. */}
+        <span className="dsc-exp-w">
+          <span className="dsc-exp">Experimental</span>
+          <Help id="dsc-exp-help" of="this score" text={caveat} />
+        </span>
         <span className="mut">org-relative · this window</span>
       </div>
       <div className="dsc-hero-n">
