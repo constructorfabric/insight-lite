@@ -47,17 +47,44 @@ def _repos(conn, scope: str):
 
 
 # ---- tools -----------------------------------------------------------------
+# Columns that carry a person's GitHub login, and therefore join person.login. Listed
+# because the name differs per table (author_login / reviewer_login / actor_login / login)
+# and guessing costs a tool round-trip.
+_LOGIN_COLUMNS = ("author_login", "reviewer_login", "actor_login", "login")
+
+
 def describe_schema() -> dict:
-    """List the report database's tables and their columns — start here to know
-    what sql_query can select from (commits, pull_request, issue, ci_run,
-    work_item_status, person, repo, traffic, review, snapshots, override, …)."""
+    """List the report database's tables and their columns, and how they join — start
+    here to know what sql_query can select from (commits, pull_request, issue, ci_run,
+    work_item_status, person, repo, traffic, review, snapshots, override, …). Read
+    `joins` before writing a WHERE or a JOIN: the repo key is the trap."""
     conn = store.connect()
     out = {}
     for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
                              "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
         out[t] = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
     conn.close()
-    return {"tables": out}
+    # The schema declares no foreign keys, so nothing in the columns above says which of
+    # repo's two identifiers a `repo` column refers to — and the wrong guess does not
+    # error. Measured on production: for all twelve tables with a `repo` column, joining
+    # repo.key matches every row and joining repo.name matches ZERO. A query that filters
+    # `repo IN (SELECT name FROM repo WHERE element=?)` therefore succeeds and returns an
+    # empty result, which is how the assistant answered a question about an element with
+    # nothing at all and then spent three more hops hunting for why.
+    repo_tables = sorted(t for t, cols in out.items() if t != "repo" and "repo" in cols)
+    login_tables = sorted(f"{t}.{c}" for t, cols in out.items() if t != "person"
+                          for c in _LOGIN_COLUMNS if c in cols)
+    return {"tables": out, "joins": {
+        "repo": {
+            "columns": [f"{t}.repo" for t in repo_tables],
+            "join_to": "repo.key",
+            "warning": "repo.key is the 'org/name' form and is what every `repo` column "
+                       "holds. repo.name is the bare name and joins NOTHING — filtering "
+                       "on it does not error, it silently returns zero rows. "
+                       "list_dimension(kind='repos') returns keys, ready to use.",
+        },
+        "person": {"columns": login_tables, "join_to": "person.login"},
+    }}
 
 
 def sql_query(sql: str, limit: int = 200) -> dict:
