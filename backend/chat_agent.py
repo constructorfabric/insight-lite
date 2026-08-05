@@ -20,6 +20,7 @@ import json
 import os
 import sys
 
+import store
 import tooldefs
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -38,9 +39,10 @@ Hard rules:
   person scope: 'person:<login>' is invalid and will error. For ONE person use
   person(login=…) for their profile/all-time dimension, list_items(author=<login>) to
   count or list their items, or sql_query — never scope=person:…
-- sql_query: call describe_schema() FIRST and use the exact table/column names it
-  returns — do not guess (e.g. the PR table is 'pull_request', not 'pr'). If a query
-  errors, fix it from the schema rather than retrying variants blindly.
+- sql_query: the table names and the join rule are in GROUNDING below — use them. Call
+  describe_schema() when you need a table's COLUMNS, and use the exact names it returns
+  rather than guessing. A failed query answers with the right names; read it and fix the
+  query rather than retrying variants blindly.
 - Prefer trend() for "how did X change over time" and list_items() to show the
   rows behind a number (each row has a GitHub URL you can cite).
 - Exclude bots/migration rows unless the user asks for them.
@@ -49,6 +51,53 @@ Hard rules:
   author=<login>). If `asking_as` is absent and the question is first-person, ask who
   they mean rather than guessing.
 - Be concise. Show the concrete numbers, then a short 'why'. Don't dump raw JSON."""
+
+
+def _grounding() -> str:
+    """The table names and the repo-key rule, appended to the system instruction.
+
+    The rule especially. Every fact table's `repo` column holds repo.key ('org/name'), and
+    a query that filters on repo.name instead does not error — it returns zero rows. That
+    is in describe_schema's output now, but only for a turn that calls it; in the
+    transcript one turn answered a question about an element from an empty result and then
+    spent three hops working out why. A silent wrong answer is worth carrying in the
+    always-present context rather than behind a tool call.
+
+    Best-effort: if the database cannot be read while the config is being built, the
+    assistant runs without this rather than failing to start."""
+    try:
+        conn = store.connect()
+        try:
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY name")
+                      if r[0] not in tooldefs.BLOCKED_TABLES]
+        finally:
+            conn.close()
+    except Exception:                              # noqa: BLE001 — grounding is optional
+        return ""
+    if not tables:
+        return ""
+    return ("\n\nGROUNDING (live, do not re-derive):\n"
+            "- Tables: " + ", ".join(tables) + "\n"
+            "- Joining repos: every table with a `repo` column holds repo.key, the "
+            "'org/name' form. repo.name is the bare name and matches NOTHING — filtering "
+            "on it does not error, it silently returns zero rows. "
+            "list_dimension(kind='repos') returns keys.\n"
+            "- Joining people: person.login, via author_login / reviewer_login / "
+            "actor_login / login depending on the table.")
+
+
+_SYSTEM_FULL = None
+
+
+def _system() -> str:
+    """System instruction plus grounding, resolved once per process. It feeds the cache
+    key, so a schema change rebuilds the cached prefix instead of serving a stale one."""
+    global _SYSTEM_FULL
+    if _SYSTEM_FULL is None:
+        _SYSTEM_FULL = _SYSTEM + _grounding()
+    return _SYSTEM_FULL
 
 
 def _build_client():
@@ -71,7 +120,7 @@ def _tools_config():
     from google.genai import types
     decls = [types.FunctionDeclaration(**d) for d in tooldefs.declarations()]
     return types.GenerateContentConfig(
-        system_instruction=_SYSTEM,
+        system_instruction=_system(),
         tools=[types.Tool(function_declarations=decls)],
         temperature=0,
     )
@@ -101,7 +150,7 @@ def _final_config():
         from google.genai import types
         decls = [types.FunctionDeclaration(**d) for d in tooldefs.declarations()]
         _FINAL = types.GenerateContentConfig(
-            system_instruction=_SYSTEM,
+            system_instruction=_system(),
             tools=[types.Tool(function_declarations=decls)],
             tool_config=types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(
@@ -131,7 +180,7 @@ def _cache_ttl() -> int:
 
 def _cache_key() -> str:
     import hashlib
-    blob = MODEL + "\n" + _SYSTEM + "\n" + json.dumps(tooldefs.declarations(), sort_keys=True)
+    blob = MODEL + "\n" + _system() + "\n" + json.dumps(tooldefs.declarations(), sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
@@ -149,7 +198,7 @@ def _get_cache(client):
     try:
         decls = [types.FunctionDeclaration(**d) for d in tooldefs.declarations()]
         cache = client.caches.create(model=MODEL, config=types.CreateCachedContentConfig(
-            system_instruction=_SYSTEM,
+            system_instruction=_system(),
             tools=[types.Tool(function_declarations=decls)],
             ttl=f"{ttl}s", display_name="insight-metrics-assistant"))
         _CACHE.update(name=cache.name, key=key, expire=now + ttl)

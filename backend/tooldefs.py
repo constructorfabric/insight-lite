@@ -63,6 +63,8 @@ def describe_schema() -> dict:
     out = {}
     for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
                              "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
+        if t in BLOCKED_TABLES:
+            continue
         out[t] = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
     conn.close()
     # The schema declares no foreign keys, so nothing in the columns above says which of
@@ -97,13 +99,30 @@ def describe_schema() -> dict:
 # the alternatives turns a wasted hop into a corrective one.
 _IDENT = re.compile(r"\b(?:from|join|update|into)\s+([a-z_][a-z0-9_]*)", re.I)
 
+# Tables the assistant must not read. `secret` holds credentials as key/value — on
+# production, the MCP API token — and sql_query accepts any statement beginning with
+# SELECT, so the chat could be asked for it and would run the query. No analytical question
+# needs it. Enforced with SQLite's authorizer rather than by pattern-matching the SQL,
+# because the authorizer sees the resolved table name: quoting, aliases, views, CTEs and
+# subqueries cannot route around it. Also withheld from describe_schema and from the
+# assistant's grounding, so it is neither offered nor advertised.
+BLOCKED_TABLES = frozenset({"secret"})
+
+
+def _deny_blocked(action, arg1, arg2, dbname, source):
+    """SQLite authorizer: refuse any read of a blocked table."""
+    import sqlite3
+    if action == sqlite3.SQLITE_READ and (arg1 or "").lower() in BLOCKED_TABLES:
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
+
 
 def _sql_hint(conn, sql: str, msg: str) -> dict:
     """Extra fields for a failed sql_query: what the right names are, when we can tell."""
     hint = {}
     tables = [r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' "
-        "ORDER BY name")]
+        "ORDER BY name") if r[0] not in BLOCKED_TABLES]
     m = re.search(r"no such table:\s*([\w.]+)", msg)
     if m:
         bad = m.group(1)
@@ -155,6 +174,7 @@ def sql_query(sql: str, limit: int = 200) -> dict:
     conn = store.connect()
     try:
         conn.execute("PRAGMA query_only=ON")
+        conn.set_authorizer(_deny_blocked)
         cur = conn.execute(s)
         cols = [c[0] for c in cur.description] if cur.description else []
         rows = [dict(zip(cols, r)) for r in cur.fetchmany(limit)]
