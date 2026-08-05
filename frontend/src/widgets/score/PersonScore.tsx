@@ -634,13 +634,24 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                   {/* Not a band, so it has no place on the bar — but it is the same question
                       ("how many people are where?") and the reader is already counting here. */}
                   {thin.length > 0 && (
-                    <em><i style={{ background: "var(--line2)" }} />Not banded <b>{thin.length}</b></em>
+                    // .none, not a --line2 fill: that was 1.25:1 on the white card, i.e. no
+                    // marker at all, where the band swatches run 3.87-5.24. A ring says
+                    // "no band" without borrowing a band's colour.
+                    <em className="none"><i />Not banded <b>{thin.length}</b></em>
                   )}
                 </span>
               </div>
             )}
 
+            {/* This row and the band counts above it were two lists of coloured dots with
+                labels, stacked, decoding DIFFERENT things — the counts explain the bar above,
+                these explain the Make-up column below — and three of the four pillar colours
+                sit within ~60 of RGB distance of a band colour (Flow/Developing 55,
+                Engagement/Solid 58, Craft/Strong 63), so the pair read as one repeated list.
+                Naming the column it belongs to, and sitting against the table rather than
+                against the bar, is what tells them apart. */}
             <div className="dsc-leg">
+              <span className="dsc-leg-h">Make-up</span>
               {PILLAR_ORDER.filter((k) => active.includes(k)).map((k) => (
                 <span key={k} className="dsc-legi"><i style={{ background: PCOLOR[k] }} />{PLABELS[k][0]}</span>
               ))}
