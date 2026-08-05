@@ -12,6 +12,7 @@ Keep them accurate.
 """
 from __future__ import annotations
 
+import difflib
 import inspect
 import re
 from datetime import datetime, timezone
@@ -87,6 +88,59 @@ def describe_schema() -> dict:
     }}
 
 
+# What a failed query gets told back. Every one of the fourteen sql_query failures in the
+# production transcript was a name or dialect guess — `author` for author_login, `pr` for
+# pull_request, `commit` (a reserved word) for commits, ILIKE and information_schema from
+# Postgres — and each one came back as the bare sqlite message: "no such column: author".
+# That costs a tool round-trip and teaches nothing, so the model would call describe_schema
+# again, or SELECT sql FROM sqlite_master, or simply try another guess. An error that names
+# the alternatives turns a wasted hop into a corrective one.
+_IDENT = re.compile(r"\b(?:from|join|update|into)\s+([a-z_][a-z0-9_]*)", re.I)
+
+
+def _sql_hint(conn, sql: str, msg: str) -> dict:
+    """Extra fields for a failed sql_query: what the right names are, when we can tell."""
+    hint = {}
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+        "ORDER BY name")]
+    m = re.search(r"no such table:\s*([\w.]+)", msg)
+    if m:
+        bad = m.group(1)
+        hint["tables"] = tables
+        near = difflib.get_close_matches(bad, tables, n=3, cutoff=0.5)
+        # difflib alone misses the abbreviation, which is the commonest guess of all: 'pr'
+        # scores far too low against 'pull_request' to survive any usable cutoff. Match the
+        # bad name against the initials of a table's underscore-separated words as well.
+        acronym = [t for t in tables
+                   if "".join(w[0] for w in t.split("_") if w) == bad.lower()]
+        if acronym or near:
+            hint["did_you_mean"] = acronym + [t for t in near if t not in acronym]
+    m = re.search(r"no such column:\s*([\w.]+)", msg)
+    if m:
+        bad = m.group(1).split(".")[-1]
+        referenced = [t for t in {x.lower() for x in _IDENT.findall(sql)} if t in tables]
+        cols = {}
+        for t in referenced or tables:
+            cols[t] = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
+        # Only the tables the query actually named, or the model gets the whole schema back
+        # as an error payload and we are back to paying for discovery.
+        hint["columns"] = cols
+        pool = [f"{t}.{c}" for t, cc in cols.items() for c in cc]
+        near = difflib.get_close_matches(bad, [p.split(".")[-1] for p in pool], n=3, cutoff=0.5)
+        if near:
+            hint["did_you_mean"] = sorted({p for p in pool if p.split(".")[-1] in near})
+    low = (sql or "").lower()
+    if "ilike" in low or "information_schema" in low or "::" in low:
+        hint["dialect"] = ("This is SQLite, not Postgres: no ILIKE (LIKE is already "
+                           "case-insensitive for ASCII), no information_schema (use "
+                           "describe_schema() or sqlite_master), no :: casts.")
+    if re.search(r"\bnear \"(commit|order|group|select|table|index|values)\"", msg, re.I):
+        hint["reserved_word"] = ("That word is SQL syntax, not your table. The commit table "
+                                 "is 'commits'; quote an identifier as \"name\" if you must.")
+    return hint
+
+
 def sql_query(sql: str, limit: int = 200) -> dict:
     """Run a READ-ONLY SQL query (a single SELECT/WITH) over the report database
     and return up to `limit` rows. Writes and multiple statements are rejected.
@@ -105,7 +159,12 @@ def sql_query(sql: str, limit: int = 200) -> dict:
         cols = [c[0] for c in cur.description] if cur.description else []
         rows = [dict(zip(cols, r)) for r in cur.fetchmany(limit)]
     except Exception as exc:                       # noqa: BLE001
-        return {"error": str(exc)}
+        msg = str(exc)
+        try:
+            hint = _sql_hint(conn, s, msg)
+        except Exception:                          # noqa: BLE001 — a hint must not mask
+            hint = {}                              # the error it is trying to explain
+        return {"error": msg, **hint}
     finally:
         conn.close()
     return {"columns": cols, "row_count": len(rows), "rows": rows}
