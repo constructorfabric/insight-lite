@@ -14,6 +14,104 @@ import html as _h
 # {type, title, detail}. Prepend new releases at the top.
 CHANGELOG = [
     {
+        "date": "2026-08-05",
+        "changes": [
+            {"type": "security", "title": "The assistant can no longer read stored secrets",
+             "detail": "The chat can run read-only SQL, and nothing stopped it reading the "
+                       "table the portal keeps its own credentials in — so it could be asked "
+                       "for the MCP access token and would have handed it over. That table is "
+                       "now refused at the database level rather than by inspecting the query, "
+                       "so quoting it differently, aliasing it, hiding it in a subquery or "
+                       "joining to it are all refused too, and it no longer appears in the "
+                       "schema the assistant is shown. Ordinary questions are unaffected."},
+            {"type": "fix", "title": "The chat answers instead of going quiet",
+             "detail": "A question that needed a lot of digging could come back with nothing "
+                       "at all: the panel stayed empty, no answer was recorded, and the only "
+                       "way to tell was to ask again. It happened four times in the logged "
+                       "history, once followed a minute later by the person typing \u201cis it "
+                       "stuck?\u201d. A turn that runs out of steps now says so and suggests "
+                       "narrowing the question, and the underlying failure is written to the "
+                       "server log instead of being swallowed."},
+            {"type": "improvement", "title": "The chat gets more room when it is getting somewhere",
+             "detail": "Each question had a fixed budget of eight tool calls, which was tight "
+                       "for anything that needed exploring and generous for anything going in "
+                       "circles. A question that keeps making progress \u2014 each call "
+                       "returning something new \u2014 can now use up to fourteen, while one "
+                       "repeating itself still stops at eight. It is also told when the budget "
+                       "is nearly gone, so it answers with what it has rather than spending the "
+                       "last call on another query."},
+            {"type": "feature", "title": "Six new things the assistant can look up directly",
+             "detail": "It can now rank people by activity for a window or an element, pull one "
+                       "person\u2019s totals, resolve a human name to a login, report how "
+                       "fresh the data is, look up a single metric\u2019s formula, and read "
+                       "somebody\u2019s developer score with every signal beside the team "
+                       "median. Before this it rebuilt each of those from raw SQL every time, "
+                       "which is what made those questions slow and sometimes unanswerable: "
+                       "\u201chow is my score built\u201d had no tool at all, and asking about "
+                       "one metric downloaded the whole 91-metric catalogue. The same tools are "
+                       "available to MCP clients and are listed on Manage \u2192 MCP access."},
+            {"type": "fix", "title": "An answer about an element could be built from no data",
+             "detail": "Repositories are identified two ways \u2014 as \u201corg/name\u201d "
+                       "and as the bare name \u2014 and the assistant sometimes matched on the "
+                       "wrong one. That does not fail: it quietly finds nothing, so a question "
+                       "about an element could be answered from an empty result. The schema it "
+                       "reads now states which identifier joins, and says plainly that the "
+                       "other one returns nothing rather than an error. A query that does fail "
+                       "now comes back with the real table and column names instead of a bare "
+                       "message."},
+            {"type": "redesign", "title": "The score screen reads like a score",
+             "detail": "The band scale is now a continuous red-to-green bar with the band names "
+                       "on it, the boundaries above and a marker for where you are, so which "
+                       "end is better needs no explaining. \u201cWhat\u2019s changed\u201d "
+                       "splits a move into the part that came from your own numbers and the "
+                       "part that came from everyone else\u2019s, in the same unit, so the two "
+                       "add up to the total. Pillars appear in one order everywhere, the change "
+                       "table is points only and every column reconciles, and roughly two "
+                       "hundred words of explanation are gone \u2014 what remains is behind "
+                       "the same \u201c?\u201d the period and scope controls use. On a wide "
+                       "screen the panel now uses the width: your score on the left, the team "
+                       "standing beside it."},
+            {"type": "fix", "title": "Score changes were the wrong colour in dark mode",
+             "detail": "Red and green figures on the score panel were drawn in the light "
+                       "theme\u2019s colours whatever theme you were using, which in dark mode "
+                       "left them at 2.9:1 against the panel \u2014 below the readable "
+                       "minimum. They now follow the theme, at 4.8:1."},
+            {"type": "feature", "title": "Sort the weekly table on Person \u2192 Activity",
+             "detail": "Click any column heading to sort: the week, commits or lines for a "
+                       "repository, or issues opened. Clicking the week heading puts it back in "
+                       "date order, which is where it starts. Lines sort by the total changed, "
+                       "added plus deleted."},
+        ],
+    },
+    {
+        "date": "2026-08-04",
+        "changes": [
+            {"type": "redesign", "title": "The developer score, rebuilt around one number",
+             "detail": "The panel now follows the shape a credit score uses: the number with "
+                       "its band, the pillars it is made of, and a drill from each pillar to "
+                       "the factors underneath, with each factor shown against the team median. "
+                       "It also answers \u201cwhy did it move\u201d by separating how much of "
+                       "a change was the person and how much was everyone else moving around "
+                       "them \u2014 the score is a rank, so both count. Still marked "
+                       "experimental."},
+            {"type": "fix", "title": "The score bands were harsher than anyone had checked",
+             "detail": "The boundaries between Building, Developing, Solid and Strong had never "
+                       "been measured against real numbers. On a year of production data 41% of "
+                       "the people who get banded fell under the lowest boundary and 7% reached "
+                       "the top one \u2014 a scale that called four people in ten "
+                       "\u201cBuilding\u201d. The boundaries are now 30 / 50 / 70, which "
+                       "spreads the same people 11 / 39 / 36 / 15%, and they are configurable "
+                       "with an auto-calibrate that fits them to your own distribution."},
+            {"type": "improvement", "title": "Flow and Delivery read the rows that matter",
+             "detail": "The board-history table is a daily photograph of every tracked item, so "
+                       "almost all of it is the same status recorded again. Two metrics only "
+                       "ever need where a status changed and where an item currently stands "
+                       "\u2014 1,816 and 1,533 rows out of 141,141 \u2014 and they were "
+                       "reading all of it, with the cost growing every day. Those rows are "
+                       "materialised now, so the pages stay fast as history accumulates."},
+        ],
+    },
+    {
         "date": "2026-07-31",
         "changes": [
             {"type": "improvement", "title": "Charts load faster and weigh less",
