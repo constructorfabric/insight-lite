@@ -3077,7 +3077,10 @@ class Handler(BaseHTTPRequestHandler):
 
         usage = {}
         try:
-            usage = chat_agent.answer(history, model_message, emit) or {}
+            # on_degraded so the finaliser's failures reach the server log like every
+            # other degraded path, instead of being swallowed inside the agent.
+            usage = chat_agent.answer(history, model_message, emit,
+                                      on_degraded=log_degraded) or {}
         except (BrokenPipeError, ConnectionResetError):
             pass                                    # client navigated away mid-stream
         answer_text = "".join(answer_parts)
