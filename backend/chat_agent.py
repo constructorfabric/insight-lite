@@ -77,17 +77,38 @@ def _tools_config():
     )
 
 
-_NOTOOLS = None
+_FINAL = None
+
+# What a turn says when it runs out of steps. Text, not silence: the server records the
+# assistant row only when there IS text, so an empty finish left no row at all — the turn
+# vanished from the transcript AND from the panel, and the user's next message was
+# a one-word "is it stuck?".
+OUT_OF_STEPS = ("I used all the tool steps I have for one question and could not finish "
+                "an answer. Ask for one piece at a time, or narrow the period or scope.")
 
 
-def _notools_config():
-    """Config with NO tools — used to force a final text answer when a turn exhausts
-    its tool-call hops without finishing."""
-    global _NOTOOLS
-    if _NOTOOLS is None:
+def _final_config():
+    """Config for the forced last word when a turn exhausts its hops.
+
+    The tool DECLARATIONS stay. They used to be dropped, on the reasoning that a config
+    without tools cannot call any — but by then the transcript is full of function_call
+    and function_response parts, and a request whose declarations no longer cover them is
+    not guaranteed to be accepted. That is the shape of the silent failure this replaces.
+    What stops another call is the mode, not the absence of the declarations:
+    FunctionCallingConfigMode.NONE means "answer in text"."""
+    global _FINAL
+    if _FINAL is None:
         from google.genai import types
-        _NOTOOLS = types.GenerateContentConfig(system_instruction=_SYSTEM, temperature=0)
-    return _NOTOOLS
+        decls = [types.FunctionDeclaration(**d) for d in tooldefs.declarations()]
+        _FINAL = types.GenerateContentConfig(
+            system_instruction=_SYSTEM,
+            tools=[types.Tool(function_declarations=decls)],
+            tool_config=types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode=types.FunctionCallingConfigMode.NONE)),
+            temperature=0,
+        )
+    return _FINAL
 
 
 # ---- explicit context caching (opt-in) -------------------------------------
@@ -144,7 +165,7 @@ def _cached_config(name):
 
 
 def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
-        tool_log=None) -> str:
+        tool_log=None, on_degraded=None) -> str:
     """Run one user turn to completion: stream text, execute any tool calls, loop
     until the model stops calling tools. `contents` is the running conversation
     (list of types.Content); it is mutated in place so multi-turn REPL keeps history.
@@ -209,14 +230,17 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
             results.append(types.Part.from_function_response(name=c.name, response=out))
         contents.append(types.Content(role="user", parts=results))
     else:
-        # Loop ran the full MAX_HOPS without ever finishing (kept calling tools). If no
-        # answer text was produced, force ONE final reply with tools disabled so the
-        # user gets a response instead of an empty/failed turn.
+        # Loop ran the full MAX_HOPS without ever finishing (kept calling tools). Force ONE
+        # final reply so the user gets a response instead of an empty turn — and if even
+        # that produces nothing, SAY so. Four turns in the production transcript ended here
+        # with no text at all: the tool calls were recorded with message_id NULL, no
+        # assistant row was written, and the panel showed nothing. One of them is the user
+        # asking "is it stuck?" a minute later, and the next is a question from today.
         if not "".join(answer).strip():
             try:
                 last_um = None
                 for chunk in client.models.generate_content_stream(
-                        model=MODEL, contents=contents, config=_notools_config()):
+                        model=MODEL, contents=contents, config=_final_config()):
                     if getattr(chunk, "usage_metadata", None):
                         last_um = chunk.usage_metadata
                     for cand in (chunk.candidates or []):
@@ -235,8 +259,18 @@ def ask(client, config, contents, on_text=None, on_tool=None, usage_acc=None,
                         + (getattr(last_um, "cached_content_token_count", 0) or 0)
                     usage_acc["total"] = usage_acc.get("total", 0) \
                         + (getattr(last_um, "total_token_count", 0) or (pin + out))
-            except Exception:                          # noqa: BLE001 — best-effort finaliser
-                pass
+            except Exception as exc:                   # noqa: BLE001 — best-effort finaliser
+                # NOT silent. server.log_degraded's own docstring says it: the best-effort
+                # block is right, doing it without a log is the defect. This one hid the
+                # only evidence of why a turn came back empty.
+                _report(on_degraded, "chat finaliser after MAX_HOPS", exc)
+            if not "".join(answer).strip():
+                # Still nothing. Anything is better than silence, and it has to go through
+                # on_text: the server assembles the answer from the streamed frames, so a
+                # message that is only returned is a message nobody sees.
+                answer.append(OUT_OF_STEPS)
+                if on_text:
+                    on_text(OUT_OF_STEPS)
     return "".join(answer)
 
 
@@ -280,7 +314,7 @@ def _cost(tokens_in, tokens_out, cached=0):
                  + tokens_out / 1e6 * (pout or 0), 6)
 
 
-def answer(history, message, on_event) -> dict:
+def answer(history, message, on_event, on_degraded=None) -> dict:
     """Drive one chat turn for the HTTP endpoint. `history` is a list of
     {role: 'user'|'assistant'|'model', text: str}; `message` is the new user text,
     already carrying any server-built context/identity annotations. `on_event(dict)`
@@ -315,7 +349,7 @@ def answer(history, message, on_event) -> dict:
         ask(client, config, contents,
             on_text=lambda t: on_event({"type": "text", "text": t}),
             on_tool=lambda names: on_event({"type": "tool", "tools": names}),
-            usage_acc=acc, tool_log=tool_log)
+            usage_acc=acc, tool_log=tool_log, on_degraded=on_degraded)
     except Exception as exc:                        # noqa: BLE001 — incl. broken pipe
         _safe(on_event, {"type": "error", "error": f"{type(exc).__name__}: {exc}"})
     finally:
@@ -328,6 +362,21 @@ def _safe(fn, arg) -> None:
         fn(arg)
     except Exception:                               # noqa: BLE001 — client may be gone
         pass
+
+
+def _report(sink, where: str, exc: BaseException) -> None:
+    """Report a caught-and-degraded failure. Injected rather than imported: the server owns
+    log_degraded and imports THIS module, so reaching back for it would close a cycle.
+    Falls back to stderr with the traceback, which is what the CLI needs anyway."""
+    if sink is not None:
+        try:
+            sink(where, exc)
+            return
+        except Exception:                           # noqa: BLE001 — a logger must not raise
+            pass
+    import traceback
+    print(f"[degraded] {where}: {type(exc).__name__}: {exc}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
 
 
 def main() -> None:
