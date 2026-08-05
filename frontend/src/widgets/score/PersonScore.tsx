@@ -643,19 +643,14 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
               </div>
             )}
 
-            {/* This row and the band counts above it were two lists of coloured dots with
-                labels, stacked, decoding DIFFERENT things — the counts explain the bar above,
-                these explain the Make-up column below — and three of the four pillar colours
-                sit within ~60 of RGB distance of a band colour (Flow/Developing 55,
-                Engagement/Solid 58, Craft/Strong 63), so the pair read as one repeated list.
-                Naming the column it belongs to, and sitting against the table rather than
-                against the bar, is what tells them apart. */}
-            <div className="dsc-leg">
-              <span className="dsc-leg-h">Make-up</span>
-              {PILLAR_ORDER.filter((k) => active.includes(k)).map((k) => (
-                <span key={k} className="dsc-legi"><i style={{ background: PCOLOR[k] }} />{PLABELS[k][0]}</span>
-              ))}
-            </div>
+            {/* No pillar key here. It was a second row of coloured dots under the band
+                counts, decoding a different thing in the same idiom — and three of the four
+                pillar colours sit within ~60 of RGB distance of a band colour, so naming it
+                only made the duplication legible, not the card simpler. The key already
+                exists on this screen and in a better place: the Score ingredients card puts
+                the same four colours (verified identical) beside the pillar NAMES, which is
+                what a swatch row was approximating. The bars keep their own tooltip with the
+                exact split, and the row's drill has the full breakdown. */}
             {/* Column labels on the same grid as the rows. Seven columns with a delta among
                 them cannot go unlabelled — a bare "+7" beside a score invites being read as
                 part of it. */}
@@ -677,13 +672,20 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                   <summary>
                     <span className="rk">{r.rank}</span>
                     <span className="nm">{r.name}</span>
+                    {/* byWeight, not PILLAR_ORDER. This bar and its tooltip were the last two
+                        places still laying pillars out in declaration order — Engagement
+                        first — while the change table, the ingredients table and this row's
+                        own drill all sort heaviest-first. That is the same defect Oleg
+                        reported as "why is the pillar order different top and bottom",
+                        surviving in the one place I had not looked: the segments read left to
+                        right in one order and the drill underneath listed them in another. */}
                     <span
                       className="comp"
-                      data-tip={`score ${r.score} = ${PILLAR_ORDER
+                      data-tip={`score ${r.score} = ${byWeight(score.weights)
                         .filter((k) => active.includes(k) && r.contributions[k])
                         .map((k) => `${PLABELS[k][0]} ${r.contributions[k]}`).join(" + ")}`}
                     >
-                      {PILLAR_ORDER.map((k) => {
+                      {byWeight(score.weights).map((k) => {
                         const pts = r.contributions[k];
                         return active.includes(k) && pts
                           ? <i key={k} style={{ flex: pts, background: PCOLOR[k] }} /> : null;

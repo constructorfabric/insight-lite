@@ -760,15 +760,6 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   .dsc-dist-k b{color:var(--ink);font-variant-numeric:tabular-nums}
   .dsc-dist-k em.none i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--mut)}
 
-  /* Pushed away from the distribution block and pulled against the table header, because it
-     is the Make-up COLUMN's key, not a second reading of the bar. */
-  .dsc-leg{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);
-    margin:var(--space-4) 0 5px;font-size:11px;color:var(--mut)}
-  /* Same micro-label as the column headers below it, so it reads as a label and not as
-     another datum in a list. */
-  .dsc-leg-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-  .dsc-leg .dsc-legi{display:inline-flex;align-items:center;gap:5px}
-  .dsc-leg i{width:10px;height:10px;border-radius:var(--r-xs);display:inline-block}
   /* Same grid as .dsc-drow summary, so the labels sit over their columns. */
   .dsc-rowh{display:grid;grid-template-columns:26px 1fr 130px 42px 112px 44px 40px;align-items:center;
     gap:var(--space-3);padding:0 10px var(--space-2);font-size:10px;font-weight:700;
