@@ -371,11 +371,110 @@ def metrics_catalog() -> dict:
             "metrics": metrics_registry.all_metrics()}
 
 
+# ---- tools built from what the assistant kept writing by hand ----------------
+# Every one of these exists because the chat transcript shows the model composing it in raw
+# SQL, repeatedly and in variants: 81 sql_query calls, 26 of them touching person_runs, and
+# five near-identical hand-rolled "rank people by commits in this element" queries that
+# differed only in how they tried to resolve an element to its repos — the thing _repos()
+# already does correctly. Each wraps a store function rather than new SQL, so the numbers
+# agree with the report's own tiles instead of being a second opinion.
+
+
+def top_contributors(since: str = "", until: str = "", scope: str = "",
+                     metric: str = "commits", limit: int = 10,
+                     member_only: bool = False) -> dict:
+    """Rank PEOPLE by their activity in a window (and optional slice): who contributed
+    most. `metric` ∈ {commits, prs, specs, bugs, features, epics}. `since`/`until` are
+    'YYYY-MM-DD' (empty = all-time / now). `scope` slices to a repo subset, e.g.
+    'element:Insight'. Use this instead of writing a GROUP BY author_login query — it
+    counts the same way the report's own people tile does."""
+    keys = ("commits", "prs", "specs", "bugs", "features", "epics")
+    if metric not in keys:
+        return {"error": f"metric must be one of {', '.join(keys)}"}
+    conn = store.connect()
+    try:
+        drill = store.people_drill(conn, _iso(since), _iso(until, end=True),
+                                   repos=_repos(conn, scope), member_only=member_only,
+                                   limit=100000)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    finally:
+        conn.close()
+    rows = sorted(drill["rows"], key=lambda r: (-(r.get(metric) or 0), r["login"]))
+    return {"metric": metric, "since": since, "until": until, "scope": scope,
+            "people_total": drill["total"],
+            "rows": rows[:max(1, min(int(limit), 200))]}
+
+
+def person_activity(login: str, since: str = "", until: str = "") -> dict:
+    """One person's activity totals for a window — commits, meaningful LOC, specs, PRs
+    opened and merged, bugs, features, epics. Use this for "how much did X do lately";
+    person(login=…) is the all-time profile instead."""
+    conn = store.connect()
+    try:
+        totals = store.person_totals(conn, login, _iso(since), _iso(until, end=True))
+        known = conn.execute("SELECT name, company FROM person WHERE login=?",
+                             (login,)).fetchone()
+    finally:
+        conn.close()
+    out = {"login": login, "since": since, "until": until, **totals}
+    if known:
+        out["name"], out["company"] = known["name"], known["company"]
+    else:
+        # Not an error: a login with no person row still has commits under it. Say so
+        # rather than returning zeros that look like inactivity.
+        out["note"] = ("no person record for this login — check the spelling with "
+                       "find_person(), or it may be an unmapped commit author")
+    return out
+
+
+def find_person(query: str, limit: int = 10) -> dict:
+    """Resolve a human name, partial name or partial login to actual logins — the input
+    every other person tool needs. Matches name, login and email. Use this before
+    person(), person_activity() or list_items(author=…) whenever you were given a name
+    rather than a login."""
+    q = (query or "").strip()
+    if not q:
+        return {"error": "query is required"}
+    like = f"%{q}%"
+    conn = store.connect()
+    try:
+        # Ordered by surviving human code as a rough "how substantial is this person"
+        # signal, because `person` carries no commit count — the dimension row holds
+        # standing totals (surviving code, reviews, cpt), not activity counts. Checked
+        # against the schema rather than assumed: I first wrote person.commits here, which
+        # does not exist, which is the same guess the transcript is full of.
+        rows = [dict(r) for r in conn.execute(
+            "SELECT login, name, company, is_member, surviving_code_human, reviews_given "
+            "FROM person WHERE login LIKE ? OR name LIKE ? OR emails LIKE ? "
+            "ORDER BY surviving_code_human DESC, login LIMIT ?",
+            (like, like, like, max(1, min(int(limit), 100))))]
+    finally:
+        conn.close()
+    return {"query": q, "match_count": len(rows), "rows": rows}
+
+
+def data_freshness() -> dict:
+    """How current the data is: the newest collected run and when it was generated. Ask
+    this before saying "in the last 7 days" — the window is measured against the data,
+    not against today, and a stale collector makes recent windows look empty."""
+    conn = store.connect()
+    try:
+        meta = store.latest_run_meta(conn) or {}
+        newest = conn.execute("SELECT MAX(committed_at) FROM commits").fetchone()[0]
+    finally:
+        conn.close()
+    return {"latest_run_date": meta.get("date"),
+            "generated_at": meta.get("generated_at"),
+            "newest_commit_at": newest}
+
+
 # ---- registry + schema introspection ---------------------------------------
 # The tools an LLM (or MCP client) may call, in a sensible discovery order.
 TOOLS = [
-    metrics_catalog, describe_schema, list_dimension, taxonomy,
-    contribution, delivery, trend, flow, person, list_items, sql_query,
+    metrics_catalog, describe_schema, list_dimension, taxonomy, data_freshness,
+    contribution, top_contributors, delivery, trend, flow,
+    find_person, person, person_activity, list_items, sql_query,
     views_catalog,
 ]
 DISPATCH = {fn.__name__: fn for fn in TOOLS}
