@@ -469,12 +469,138 @@ def data_freshness() -> dict:
             "newest_commit_at": newest}
 
 
+def metric_definition(name: str) -> dict:
+    """The definition of ONE metric — description, exact formula, unit, code snippet and
+    where it is computed. Use this, not metrics_catalog, when a question is about a
+    specific metric ("how is X calculated?"): the full catalog is 91 metrics and about
+    44 KB, and every later tool round in the turn re-sends it. Matches exactly, then by
+    substring, then by nearest name."""
+    q = (name or "").strip()
+    if not q:
+        return {"error": "name is required"}
+    import metrics_registry
+    all_m = metrics_registry.all_metrics()
+    # `fn` is an internal dotted path to the producing function; useful to a maintainer
+    # reading the registry, noise to an answer about arithmetic.
+    strip = lambda m: {k: v for k, v in m.items() if k != "fn"}          # noqa: E731
+    names = [m["name"] for m in all_m]
+    low = q.lower()
+    # Stems, because people ask in plurals: "frictions" is not a substring of
+    # flow_friction_per_item, and falling through to a fuzzy name match put
+    # pr_median_additions FIRST for that query — a wrong formula at the top of the reply is
+    # worse than no reply. Descriptions are searched too, since the question arrives in
+    # human words ("friction") rather than in identifiers.
+    stems = {low, low.rstrip("s")} - {""}
+    def hit(m):
+        """Rank: exact name, then name contains a stem, then description does."""
+        nm = m["name"].lower()
+        if nm == low:
+            return 0
+        if any(st in nm for st in stems):
+            return 1
+        if any(st in (m.get("desc") or "").lower() for st in stems):
+            return 2
+        return None
+    scored = sorted(((hit(m), m) for m in all_m if hit(m) is not None),
+                    key=lambda p: (p[0], p[1]["name"]))
+    if scored:
+        how = ("exact" if scored[0][0] == 0
+               else "name" if scored[0][0] == 1 else "description")
+        return {"query": q, "matched": how,
+                "metrics": [strip(m) for _, m in scored[:5]],
+                "more": max(0, len(scored) - 5)}
+    near = difflib.get_close_matches(q, names, n=5, cutoff=0.4)
+    if near:
+        return {"query": q, "matched": "nearest name — none of these may be right",
+                "metrics": [strip(m) for m in all_m if m["name"] in near]}
+    return {"query": q, "error": f"no metric matching '{q}'", "metric_names": names}
+
+
+def _previous_window(since: str, until: str):
+    """The window of equal length immediately before [since, until], or None."""
+    from datetime import datetime, timedelta
+    try:
+        a = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(until.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    if b <= a:
+        return None
+    span = b - a
+    return ((a - span).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            (a - timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+
+def developer_score(login: str, since: str = "", until: str = "", scope: str = "",
+                    compare_previous: bool = False) -> dict:
+    """One person's EXPERIMENTAL developer score for a window: the number, its band, the
+    rank, each pillar with its weight and band, and every signal beside the TEAM MEDIAN so
+    you can say where the gap is. Answers "why is my score X", "how do I raise it" and
+    "how is my <signal> computed" — the score is a percentile rank within the people
+    scored in this window, so it moves when their numbers move too. Set
+    compare_previous=True to also get the change against the preceding window of equal
+    length, split into the part from the team's movement and the part from this person's.
+    Use metric_definition() for a signal's formula."""
+    if not (login or "").strip():
+        return {"error": "login is required"}
+    lo, hi = _iso(since), _iso(until, end=True)
+    conn = store.connect()
+    try:
+        sc = store.developer_scores(conn, lo, hi, repos=_repos(conn, scope))
+        prev = None
+        if compare_previous:
+            win = _previous_window(lo, hi)
+            if win:
+                prev = store.developer_scores(conn, win[0], win[1],
+                                              repos=_repos(conn, scope))
+    except ValueError as exc:
+        return {"error": str(exc)}
+    finally:
+        conn.close()
+    row = (sc.get("by_login") or {}).get(login)
+    if not row:
+        return {"login": login, "scored": False,
+                "min_activity": sc.get("min_activity"),
+                "n_ranked": sc.get("n_ranked"),
+                "note": ("not scored in this window — under the activity floor, or the "
+                         "login is wrong; check it with find_person()")}
+    spec = store.score_signal_spec()
+    medians = sc.get("team_medians") or {}
+    drivers = row.get("drivers") or {}
+    active = set(sc.get("active_pillars") or [])
+    # The whole board is 46 rows deep with raw drivers on each; sending it would repeat
+    # the metrics_catalog mistake this tool exists to avoid. Rank and the median carry the
+    # comparison; top_contributors() is there for a ranking.
+    # `fmt` travels with the value instead of the value being rounded here: 0.1423076923 is
+    # the honest number, and the renderer hint is what stops it being quoted to sixteen
+    # digits. Rounding in the tool would discard precision a caller may need and still not
+    # say how to display anything.
+    signals = [{"pillar": sig["pillar"], "signal": sig["key"], "label": sig["label"],
+                "yours": drivers.get(sig["key"]), "team_median": medians.get(sig["key"]),
+                "higher_is_better": sig["higher_is_better"], "fmt": sig["fmt"]}
+               for sig in spec if sig["pillar"] in active]
+    out = {"login": login, "name": row.get("name"), "scored": True,
+           "score": row.get("score"), "band": row.get("band"),
+           "rank": row.get("rank"), "of_scored": sc.get("n_ranked"),
+           "experimental": True,
+           "how_it_works": ("each signal is a percentile within the people scored in this "
+                            "window; pillars are averaged, weighted and normalised"),
+           "weights_pct": sc.get("weights"),
+           "pillars": row.get("pillars"), "pillar_bands": row.get("pillar_bands"),
+           "pillar_points": row.get("contributions"),
+           "bands": store.score_band_spec(), "signals": signals,
+           "since": since, "until": until, "scope": scope}
+    if prev is not None:
+        out["change"] = store.score_delta(sc, prev, login)
+    return out
+
+
 # ---- registry + schema introspection ---------------------------------------
 # The tools an LLM (or MCP client) may call, in a sensible discovery order.
 TOOLS = [
-    metrics_catalog, describe_schema, list_dimension, taxonomy, data_freshness,
-    contribution, top_contributors, delivery, trend, flow,
-    find_person, person, person_activity, list_items, sql_query,
+    metrics_catalog, metric_definition, describe_schema, list_dimension, taxonomy,
+    data_freshness, contribution, top_contributors, delivery, trend, flow,
+    find_person, person, person_activity, developer_score, list_items, sql_query,
     views_catalog,
 ]
 DISPATCH = {fn.__name__: fn for fn in TOOLS}
