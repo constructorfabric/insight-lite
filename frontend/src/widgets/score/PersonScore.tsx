@@ -224,6 +224,23 @@ function coverage(row: ScoreRow, active: string[]): number {
   return active.filter((p) => row.pillars[p] !== null && row.pillars[p] !== undefined).length;
 }
 
+// How many people sit in each band, best first — the order the scale is drawn in, read right
+// to left. Only rows with COMPLETE coverage: a partial row carries a band in the payload but
+// the table withholds it and prints "not banded", so counting it by its payload band put it in
+// two places at once. On production that read "Strong 6, Solid 17, Developing 17, Building 6,
+// Not banded 4" — fifty entries for forty-six people, with three thin rows inflating Building.
+// Caught by CodeRabbit on #7, and the mechanism was already written down three lines above the
+// bug. Exported for the test, because the invariant worth pinning is arithmetic: the bands plus
+// the not-banded must be the board, exactly once each.
+export function bandCounts(board: ScoreRow[], scale: BandStop[], active: string[]) {
+  const nAct = active.length;
+  const full = board.filter((r) => coverage(r, active) === nAct);
+  return scale.slice().reverse()
+    .map((b) => ({ ...b, n: full.filter((r) => r.band === b.band).length,
+                   col: bandColor(bandIndex(b.band, scale), scale.length) }))
+    .filter((b) => b.n > 0);
+}
+
 // The pillar breakdown, led by the arithmetic rather than by prose. The previous version
 // showed the same numbers, but a wide free-text "your real work" column dominated the row
 // and the weight was a 10px superscript — read left to right it argued the opposite of the
@@ -604,13 +621,8 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
           // could not be checked against the rows beside it and contradicted the sentence
           // straight after ("those rows are left unbanded"). Verified on production — all four
           // thin rows render "not banded" while three carried band=Building in the payload.
-          // Band counts, best first — the same order the scale is drawn in the hero, read
-          // right to left. Computed here because the board is the only place that knows.
           const bscale = score.bands_scale ?? [];
-          const counts = bscale.slice().reverse().map((b) => ({
-            ...b, n: score.board.filter((r) => r.band === b.band).length,
-            col: bandColor(bandIndex(b.band, bscale), bscale.length),
-          })).filter((b) => b.n > 0);
+          const counts = bandCounts(score.board, bscale, active);
           return (
           <div className="dsc-card">
             {/* Was a heading and forty words of prose, then fifty-five more under the table.
