@@ -283,10 +283,34 @@ function WeeklyTable({ pw }: { pw: Weekly }) {
   return (
     <>
       <div style={{ overflowX: "auto" }}>
-        <table className="grouped person-weekly">
+        {/* dt opts into the shared click-to-sort (installSort in reportChromeEffects), which
+            is already mounted on this route — verified by driving a probe table through it
+            rather than trusting the router comment. Nothing new is written here: same
+            th.sortable + data-sort idiom as the AI-tools table, so the arrows, the aria-sort
+            and the asc/desc toggle come with it.
+
+            This is a TIME SERIES, so the default stays chronological and Week is sortable
+            precisely so chronology is recoverable — the shared sorter toggles asc/desc and has
+            no third "unsorted" state, so without that click there would be no way back.
+
+            Only the LEAF header row is sortable, plus Week. The group row's repo headers are
+            colSpan=2, and the sorter maps a header's index within its own row onto cells[idx]
+            of the body rows, so a spanning header would read the wrong column. */}
+        {/* Keyed on the data, so new data REMOUNTS the table instead of patching it. That is
+            not tidiness: installSort reorders rows with appendChild, and React reconciles its
+            children against its own record of their order without looking at the DOM. Sort by
+            commits, then change the period, and content follows the virtual list while
+            positions keep the sorted order — the table came back as 07-27, 07-06, 08-03,
+            07-13, 07-20, neither chronological nor sorted, with the header still claiming
+            Commits=descending. A remount gives React a DOM that matches what it thinks it
+            rendered, and resetting to chronological is the right answer for a new window
+            anyway. The signature has to cover everything that changes the rows: the window,
+            whose they are, and which repos became columns. */}
+        <table className="grouped person-weekly dt"
+               key={`${pw.login}|${pw.since}|${pw.until}|${cols.map((c) => c.repo).join(",")}`}>
           <thead>
             <tr className="grp">
-              <th>Week (starting)</th>
+              <th className="sortable">Week (starting)</th>
               {cols.map((c, i) => <th key={i} colSpan={2} className="g" data-tip={c.repo}>{c.name}</th>)}
               <th className="g">Issues</th>
             </tr>
@@ -294,17 +318,20 @@ function WeeklyTable({ pw }: { pw: Weekly }) {
               <th />
               {cols.map((_, i) => (
                 <Fragment key={i}>
-                  <th className="g">Commits</th>
-                  <th>Lines +/-</th>
+                  <th className="g sortable">Commits</th>
+                  <th className="sortable" data-tip="sorts by lines added + deleted">Lines +/-</th>
                 </Fragment>
               ))}
-              <th className="g">opened</th>
+              <th className="g sortable">opened</th>
             </tr>
           </thead>
           <tbody>
             {pw.rows.map((row, ri) => (
               <tr key={ri}>
-                <td>{row.week}</td>
+                {/* data-sort, because the sorter decides numeric-vs-text by parsing every
+                    key: "2026-05-04" parses as 2026 for EVERY row, so the column would sort
+                    into a silent no-op. 20260504 is numeric and monotonic. */}
+                <td data-sort={row.week.replace(/-/g, "")}>{row.week}</td>
                 {row.cells.map((cell, ci) => {
                   const col = cols[ci];
                   const dr = !!(cell && cell.commits && col.repo !== "(other)");
@@ -312,8 +339,12 @@ function WeeklyTable({ pw }: { pw: Weekly }) {
                   if (cell) {
                     return (
                       <Fragment key={ci}>
-                        <td className="g" {...attrs}>{fmtNum(cell.commits)}</td>
-                        <td className="pw-lines" {...attrs}>
+                        {/* Raw keys throughout: fmtNum is toLocaleString, so a rendered
+                            "1,500" would parseFloat to 1 and sort every four-figure week as
+                            if it were a one. The lines cell holds two numbers, and the one
+                            worth ranking is the churn — the header says which. */}
+                        <td className="g" data-sort={String(cell.commits)} {...attrs}>{fmtNum(cell.commits)}</td>
+                        <td className="pw-lines" data-sort={String(cell.add + cell.del)} {...attrs}>
                           <span className="pw-add">+{fmtNum(cell.add)}</span>/<span className="pw-del">-{fmtNum(cell.del)}</span>
                         </td>
                       </Fragment>
@@ -321,13 +352,13 @@ function WeeklyTable({ pw }: { pw: Weekly }) {
                   }
                   return (
                     <Fragment key={ci}>
-                      <td className="g mut">–</td>
-                      <td className="mut">–</td>
+                      <td className="g mut" data-sort="0">–</td>
+                      <td className="mut" data-sort="0">–</td>
                     </Fragment>
                   );
                 })}
                 <td
-                  className="g"
+                  className="g" data-sort={String(row.issues)}
                   {...(row.issues
                     ? { "data-drill": "issue", "data-author": pw.login, "data-scope": "none", "data-from": row.week, "data-to": row.week_end }
                     : {})}
