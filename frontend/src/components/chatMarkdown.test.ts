@@ -109,10 +109,21 @@ describe("single dollars: math, or money", () => {
   });
 
   it("leaves a price alone", () => {
-    for (const money of ["it cost $0.0021 per turn", "$0.03 and $0.35 for two turns"]) {
-      const html = mxMarkdown(money);
-      expect(html, money).not.toContain("mx-math");
+    for (const money of [
+      "it cost $0.0021 per turn",
+      "$0.03 and $0.35 for two turns",
+      "costs $5-$10 per seat",        // body "5-" — this one got through every earlier guard
+      "between $1,200 and $3,400",
+      "$5 or $10",
+    ]) {
+      expect(mxMarkdown(money), money).not.toContain("mx-math");
     }
+  });
+
+  it("still recognises math that happens to be numeric", () => {
+    // A hyphen does not qualify a body as math, but an operator money never uses does.
+    expect(mxMarkdown("the term $2^{10}$ appears")).toContain("mx-math");
+    expect(mxMarkdown("with $x_1$ and $x_2$")).toContain("mx-math");
   });
 
   it("leaves a lone dollar alone", () => {

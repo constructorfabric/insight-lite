@@ -28,6 +28,13 @@ type Temml = { renderToString: (tex: string, opts?: Record<string, unknown>) => 
 
 let pending: Promise<Temml> | null = null;
 
+// Every streamed chunk rebuilds the message HTML, so the same formula is asked for once per
+// chunk — renderToString is synchronous, and chunks x formulas of it is real work for no gain.
+// Cached by TeX and mode; the value is a parsed <math> that gets cloned per use, so a repeat
+// costs a map lookup and a clone instead of a parse and a typeset. A rejection is cached too
+// (as null), which is what stops an unusable formula being retried on every chunk.
+const memo = new Map<string, Element | null>();
+
 /** Fetch the library once per page, whoever asks first. */
 function load(): Promise<Temml> {
   if (pending) return pending;
@@ -60,14 +67,32 @@ function load(): Promise<Temml> {
  */
 export async function renderMath(el: HTMLElement, tex: string,
                                  display: boolean): Promise<boolean> {
+  const key = `${display ? "d" : "i"}\u0000${tex}`;
+  if (memo.has(key)) {
+    const cached = memo.get(key);
+    if (!cached) return false;
+    el.replaceChildren(cached.cloneNode(true));
+    return true;
+  }
   try {
     const temml = await load();
     const markup = temml.renderToString(tex, { displayMode: display, throwOnError: true });
     const math = new DOMParser().parseFromString(markup, "text/html").querySelector("math");
-    if (!math) return false;
-    el.replaceChildren(document.importNode(math, true));
+    if (!math) {
+      memo.set(key, null);
+      return false;
+    }
+    const node = document.importNode(math, true);
+    memo.set(key, node);
+    el.replaceChildren(node.cloneNode(true));
     return true;
   } catch {
+    memo.set(key, null);
     return false;
   }
+}
+
+/** Test seam: the memo is process-wide, so a test that counts work has to be able to clear it. */
+export function __clearMathMemo() {
+  memo.clear();
 }

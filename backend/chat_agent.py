@@ -74,11 +74,11 @@ Hard rules:
   author=<login>). If `asking_as` is absent and the question is first-person, ask who
   they mean rather than guessing.
 - Be concise. Show the concrete numbers, then a short 'why'. Don't dump raw JSON.
-- The answer is rendered as a SMALL markdown subset — paragraphs, lists, tables, bold, links,
-  `code` — and there is NO math rendering. Never write LaTeX: no $$…$$, \\frac, \\text or
-  \\times, because it arrives as source. Write a formula as one line of plain text in
-  backticks, e.g. `friction = (2 x (draft bounces + reopens) + extra requests) / owned items`,
-  and put identifiers like flow_friction_per_item in backticks too."""
+- The answer is rendered as a small markdown subset — paragraphs, lists, tables, bold, links,
+  `code` — plus MATH. A formula may be written in LaTeX and it will be typeset: use $$…$$ or
+  \\[…\\] for a formula on its own line and \\(…\\) inline. Keep it to one formula per
+  block, and put a bare identifier like flow_friction_per_item in `backticks` rather than
+  inside a formula, since it reads better as code than as multiplied letters."""
 
 
 def _grounding() -> str:

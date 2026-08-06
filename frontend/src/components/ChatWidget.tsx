@@ -41,11 +41,13 @@ export function mxExtractMath(raw: string): [string, { tex: string; display: boo
   s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, b) => take(b, true));
   s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, b) => take(b, true));
   s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_m, b) => take(b, false));
-  // Single-dollar inline math, but only when it looks like math rather than money: a lone
-  // "$0.0021 per turn" must not become a formula, so both delimiters have to be adjacent to
-  // non-space and the body must not start with a digit followed by a decimal point.
+  // Single-dollar inline math, but only when it looks like math rather than money. Both
+  // delimiters must sit against non-space, AND the body has to contain something money never
+  // does: a letter, a backslash, or one of + = ^ _ / ( ). A hyphen deliberately does not
+  // count — "costs $5-$10 per seat" has the body "5-", which passed every earlier version of
+  // this guard and swallowed the price. Caught in review on #11.
   s = s.replace(/\$(?!\s)([^$\n]{1,200}?)(?<!\s)\$/g, (m, b) =>
-    /^\d+[.,]\d/.test(b) ? m : take(b, false));
+    /[a-zA-Z\\^_+=/()]/.test(b) ? take(b, false) : m);
   return [s, found];
 }
 
@@ -221,9 +223,15 @@ export default function ChatWidget() {
   }, [msgs, max]);
 
   // Typeset any formula that has arrived, fetching the math module the first time one does —
-  // so a conversation without formulas never pays for it. Each placeholder is marked done so
-  // a re-render (every streamed chunk causes one) does not re-render the same MathML, and a
-  // formula Temml rejects keeps the plain-text reading that is already inside it.
+  // so a conversation without formulas never pays for it. A formula Temml rejects keeps the
+  // plain-text reading that is already inside it.
+  //
+  // The data-typeset marks are NOT a way of doing the work once. The message body is stored as
+  // an HTML string and handed to dangerouslySetInnerHTML, and every streamed chunk rebuilds
+  // that string — so React reassigns innerHTML, which destroys both the typeset <math> and the
+  // marks, and this effect legitimately finds the same formulas again. Review on #11 pointed
+  // out that the comment here claimed otherwise. What actually keeps the cost flat is the
+  // memo inside mathRender: the marks only stop a second pass within one render.
   useEffect(() => {
     const root = bodyRef.current;
     if (!root) return;
