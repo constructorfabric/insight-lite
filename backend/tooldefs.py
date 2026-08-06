@@ -382,6 +382,24 @@ def metrics_catalog() -> dict:
 # agree with the report's own tiles instead of being a second opinion.
 
 
+def _covers(conn, scope: str) -> str:
+    """One line saying what a scoped answer actually covers, for the assistant to quote.
+
+    A slice set on one page stays set, so a person can ask a question an hour later and read
+    a narrowed answer as if it were the whole org. The tools that accept a scope therefore
+    say what they counted, in words, rather than leaving the caller to notice a `scope`
+    field."""
+    if not scope:
+        return "the whole organisation, no slice"
+    try:
+        repos = _repos(conn, scope) or []
+    except ValueError:
+        return f"{scope} (unresolved)"
+    total = conn.execute("SELECT count(*) FROM repo").fetchone()[0]
+    return (f"{scope} only \u2014 {len(repos)} of {total} repositories. "
+            "Say so in the answer: figures outside this slice are not included.")
+
+
 def top_contributors(since: str = "", until: str = "", scope: str = "",
                      metric: str = "commits", limit: int = 10,
                      member_only: bool = False) -> dict:
@@ -398,13 +416,14 @@ def top_contributors(since: str = "", until: str = "", scope: str = "",
         drill = store.people_drill(conn, _iso(since), _iso(until, end=True),
                                    repos=_repos(conn, scope), member_only=member_only,
                                    limit=100000)
+        covers = _covers(conn, scope)
     except ValueError as exc:
         return {"error": str(exc)}
     finally:
         conn.close()
     rows = sorted(drill["rows"], key=lambda r: (-(r.get(metric) or 0), r["login"]))
     return {"metric": metric, "since": since, "until": until, "scope": scope,
-            "people_total": drill["total"],
+            "covers": covers, "people_total": drill["total"],
             "rows": rows[:max(1, min(int(limit), 200))]}
 
 
@@ -549,6 +568,7 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
     conn = store.connect()
     try:
         sc = store.developer_scores(conn, lo, hi, repos=_repos(conn, scope))
+        covers = _covers(conn, scope)
         prev = None
         if compare_previous:
             win = _previous_window(lo, hi)
@@ -578,7 +598,7 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
             finally:
                 conn.close()
             wider = (wide.get("by_login") or {}).get(login)
-        out = {"login": login, "scored": False, "scope": scope,
+        out = {"login": login, "scored": False, "scope": scope, "covers": covers,
                "min_activity": sc.get("min_activity"),
                "n_ranked": sc.get("n_ranked")}
         if wider:
@@ -619,7 +639,7 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
            "pillars": row.get("pillars"), "pillar_bands": row.get("pillar_bands"),
            "pillar_points": row.get("contributions"),
            "bands": store.score_band_spec(), "signals": signals,
-           "since": since, "until": until, "scope": scope}
+           "since": since, "until": until, "scope": scope, "covers": covers}
     if prev is not None:
         out["change"] = store.score_delta(sc, prev, login)
     return out
@@ -639,6 +659,7 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
     try:
         rep = semantic_metrics.flow_report(conn, repos=_repos(conn, scope),
                                           since=_iso(since), until=_iso(until, end=True))
+        covers = _covers(conn, scope)
     except ValueError as exc:
         return {"error": str(exc)}
     finally:
@@ -651,7 +672,8 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
     # null would have the assistant reporting "your friction is None".
     if mine is not None and mine.get("friction") is None:
         mine = None
-        return {"login": login, "found": False, "scope": scope,
+    if mine is None:
+        return {"login": login, "found": False, "scope": scope, "covers": covers,
                 "people_with_flow_data": len(people),
                 "note": ("no flow data for this login in this window — friction needs at "
                          "least three owned tracked items, and a scope narrows what counts. "
@@ -661,7 +683,7 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
     median = vals[len(vals) // 2] if vals else None
     return {
         "login": login, "found": True, "since": since, "until": until, "scope": scope,
-        "friction_per_item": mine.get("friction"),
+        "covers": covers, "friction_per_item": mine.get("friction"),
         "team_median": median, "lower_is_better": True,
         "owned_items": mine.get("items"),
         "parts": {"draft_bounces_pct_of_items": mine.get("bounce_pct"),

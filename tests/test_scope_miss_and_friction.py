@@ -181,6 +181,77 @@ class FrictionBreakdownTest(unittest.TestCase):
             self.assertTrue(out["lower_is_better"])
 
 
+class CoverageTest(unittest.TestCase):
+    """A slice set on one page stays set. Somebody can ask an hour later and read a narrowed
+    answer as the whole org, so every scoped tool says what it counted in words the answer
+    can quote — a `scope` field is something the assistant may or may not notice."""
+
+    def test_no_scope_says_so_rather_than_saying_nothing(self):
+        with _tools() as t:
+            for out in (t.top_contributors(since=SINCE, until=UNTIL),
+                        t.developer_score("ann", since=SINCE, until=UNTIL),
+                        t.friction_breakdown("ann", since=SINCE, until=UNTIL)):
+                self.assertIn("whole organisation", out["covers"])
+
+    def test_a_scope_is_named_with_how_much_it_leaves_out(self):
+        with _tools() as t:
+            out = t.top_contributors(since=SINCE, until=UNTIL, scope="element:Beta")
+            self.assertIn("element:Beta", out["covers"])
+            self.assertRegex(out["covers"], r"\b1 of 2 repositories\b")
+            self.assertIn("not included", out["covers"])
+
+    def test_the_line_survives_a_miss_too(self):
+        """The miss path is where it matters most: that is the answer most at risk of being
+        read as "there is no data" rather than "not in this slice"."""
+        with _tools() as t:
+            miss = t.developer_score("visitor", since=SINCE, until=UNTIL,
+                                     scope="element:Beta")
+            self.assertIn("element:Beta", miss["covers"])
+            fmiss = t.friction_breakdown("nosuchperson", since=SINCE, until=UNTIL,
+                                         scope="element:Beta")
+            self.assertIn("element:Beta", fmiss["covers"])
+
+    def test_a_login_absent_from_the_flow_report_does_not_crash(self):
+        """It did. Rewriting the guard for the null-friction case dropped the `if not mine`
+        that handled a login the report never listed, and the final return then called
+        .get on None. The tests at the time did not cover an absent login."""
+        with _tools() as t:
+            out = t.friction_breakdown("nosuchperson", since=SINCE, until=UNTIL)
+            self.assertFalse(out["found"])
+            self.assertIn("note", out)
+
+
+class ChatContextTest(unittest.TestCase):
+    """What the chat is told about the page it was asked from."""
+
+    def _bits(self, **kw):
+        import server
+        return server.chat_context_bits(kw.get("scope", ""), kw.get("period", ""),
+                                        kw.get("view", ""))
+
+    def test_a_scope_on_a_person_page_is_flagged_as_not_applying(self):
+        """The production failure in one line: the Person page shows org-wide figures while
+        its filter bar displays a slice, so a scope carried into a person question
+        contradicts the screen."""
+        bits = self._bits(scope="element:Insight", period="30 days", view="person/score")
+        self.assertTrue(any("Person page ignores scope" in b for b in bits))
+        self.assertTrue(any("do not apply this scope" in b for b in bits))
+
+    def test_other_pages_are_not_told_that(self):
+        for view in ("delivery", "overview", "flow", "people"):
+            bits = self._bits(scope="element:Insight", view=view)
+            self.assertFalse(any("ignores scope" in b for b in bits), view)
+
+    def test_no_scope_means_no_warning_even_on_the_person_page(self):
+        bits = self._bits(scope="", view="person/activity")
+        self.assertTrue(any("whole org" in b for b in bits))
+        self.assertFalse(any("ignores scope" in b for b in bits))
+
+    def test_the_absence_of_a_scope_is_stated_rather_than_omitted(self):
+        """Saying nothing would let the assistant assume a slice it was never given."""
+        self.assertIn("scope=whole org (no slice)", self._bits())
+
+
 class PromptRuleTest(unittest.TestCase):
     def test_the_assistant_is_told_a_page_scope_is_only_a_default(self):
         with _tools():
@@ -192,6 +263,9 @@ class PromptRuleTest(unittest.TestCase):
                 chat_agent._SYSTEM_FULL = None
             self.assertIn("DEFAULT, not part of their question", sysmsg)
             self.assertIn("scope=''", sysmsg)
+            self.assertIn("SAY WHAT THE ANSWER COVERS", sysmsg,
+                          "a person who set a scope and forgot must be told what they are "
+                          "reading")
 
 
 class RegistrationTest(unittest.TestCase):
