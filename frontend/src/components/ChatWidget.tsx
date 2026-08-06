@@ -21,6 +21,34 @@ function mxEsc(s: string) {
 // — not a renderer, just enough to make an accidental formula readable: the wrappers go, the
 // three commands that actually turn up become their plain equivalents, and the result is shown
 // as code so it reads as a formula rather than as mangled prose.
+// Attribute-safe: mxEsc handles & < > but not quotes, and the TeX travels in an attribute.
+function mxAttr(s: string) {
+  return mxEsc(s).replace(/"/g, "&quot;");
+}
+
+// Math is pulled out BEFORE escaping and put back afterwards as a placeholder carrying the
+// TeX in an attribute, with the plain-text rendering as its content. Three things fall out of
+// that order: the escaper still sees every character of prose, the placeholder survives
+// markdown untouched, and a reader without the math chunk — it failed to load, or the formula
+// is malformed — is left with a readable line rather than a blank.
+export function mxExtractMath(raw: string): [string, { tex: string; display: boolean }[]] {
+  const found: { tex: string; display: boolean }[] = [];
+  const take = (tex: string, display: boolean) => {
+    found.push({ tex: tex.trim(), display });
+    return `\u0000MATH${found.length - 1}\u0000`;      // no HTML-special characters
+  };
+  let s = raw;
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, b) => take(b, true));
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, b) => take(b, true));
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_m, b) => take(b, false));
+  // Single-dollar inline math, but only when it looks like math rather than money: a lone
+  // "$0.0021 per turn" must not become a formula, so both delimiters have to be adjacent to
+  // non-space and the body must not start with a digit followed by a decimal point.
+  s = s.replace(/\$(?!\s)([^$\n]{1,200}?)(?<!\s)\$/g, (m, b) =>
+    /^\d+[.,]\d/.test(b) ? m : take(b, false));
+  return [s, found];
+}
+
 export function mxDelatex(s: string) {
   const plain = (body: string) =>
     body
@@ -54,7 +82,8 @@ function mxInline(s: string) {
 const mxIsSep = (s: string) => /^[\s|:-]+$/.test(s) && s.indexOf("|") >= 0 && s.indexOf("-") >= 0;
 const mxCells = (s: string) => s.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => mxInline(c.trim()));
 export function mxMarkdown(raw: string): string {
-  const lines = mxEsc(mxDelatex(raw)).split("\n");
+  const [stripped, maths] = mxExtractMath(raw);
+  const lines = mxEsc(stripped).split("\n");
   let html = "",
     list: string | null = null,
     para: string[] = [];
@@ -124,7 +153,18 @@ export function mxMarkdown(raw: string): string {
   }
   flushPara();
   flushList();
-  return html;
+  // Placeholders back to markup, last: the content is the plain-text reading (already
+  // escaped by mxDelatex's output going through mxEsc below) and the attribute carries the
+  // TeX for the lazy typesetter to pick up after mount.
+  return html.replace(/\u0000MATH(\d+)\u0000/g, (_m, i) => {
+    const m = maths[Number(i)];
+    if (!m) return "";
+    const plain = mxEsc(mxDelatex(m.display ? `$$${m.tex}$$` : `\\(${m.tex}\\)`)
+      .replace(/^`|`$/g, ""));
+    return `<span class="mx-math${m.display ? " mx-math-block" : ""}" `
+      + `data-tex="${mxAttr(m.tex)}"${m.display ? ' data-display="1"' : ""}>`
+      + `<code>${plain}</code></span>`;
+  });
 }
 
 // ---- report-context helpers (verbatim) ----
@@ -178,6 +218,38 @@ export default function ChatWidget() {
   useEffect(() => {
     // scroll to newest on any message change / expand
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [msgs, max]);
+
+  // Typeset any formula that has arrived, fetching the math module the first time one does —
+  // so a conversation without formulas never pays for it. Each placeholder is marked done so
+  // a re-render (every streamed chunk causes one) does not re-render the same MathML, and a
+  // formula Temml rejects keeps the plain-text reading that is already inside it.
+  useEffect(() => {
+    const root = bodyRef.current;
+    if (!root) return;
+    const todo = Array.from(
+      root.querySelectorAll<HTMLElement>(".mx-math[data-tex]:not([data-typeset])"));
+    if (!todo.length) return;
+    let cancelled = false;
+    import("./mathRender")
+      .then(async ({ renderMath }) => {
+        for (const el of todo) {
+          if (cancelled) return;
+          const tex = el.getAttribute("data-tex") || "";
+          const ok = await renderMath(el, tex, el.hasAttribute("data-display"));
+          el.setAttribute("data-typeset", ok ? "1" : "failed");
+        }
+        if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+      })
+      .catch(() => {
+        // Offline, or the chunk failed to build: mark them so this does not retry on every
+        // keystroke. The plain-text formula stays on screen, which is the whole point of
+        // putting it there rather than leaving the placeholder empty.
+        for (const el of todo) el.setAttribute("data-typeset", "unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [msgs, max]);
 
   function openPanel() {
