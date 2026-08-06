@@ -49,7 +49,11 @@ Hard rules:
 - When you explain what a metric means, cite its definition/formula from
   metrics_catalog — don't describe metrics from general knowledge.
 - Dates are 'YYYY-MM-DD', UTC. A scope is '<org|element|repo|project>:<target>'
-  (e.g. 'element:Insight'). Discover valid targets with list_dimension. There is NO
+  (e.g. 'element:Insight'). Discover valid targets with list_dimension. A scope that came
+  from the page the person is looking at is a DEFAULT, not part of their question: if a
+  scoped lookup comes back empty or unscored for a PERSON, try it again with scope='' before
+  concluding the data is unavailable. Never answer "no data" while an unscoped call would
+  answer the question. There is NO
   person scope: 'person:<login>' is invalid and will error. For ONE person use
   person(login=…) for their profile/all-time dimension, list_items(author=<login>) to
   count or list their items, or sql_query — never scope=person:…
