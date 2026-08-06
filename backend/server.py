@@ -92,6 +92,30 @@ def log_degraded(where: str, exc: BaseException) -> None:
     traceback.print_exc(file=sys.stderr)
 
 
+def chat_context_bits(scope: str, period: str, view: str) -> list:
+    """The trusted context the chat prepends to a question, as a list of phrases.
+
+    Extracted from the handler so the person-page rule below can be tested: it was written
+    inline and nothing failed when it was removed, which is the definition of untested.
+
+    The context has to describe what the PAGE does, not just what its filter bar shows. The
+    person dashboard accepts `slice` so the shared FilterBar can display it and then
+    deliberately does not apply it (see serve_report_person), so a person's figures on
+    screen are org-wide. Without saying that, the assistant applied the element scope to
+    "what is my friction", got "not scored inside that element", and told the person their
+    data was unavailable — contradicting the panel in front of them, which showed a score.
+    """
+    bits = [f"scope={scope}" if scope else "scope=whole org (no slice)"]
+    if period:
+        bits.append(f"period={period}")
+    if view:
+        bits.append(f"view={view}")
+    if scope and view and view.split("/")[0] == "person":
+        bits.append("NOTE: the Person page ignores scope — the figures on screen are "
+                    "org-wide, so do not apply this scope to questions about the person")
+    return bits
+
+
 def data_freshness(max_age_hours: float | None = None) -> tuple[dict, bool]:
     """Age of the newest stored run, as (payload, ok).
 
@@ -3049,13 +3073,7 @@ class Handler(BaseHTTPRequestHandler):
         # Build the model message server-side: clean question + trusted context
         # (scope/period/view) + verified identity. The client no longer annotates the
         # text, so the CLEAN question is what we persist.
-        bits = []
-        bits.append(f"scope={scope}" if scope else "scope=whole org (no slice)")
-        if period:
-            bits.append(f"period={period}")
-        if view:
-            bits.append(f"view={view}")
-        ctx = f"\n\n[Report context: {', '.join(bits)}]"
+        ctx = f"\n\n[Report context: {', '.join(chat_context_bits(scope, period, view))}]"
         if login:
             ctx += f"\n\n[Viewer (server-verified): asking_as={login}]"
         model_message = clean + ctx

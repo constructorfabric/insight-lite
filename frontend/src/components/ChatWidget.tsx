@@ -100,7 +100,15 @@ function mxMarkdown(raw: string): string {
 
 // ---- report-context helpers (verbatim) ----
 function curView() {
-  return (location.hash || "").replace(/^#/, "") || null;
+  // The hash is where the monolith kept its deep-links (#person, #delivery). The React
+  // routes have none, so this returned null on every page and the assistant was told
+  // nothing about where the question came from — which is how it ended up applying an
+  // element scope to a question asked on the Person page, a page that ignores scope.
+  const hash = (location.hash || "").replace(/^#/, "");
+  if (hash) return hash;
+  const path = (location.pathname || "").replace(/^\/+|\/+$/g, "") || "overview";
+  const tab = new URLSearchParams(location.search).get("view");
+  return tab ? `${path}/${tab}` : path;
 }
 function curPeriod() {
   const c = document.querySelector(".pchip.active[data-pchip]");

@@ -382,6 +382,24 @@ def metrics_catalog() -> dict:
 # agree with the report's own tiles instead of being a second opinion.
 
 
+def _covers(conn, scope: str) -> str:
+    """One line saying what a scoped answer actually covers, for the assistant to quote.
+
+    A slice set on one page stays set, so a person can ask a question an hour later and read
+    a narrowed answer as if it were the whole org. The tools that accept a scope therefore
+    say what they counted, in words, rather than leaving the caller to notice a `scope`
+    field."""
+    if not scope:
+        return "the whole organisation, no slice"
+    try:
+        repos = _repos(conn, scope) or []
+    except ValueError:
+        return f"{scope} (unresolved)"
+    total = conn.execute("SELECT count(*) FROM repo").fetchone()[0]
+    return (f"{scope} only \u2014 {len(repos)} of {total} repositories. "
+            "Say so in the answer: figures outside this slice are not included.")
+
+
 def top_contributors(since: str = "", until: str = "", scope: str = "",
                      metric: str = "commits", limit: int = 10,
                      member_only: bool = False) -> dict:
@@ -398,13 +416,14 @@ def top_contributors(since: str = "", until: str = "", scope: str = "",
         drill = store.people_drill(conn, _iso(since), _iso(until, end=True),
                                    repos=_repos(conn, scope), member_only=member_only,
                                    limit=100000)
+        covers = _covers(conn, scope)
     except ValueError as exc:
         return {"error": str(exc)}
     finally:
         conn.close()
     rows = sorted(drill["rows"], key=lambda r: (-(r.get(metric) or 0), r["login"]))
     return {"metric": metric, "since": since, "until": until, "scope": scope,
-            "people_total": drill["total"],
+            "covers": covers, "people_total": drill["total"],
             "rows": rows[:max(1, min(int(limit), 200))]}
 
 
@@ -549,6 +568,7 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
     conn = store.connect()
     try:
         sc = store.developer_scores(conn, lo, hi, repos=_repos(conn, scope))
+        covers = _covers(conn, scope)
         prev = None
         if compare_previous:
             win = _previous_window(lo, hi)
@@ -561,11 +581,45 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
         conn.close()
     row = (sc.get("by_login") or {}).get(login)
     if not row:
-        return {"login": login, "scored": False,
-                "min_activity": sc.get("min_activity"),
-                "n_ranked": sc.get("n_ranked"),
-                "note": ("not scored in this window — under the activity floor, or the "
-                         "login is wrong; check it with find_person()")}
+        # A scoped miss used to end here with a note about the activity floor and the
+        # spelling of the login, and that is what happened in production: the panel passes
+        # the current page's scope, the question was "what is my friction" which is not
+        # about an element at all, and the person fell under the floor INSIDE that element.
+        # The assistant then spent eight more tool calls checking the login it had been
+        # pointed at and told the user their data was unavailable, while the same call
+        # without the scope returns a score. So when a scoped lookup misses, look again
+        # without it — one extra scoring run (about 200ms) against eight wasted rounds —
+        # and hand back the number with the reason it was not found where it was asked for.
+        wider = None
+        if scope:
+            conn = store.connect()
+            try:
+                wide = store.developer_scores(conn, lo, hi)
+            finally:
+                conn.close()
+            wider = (wide.get("by_login") or {}).get(login)
+        out = {"login": login, "scored": False, "scope": scope, "covers": covers,
+               "min_activity": sc.get("min_activity"),
+               "n_ranked": sc.get("n_ranked")}
+        if wider:
+            # Its own `covers`, because the block above says "figures outside this slice are
+            # not included" about the REQUESTED slice while this number is org-wide. One
+            # coverage line for two different populations is how a slice-only caveat gets
+            # attached to an org-wide score — the mistake this commit's sibling warns about,
+            # in reverse. Caught in review on #10.
+            out["scored_without_scope"] = {
+                "score": wider.get("score"), "band": wider.get("band"),
+                "rank": wider.get("rank"), "of_scored": wide.get("n_ranked"),
+                "covers": "the whole organisation, no slice"}
+            out["note"] = (f"not scored inside scope '{scope}' — under the activity floor "
+                           f"THERE, not overall. Scored {wider.get('score')} "
+                           f"({wider.get('band')}) across everything in this window. If the "
+                           f"question was about this person rather than about {scope}, call "
+                           f"again with scope='' for the full breakdown.")
+        else:
+            out["note"] = ("not scored in this window — under the activity floor, or the "
+                           "login is wrong; check it with find_person()")
+        return out
     spec = store.score_signal_spec()
     medians = sc.get("team_medians") or {}
     drivers = row.get("drivers") or {}
@@ -591,10 +645,71 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
            "pillars": row.get("pillars"), "pillar_bands": row.get("pillar_bands"),
            "pillar_points": row.get("contributions"),
            "bands": store.score_band_spec(), "signals": signals,
-           "since": since, "until": until, "scope": scope}
+           "since": since, "until": until, "scope": scope, "covers": covers}
     if prev is not None:
         out["change"] = store.score_delta(sc, prev, login)
     return out
+
+
+def friction_breakdown(login: str, since: str = "", until: str = "",
+                       scope: str = "") -> dict:
+    """What ONE person's flow friction is made of: how many items they owned, their
+    friction per item, and the parts that drive it — draft bounces, reopens and extra
+    review requests — plus the team median to compare against. Use this for "how is MY
+    friction calculated"; metric_definition('friction') gives the formula, this gives the
+    numbers that went into it."""
+    if not (login or "").strip():
+        return {"error": "login is required"}
+    import semantic_metrics
+    conn = store.connect()
+    try:
+        rep = semantic_metrics.flow_report(conn, repos=_repos(conn, scope),
+                                          since=_iso(since), until=_iso(until, end=True))
+        covers = _covers(conn, scope)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    finally:
+        conn.close()
+    people = rep.get("people") or []
+    mine = next((p for p in people if p.get("login") == login), None)
+    # A row with no friction value is not an answer. The person can be listed in the flow
+    # report and still have none — friction needs at least three owned TRACKED items, and
+    # an item is tracked only once it has timeline events — and returning found=True with a
+    # null would have the assistant reporting "your friction is None".
+    if mine is not None and mine.get("friction") is None:
+        mine = None
+    if mine is None:
+        return {"login": login, "found": False, "scope": scope, "covers": covers,
+                "people_with_flow_data": len(people),
+                "note": ("no flow data for this login in this window — friction needs at "
+                         "least three owned tracked items, and a scope narrows what counts. "
+                         "Try a wider window, or scope='', or check the login with "
+                         "find_person()")}
+    vals = sorted(p["friction"] for p in people if p.get("friction") is not None)
+    median = vals[len(vals) // 2] if vals else None
+    return {
+        "login": login, "found": True, "since": since, "until": until, "scope": scope,
+        "covers": covers, "friction_per_item": mine.get("friction"),
+        "team_median": median, "lower_is_better": True,
+        "owned_items": mine.get("items"),
+        "parts": {"draft_bounces_pct_of_items": mine.get("bounce_pct"),
+                  "reopens_pct_of_items": mine.get("reopen_pct"),
+                  "extra_review_requests": mine.get("extra_reqs")},
+        "formula": "(2 x (draft bounces + reopens) + extra review requests + extra "
+                   "assignments) / owned items",
+        # The formula has four terms and `parts` can only carry three: the flow report's
+        # per-person row exposes bounce_pct, reopen_pct and extra_reqs and does not break
+        # out assignment churn, which is folded into `friction`. Named here, because a
+        # caller told to explain a number cannot account for a term it was never given.
+        "not_broken_out": ("extra assignments — counted inside friction_per_item but not "
+                           "reported separately by the flow report, so the parts below "
+                           "account for the other three terms only"),
+        # Said plainly because the parts come from the Flow page's own rounded shares: they
+        # explain the number, they do not reconstruct it to the last digit.
+        "note": ("bounces and reopens are rounded PERCENTAGES of owned items, as shown on "
+                 "the Flow page, so multiplying them back out approximates the counts "
+                 "rather than reproducing them exactly"),
+    }
 
 
 # ---- registry + schema introspection ---------------------------------------
@@ -602,7 +717,8 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
 TOOLS = [
     metrics_catalog, metric_definition, describe_schema, list_dimension, taxonomy,
     data_freshness, contribution, top_contributors, delivery, trend, flow,
-    find_person, person, person_activity, developer_score, list_items, sql_query,
+    find_person, person, person_activity, developer_score, friction_breakdown,
+    list_items, sql_query,
     views_catalog,
 ]
 DISPATCH = {fn.__name__: fn for fn in TOOLS}
