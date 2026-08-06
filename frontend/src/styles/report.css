@@ -923,6 +923,13 @@ code{background:none;padding:0;border-radius:0;font-size:inherit}
   /* When expanded, let message bubbles use more of the width. */
   #mx-panel.max .mx-msg{max-width:70%}
   .mx-body{flex:1;overflow-y:auto;padding:var(--space-4);display:flex;flex-direction:column;gap:10px}
+  /* A formula placeholder. Before the math chunk lands (and after it fails) this shows the
+     plain-text reading inside a <code>; once typeset, Temml replaces the content with <math>
+     and the code styling has nothing left to apply to. */
+  .mx-math > code{white-space:pre-wrap}
+  .mx-math-block{display:block;margin:var(--space-2) 0}
+  .mx-math math{font-size:1.05em}
+  .mx-math[data-typeset="1"]{overflow-x:auto;max-width:100%}
   .mx-msg{max-width:85%;padding:var(--space-2) 11px;border-radius:var(--r-lg);font-size:13.5px;line-height:1.5;
     white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
   .mx-msg.user{align-self:flex-end;background:var(--acc);color:var(--on-solid);border-bottom-right-radius:4px}

@@ -14,18 +14,78 @@ import { createPortal } from "react-dom";
 function mxEsc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+// Formulas. The panel renders a small markdown subset and no math, but a model asked how a
+// metric is computed reaches for LaTeX anyway, and the answer then arrives as source:
+// "$$\\text{flow\\_friction\\_per\\_item} = \\frac{2 \\times (...)}{...}$$". The system
+// instruction now asks for plain text, and this is the fallback for when it does it regardless
+// — not a renderer, just enough to make an accidental formula readable: the wrappers go, the
+// three commands that actually turn up become their plain equivalents, and the result is shown
+// as code so it reads as a formula rather than as mangled prose.
+// Attribute-safe: mxEsc handles & < > but not quotes, and the TeX travels in an attribute.
+function mxAttr(s: string) {
+  return mxEsc(s).replace(/"/g, "&quot;");
+}
+
+// Math is pulled out BEFORE escaping and put back afterwards as a placeholder carrying the
+// TeX in an attribute, with the plain-text rendering as its content. Three things fall out of
+// that order: the escaper still sees every character of prose, the placeholder survives
+// markdown untouched, and a reader without the math chunk — it failed to load, or the formula
+// is malformed — is left with a readable line rather than a blank.
+export function mxExtractMath(raw: string): [string, { tex: string; display: boolean }[]] {
+  const found: { tex: string; display: boolean }[] = [];
+  const take = (tex: string, display: boolean) => {
+    found.push({ tex: tex.trim(), display });
+    return `\u0000MATH${found.length - 1}\u0000`;      // no HTML-special characters
+  };
+  let s = raw;
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, b) => take(b, true));
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, b) => take(b, true));
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_m, b) => take(b, false));
+  // Single-dollar inline math, but only when it looks like math rather than money. Both
+  // delimiters must sit against non-space, AND the body has to contain something money never
+  // does: a letter, a backslash, or one of + = ^ _ / ( ). A hyphen deliberately does not
+  // count — "costs $5-$10 per seat" has the body "5-", which passed every earlier version of
+  // this guard and swallowed the price. Caught in review on #11.
+  s = s.replace(/\$(?!\s)([^$\n]{1,200}?)(?<!\s)\$/g, (m, b) =>
+    /[a-zA-Z\\^_+=/()]/.test(b) ? take(b, false) : m);
+  return [s, found];
+}
+
+export function mxDelatex(s: string) {
+  const plain = (body: string) =>
+    body
+      .replace(/\\text\{([^{}]*)\}/g, "$1")
+      .replace(/\\mathrm\{([^{}]*)\}/g, "$1")
+      .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "($1) / ($2)")
+      .replace(/\\times/g, "\u00d7")
+      .replace(/\\cdot/g, "\u00b7")
+      .replace(/\\[,;!]/g, " ")
+      .replace(/\\_/g, "_")
+      .replace(/\s+/g, " ")
+      .trim();
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, b) => "`" + plain(b) + "`");
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, b) => "`" + plain(b) + "`");
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_m, b) => "`" + plain(b) + "`");
+  return s;
+}
+
 function mxInline(s: string) {
   s = s.replace(/`([^`]+)`/g, (_m, c) => "<code>" + c + "</code>");
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"'<>]+|\/[^)\s"'<>]*)\)/g, (_m, t, u) => '<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + t + "</a>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  s = s.replace(/_([^_\n]+)_/g, "<em>$1</em>");
+  // Only at a word boundary. Without that, flow_friction_per_item came out as
+  // flow<em>friction</em>per_item — every snake_case identifier in an answer about a metric
+  // was mangled, which is most of them. CommonMark treats an intra-word underscore as
+  // literal for exactly this reason.
+  s = s.replace(/(^|[^\w])_([^_\n]+)_(?!\w)/g, "$1<em>$2</em>");
   return s;
 }
 const mxIsSep = (s: string) => /^[\s|:-]+$/.test(s) && s.indexOf("|") >= 0 && s.indexOf("-") >= 0;
 const mxCells = (s: string) => s.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => mxInline(c.trim()));
-function mxMarkdown(raw: string): string {
-  const lines = mxEsc(raw).split("\n");
+export function mxMarkdown(raw: string): string {
+  const [stripped, maths] = mxExtractMath(raw);
+  const lines = mxEsc(stripped).split("\n");
   let html = "",
     list: string | null = null,
     para: string[] = [];
@@ -95,7 +155,18 @@ function mxMarkdown(raw: string): string {
   }
   flushPara();
   flushList();
-  return html;
+  // Placeholders back to markup, last: the content is the plain-text reading (already
+  // escaped by mxDelatex's output going through mxEsc below) and the attribute carries the
+  // TeX for the lazy typesetter to pick up after mount.
+  return html.replace(/\u0000MATH(\d+)\u0000/g, (_m, i) => {
+    const m = maths[Number(i)];
+    if (!m) return "";
+    const plain = mxEsc(mxDelatex(m.display ? `$$${m.tex}$$` : `\\(${m.tex}\\)`)
+      .replace(/^`|`$/g, ""));
+    return `<span class="mx-math${m.display ? " mx-math-block" : ""}" `
+      + `data-tex="${mxAttr(m.tex)}"${m.display ? ' data-display="1"' : ""}>`
+      + `<code>${plain}</code></span>`;
+  });
 }
 
 // ---- report-context helpers (verbatim) ----
@@ -149,6 +220,44 @@ export default function ChatWidget() {
   useEffect(() => {
     // scroll to newest on any message change / expand
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [msgs, max]);
+
+  // Typeset any formula that has arrived, fetching the math module the first time one does —
+  // so a conversation without formulas never pays for it. A formula Temml rejects keeps the
+  // plain-text reading that is already inside it.
+  //
+  // The data-typeset marks are NOT a way of doing the work once. The message body is stored as
+  // an HTML string and handed to dangerouslySetInnerHTML, and every streamed chunk rebuilds
+  // that string — so React reassigns innerHTML, which destroys both the typeset <math> and the
+  // marks, and this effect legitimately finds the same formulas again. Review on #11 pointed
+  // out that the comment here claimed otherwise. What actually keeps the cost flat is the
+  // memo inside mathRender: the marks only stop a second pass within one render.
+  useEffect(() => {
+    const root = bodyRef.current;
+    if (!root) return;
+    const todo = Array.from(
+      root.querySelectorAll<HTMLElement>(".mx-math[data-tex]:not([data-typeset])"));
+    if (!todo.length) return;
+    let cancelled = false;
+    import("./mathRender")
+      .then(async ({ renderMath }) => {
+        for (const el of todo) {
+          if (cancelled) return;
+          const tex = el.getAttribute("data-tex") || "";
+          const ok = await renderMath(el, tex, el.hasAttribute("data-display"));
+          el.setAttribute("data-typeset", ok ? "1" : "failed");
+        }
+        if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+      })
+      .catch(() => {
+        // Offline, or the chunk failed to build: mark them so this does not retry on every
+        // keystroke. The plain-text formula stays on screen, which is the whole point of
+        // putting it there rather than leaving the placeholder empty.
+        for (const el of todo) el.setAttribute("data-typeset", "unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [msgs, max]);
 
   function openPanel() {
