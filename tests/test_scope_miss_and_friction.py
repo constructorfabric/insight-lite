@@ -154,14 +154,28 @@ class FrictionBreakdownTest(unittest.TestCase):
                 self.assertIn(hint, out["note"])
 
     def test_a_listed_person_with_no_friction_value_is_not_reported_as_found(self):
-        """The flow report can list somebody and still have no friction for them; found=True
-        with a null would have the assistant answering "your friction is None"."""
+        """`cat` is IN the flow report with friction None — commits and PRs but no timeline
+        events, so nothing of hers is tracked. found=True with a null would have the
+        assistant answering "your friction is None".
+
+        Written first as `if out["found"]: ... else: ...`, which cannot fail: both branches
+        assert something that holds by construction. Third time in two days I have written
+        that shape, so it is worth naming — a conditional in a test is usually a missing
+        fixture wearing a disguise."""
         with _tools() as t:
             out = t.friction_breakdown("cat", since=SINCE, until=UNTIL)
-            if out["found"]:
-                self.assertIsNotNone(out["friction_per_item"])
-            else:
-                self.assertIn("note", out)
+            self.assertFalse(out["found"], "listed with a null friction is not an answer")
+            self.assertIn("note", out)
+
+    def test_the_reply_admits_the_term_it_cannot_break_out(self):
+        """The formula has four terms and the flow report exposes three; assignment churn is
+        folded into friction. A caller asked to explain a number must not be left to account
+        for a term it was never given."""
+        with _tools() as t:
+            out = t.friction_breakdown("ann", since=SINCE, until=UNTIL)
+            self.assertIn("extra assignments", out["formula"])
+            self.assertIn("extra assignments", out["not_broken_out"])
+            self.assertNotIn("extra_assignments", out["parts"])
 
     def test_a_bad_scope_is_refused_with_the_shape_of_a_scope(self):
         with _tools() as t:
@@ -199,6 +213,16 @@ class CoverageTest(unittest.TestCase):
             self.assertIn("element:Beta", out["covers"])
             self.assertRegex(out["covers"], r"\b1 of 2 repositories\b")
             self.assertIn("not included", out["covers"])
+
+    def test_the_widened_score_says_it_is_org_wide(self):
+        """Two populations in one payload: the requested slice, which the top-level `covers`
+        describes as excluding everything else, and an org-wide score. Sharing one coverage
+        line is how slice-only wording gets attached to an org-wide number."""
+        with _tools() as t:
+            out = t.developer_score("visitor", since=SINCE, until=UNTIL,
+                                    scope="element:Beta")
+            self.assertIn("element:Beta", out["covers"])
+            self.assertIn("whole organisation", out["scored_without_scope"]["covers"])
 
     def test_the_line_survives_a_miss_too(self):
         """The miss path is where it matters most: that is the answer most at risk of being

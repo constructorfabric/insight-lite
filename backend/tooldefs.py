@@ -602,9 +602,15 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
                "min_activity": sc.get("min_activity"),
                "n_ranked": sc.get("n_ranked")}
         if wider:
+            # Its own `covers`, because the block above says "figures outside this slice are
+            # not included" about the REQUESTED slice while this number is org-wide. One
+            # coverage line for two different populations is how a slice-only caveat gets
+            # attached to an org-wide score — the mistake this commit's sibling warns about,
+            # in reverse. Caught in review on #10.
             out["scored_without_scope"] = {
                 "score": wider.get("score"), "band": wider.get("band"),
-                "rank": wider.get("rank"), "of_scored": wide.get("n_ranked")}
+                "rank": wider.get("rank"), "of_scored": wide.get("n_ranked"),
+                "covers": "the whole organisation, no slice"}
             out["note"] = (f"not scored inside scope '{scope}' — under the activity floor "
                            f"THERE, not overall. Scored {wider.get('score')} "
                            f"({wider.get('band')}) across everything in this window. If the "
@@ -691,6 +697,13 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
                   "extra_review_requests": mine.get("extra_reqs")},
         "formula": "(2 x (draft bounces + reopens) + extra review requests + extra "
                    "assignments) / owned items",
+        # The formula has four terms and `parts` can only carry three: the flow report's
+        # per-person row exposes bounce_pct, reopen_pct and extra_reqs and does not break
+        # out assignment churn, which is folded into `friction`. Named here, because a
+        # caller told to explain a number cannot account for a term it was never given.
+        "not_broken_out": ("extra assignments — counted inside friction_per_item but not "
+                           "reported separately by the flow report, so the parts below "
+                           "account for the other three terms only"),
         # Said plainly because the parts come from the Flow page's own rounded shares: they
         # explain the number, they do not reconstruct it to the last digit.
         "note": ("bounces and reopens are rounded PERCENTAGES of owned items, as shown on "
