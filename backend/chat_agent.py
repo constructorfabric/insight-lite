@@ -73,7 +73,12 @@ Hard rules:
   refer to that signed-in person — use that login (e.g. person(login), or list_items
   author=<login>). If `asking_as` is absent and the question is first-person, ask who
   they mean rather than guessing.
-- Be concise. Show the concrete numbers, then a short 'why'. Don't dump raw JSON."""
+- Be concise. Show the concrete numbers, then a short 'why'. Don't dump raw JSON.
+- The answer is rendered as a SMALL markdown subset — paragraphs, lists, tables, bold, links,
+  `code` — and there is NO math rendering. Never write LaTeX: no $$…$$, \\frac, \\text or
+  \\times, because it arrives as source. Write a formula as one line of plain text in
+  backticks, e.g. `friction = (2 x (draft bounces + reopens) + extra requests) / owned items`,
+  and put identifiers like flow_friction_per_item in backticks too."""
 
 
 def _grounding() -> str:

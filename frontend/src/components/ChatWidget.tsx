@@ -14,18 +14,47 @@ import { createPortal } from "react-dom";
 function mxEsc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+// Formulas. The panel renders a small markdown subset and no math, but a model asked how a
+// metric is computed reaches for LaTeX anyway, and the answer then arrives as source:
+// "$$\\text{flow\\_friction\\_per\\_item} = \\frac{2 \\times (...)}{...}$$". The system
+// instruction now asks for plain text, and this is the fallback for when it does it regardless
+// — not a renderer, just enough to make an accidental formula readable: the wrappers go, the
+// three commands that actually turn up become their plain equivalents, and the result is shown
+// as code so it reads as a formula rather than as mangled prose.
+export function mxDelatex(s: string) {
+  const plain = (body: string) =>
+    body
+      .replace(/\\text\{([^{}]*)\}/g, "$1")
+      .replace(/\\mathrm\{([^{}]*)\}/g, "$1")
+      .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "($1) / ($2)")
+      .replace(/\\times/g, "\u00d7")
+      .replace(/\\cdot/g, "\u00b7")
+      .replace(/\\[,;!]/g, " ")
+      .replace(/\\_/g, "_")
+      .replace(/\s+/g, " ")
+      .trim();
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, b) => "`" + plain(b) + "`");
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, b) => "`" + plain(b) + "`");
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_m, b) => "`" + plain(b) + "`");
+  return s;
+}
+
 function mxInline(s: string) {
   s = s.replace(/`([^`]+)`/g, (_m, c) => "<code>" + c + "</code>");
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"'<>]+|\/[^)\s"'<>]*)\)/g, (_m, t, u) => '<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + t + "</a>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  s = s.replace(/_([^_\n]+)_/g, "<em>$1</em>");
+  // Only at a word boundary. Without that, flow_friction_per_item came out as
+  // flow<em>friction</em>per_item — every snake_case identifier in an answer about a metric
+  // was mangled, which is most of them. CommonMark treats an intra-word underscore as
+  // literal for exactly this reason.
+  s = s.replace(/(^|[^\w])_([^_\n]+)_(?!\w)/g, "$1<em>$2</em>");
   return s;
 }
 const mxIsSep = (s: string) => /^[\s|:-]+$/.test(s) && s.indexOf("|") >= 0 && s.indexOf("-") >= 0;
 const mxCells = (s: string) => s.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => mxInline(c.trim()));
-function mxMarkdown(raw: string): string {
-  const lines = mxEsc(raw).split("\n");
+export function mxMarkdown(raw: string): string {
+  const lines = mxEsc(mxDelatex(raw)).split("\n");
   let html = "",
     list: string | null = null,
     para: string[] = [];
