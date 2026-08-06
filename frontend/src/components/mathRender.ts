@@ -35,6 +35,14 @@ let pending: Promise<Temml> | null = null;
 // (as null), which is what stops an unusable formula being retried on every chunk.
 const memo = new Map<string, Element | null>();
 
+// Completed renders are not enough. The effect that drives this runs once per streamed chunk
+// and is async, so several runs are in flight at once — and because a re-render destroys the
+// data-typeset marks, each run finds the same formulas. Before the first memo entry exists they
+// would all call renderToString for the same TeX, and that window is the widest one there is:
+// it lasts as long as fetching 167 KB of library. So an in-flight render is shared too. Caught
+// in review on #11, after the completed-render memo.
+const inflight = new Map<string, Promise<Element | null>>();
+
 /** Fetch the library once per page, whoever asks first. */
 function load(): Promise<Temml> {
   if (pending) return pending;
@@ -65,34 +73,43 @@ function load(): Promise<Temml> {
  * importNode carries the <math> tree over without routing library output through the panel's
  * one dangerouslySetInnerHTML path, which escapes everything it is given.
  */
-export async function renderMath(el: HTMLElement, tex: string,
-                                 display: boolean): Promise<boolean> {
-  const key = `${display ? "d" : "i"}\u0000${tex}`;
-  if (memo.has(key)) {
-    const cached = memo.get(key);
-    if (!cached) return false;
-    el.replaceChildren(cached.cloneNode(true));
-    return true;
-  }
+/** Typeset once. Never rejects: an unusable formula and an unreachable library are both null. */
+async function build(tex: string, display: boolean): Promise<Element | null> {
   try {
     const temml = await load();
     const markup = temml.renderToString(tex, { displayMode: display, throwOnError: true });
     const math = new DOMParser().parseFromString(markup, "text/html").querySelector("math");
-    if (!math) {
-      memo.set(key, null);
-      return false;
-    }
-    const node = document.importNode(math, true);
-    memo.set(key, node);
-    el.replaceChildren(node.cloneNode(true));
-    return true;
+    return math ? document.importNode(math, true) : null;
   } catch {
-    memo.set(key, null);
-    return false;
+    return null;
   }
+}
+
+export async function renderMath(el: HTMLElement, tex: string,
+                                 display: boolean): Promise<boolean> {
+  const key = `${display ? "d" : "i"}\u0000${tex}`;
+  let node: Element | null;
+  if (memo.has(key)) {
+    node = memo.get(key) ?? null;
+  } else {
+    let pendingRender = inflight.get(key);
+    if (!pendingRender) {
+      pendingRender = build(tex, display).then((n) => {
+        memo.set(key, n);
+        inflight.delete(key);
+        return n;
+      });
+      inflight.set(key, pendingRender);
+    }
+    node = await pendingRender;
+  }
+  if (!node) return false;
+  el.replaceChildren(node.cloneNode(true));
+  return true;
 }
 
 /** Test seam: the memo is process-wide, so a test that counts work has to be able to clear it. */
 export function __clearMathMemo() {
   memo.clear();
+  inflight.clear();
 }

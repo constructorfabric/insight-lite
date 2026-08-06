@@ -2,7 +2,7 @@
 // React reassigns innerHTML and destroys both the typeset <math> and the data-typeset marks.
 // The effect therefore asks for the same formulas again on every chunk — review on #11 caught
 // that the comment in ChatWidget claimed the marks prevented this. They do not; this memo does.
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { __clearMathMemo, renderMath } from "./mathRender";
 
@@ -49,6 +49,30 @@ describe("the memo", () => {
       expect(await renderMath(target, "BROKEN", true)).toBe(false);
       expect(target.textContent).toBe("fallback");  // and the fallback survives every time
     }
+    expect(calls.n).toBe(1);
+  });
+
+  it("shares an in-flight render between callers that arrive together", async () => {
+    // The real shape: several effect runs overlap while the library is still being fetched,
+    // and none of them can see a memo entry yet because none has finished.
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((res) => { release = () => res(); });
+    const inner = (window as unknown as { temml: { renderToString: (t: string) => string } }).temml;
+    (window as unknown as { temml: unknown }).temml = {
+      renderToString: (tex: string) => inner.renderToString(tex),
+    };
+    const slow = Promise.all(
+      Array.from({ length: 8 }, () => gate.then(() => renderMath(el(), "a + b", true))));
+    release!();
+    const results = await slow;
+    expect(results.every(Boolean)).toBe(true);
+    expect(calls.n).toBe(1);
+  });
+
+  it("shares a failure in flight too, without eight attempts", async () => {
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => renderMath(el(), "BROKEN", true)));
+    expect(results.every((r) => r === false)).toBe(true);
     expect(calls.n).toBe(1);
   });
 
