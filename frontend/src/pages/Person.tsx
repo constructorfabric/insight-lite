@@ -269,8 +269,14 @@ function PersonEmpty({ options }: { options: PersonOption[] }) {
   );
 }
 
+// "raw" is the load-bearing word. Somebody asked whether Lines here means LOC, docstrings or
+// everything, and the honest answer is everything the diff touched — including lock files,
+// generated and vendored code. The report's OTHER lines figure (the contribution KPIs) uses
+// meaningful_additions, which drops those paths, so the two numbers disagree on purpose and
+// nothing on screen used to say so.
 const WEEKLY_NOTE =
-  "weeks bucketed by author date · Lines = git diff +/- · Issues = opened by author";
+  "weeks bucketed by author date · Lines = RAW git diff +/- (every changed line, "
+  + "including generated and vendored files) · Issues = opened by author";
 
 function WeeklyTable({ pw }: { pw: Weekly }) {
   if (!(pw.grand.commits || pw.grand.issues)) {
@@ -388,8 +394,13 @@ function WeeklyTable({ pw }: { pw: Weekly }) {
         <b>Grand total</b> — commits: {fmtNum(pw.grand.commits)}, lines{" "}
         <span className="pw-add">+{fmtNum(pw.grand.add)}</span>/<span className="pw-del">-{fmtNum(pw.grand.del)}</span>,
         {" "}issues opened: {fmtNum(pw.grand.issues)} · window {pw.since} → {pw.until}. Commits = git log on the
-        cloned default branch (no merges), bucketed by author week; Lines = git diff insertions/deletions;
-        Issues = GitHub issues opened by this author. Top {cols.length} repos by commits
+        cloned default branch (no merges), bucketed by author week; Issues = GitHub issues opened by
+        this author. <b>Lines</b> = the <b>raw</b> <code>git diff</code> insertion and deletion counts:
+        every line the commit changed, comments and docstrings included, and lock files, generated
+        and vendored code with them. It is deliberately not the same figure as the LOC on the
+        contribution KPIs, which counts only <i>meaningful</i> paths — that filter drops whole files
+        (<code>node_modules</code>, <code>dist</code>, <code>*.lock</code>, minified and binary
+        assets), never individual lines inside a source file. Top {cols.length} repos by commits
         {lastOther && <> (rest folded into <b>(other)</b>)</>}.
       </p>
     </>
