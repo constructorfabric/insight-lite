@@ -14,6 +14,75 @@ import html as _h
 # {type, title, detail}. Prepend new releases at the top.
 CHANGELOG = [
     {
+        "date": "2026-08-13",
+        "changes": [
+            {"type": "fix", "title": "The score no longer rewards work nobody reviewed",
+             "detail": "Most of the score measures friction — how many review rounds a "
+                       "change took, how often an item bounced back, how long it waited to be "
+                       "merged. Friction needs other people, so anyone merging their own work "
+                       "unreviewed scored perfectly on all of it: zero review rounds read as "
+                       "the cleanest work on the board, and a self-merge is never declined. "
+                       "Across the last 30 days the share of a person’s merged work that "
+                       "nobody reviewed predicted their score better than how much they "
+                       "actually shipped. Three things changed. A pull request nobody reviewed "
+                       "no longer counts as one that needed no changes — it counts as "
+                       "unknown. How much of your merged work a colleague reviewed is now a "
+                       "factor in Craft in its own right. And every per-item average is now "
+                       "weighed by how much work stands behind it, so a ratio from three pull "
+                       "requests stops outranking the same ratio from eight hundred."},
+            {"type": "fix", "title": "Automated reviews no longer count as somebody reviewing you",
+             "detail": "“Was this reviewed” was read from GitHub’s own review "
+                       "count, which includes CodeRabbit and the other review bots — and "
+                       "your own reviews of your own pull request. 36 merged pull requests "
+                       "looked reviewed with no colleague involved, and 15 more had only their "
+                       "author. Review rounds are now counted from people other than you, bots "
+                       "excluded. This mostly helped whoever ships the most: much of the "
+                       "“rework” the score had been charging them for was automated. "
+                       "One person’s review rounds fell from 5.3 to 1.4 and they moved "
+                       "from eighth place to second."},
+            {"type": "improvement", "title": "Craft explains a rank gap with a number everyone has",
+             "detail": "The Craft column used to explain “why them and not me” with "
+                       "review rounds per pull request, which is now blank for anyone nobody "
+                       "reviewed. It explains the gap with the share of merged work that was "
+                       "reviewed instead — defined for everyone who merged anything."},
+        ],
+    },
+    {
+        "date": "2026-08-12",
+        "changes": [
+            {"type": "improvement", "title": "Person → Activity says what the Lines column counts",
+             "detail": "The weekly table’s Lines +/- is the raw git diff: every changed "
+                       "line, including generated and vendored files. That is deliberately not "
+                       "the same number as the LOC in the contribution KPIs, which drops whole "
+                       "files it considers noise. Neither figure separates comments or "
+                       "docstrings from code — the filter works on file paths, never on "
+                       "line contents. All of which is now written under the table instead of "
+                       "having to be asked about."},
+        ],
+    },
+    {
+        "date": "2026-08-06",
+        "changes": [
+            {"type": "improvement", "title": "Formulas in the chat are typeset",
+             "detail": "Asking how a metric is computed produced the raw source of the formula "
+                       "— backslashes, braces and all — because nothing rendered it. "
+                       "Formulas are now laid out properly, and the maths typesetter is only "
+                       "fetched by a conversation that actually contains one. If it cannot "
+                       "load, a readable plain-text version stays on screen rather than a gap."},
+            {"type": "fix", "title": "Identifiers in the chat are no longer mangled",
+             "detail": "Any metric name with underscores in it was read as formatting, so "
+                       "flow_friction_per_item arrived with the middle of it in italics and "
+                       "pieces missing. In an answer about metrics that is most of the words."},
+            {"type": "fix", "title": "The chat says when a filter is narrowing your answer",
+             "detail": "A question asked while a scope was set was answered only within that "
+                       "scope, silently — and somebody who set a filter earlier and forgot "
+                       "could be told there was no data about them when there was. Answers now "
+                       "state the slice they cover, and when a person falls outside the current "
+                       "scope the answer reports what their numbers look like without it. The "
+                       "Person screen ignores the scope entirely, and now says so."},
+        ],
+    },
+    {
         "date": "2026-08-05",
         "changes": [
             {"type": "security", "title": "The assistant can no longer read stored secrets",

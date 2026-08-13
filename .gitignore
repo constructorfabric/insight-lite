@@ -34,21 +34,16 @@ exports/
 # creates backend/history/report.db — a path an anchored pattern does not match, and one
 # that got committed once before this comment existed. The store may hold the identity of
 # everyone in the org, so where it happens to sit must not decide whether git tracks it.
-**/history/report.db
-**/history/report.db-shm
-**/history/report.db-wal
-# Snapshots pulled off a server for local inspection (scripts/pull-db.sh). Same personal
-# data, and the same reason not to track it — the default name is matched by none of the
-# lines above, so it is spelled out rather than left to luck.
-**/history/prod-copy.db
-**/history/prod-copy.db-shm
-**/history/prod-copy.db-wal
-# pull-db.sh accepts ANY destination, and SQLite writes a -wal and a -shm beside whatever it
-# opens. The wildcard covered the database and not its sidecars, and a -wal holds the same
-# personal data as the file it belongs to.
-**/history/*-copy.db
-**/history/*-copy.db-shm
-**/history/*-copy.db-wal
+# EVERY database under a history/ directory, whatever it is called. This started as a list
+# of exact names (report.db, prod-copy.db), then grew a `*-copy.db` wildcard when it became
+# clear pull-db.sh accepts any destination — and that was still a guess about the name.
+# Pulling a snapshot to `prod-copy.new.db` for a moment, to avoid clobbering the previous
+# one, produced a 255 MB file holding 138 people's identities that git offered to track.
+# The rule is not "these names are private", it is "a database here is private", so match
+# on the extension and its SQLite sidecars instead of on anybody's naming discipline.
+**/history/*.db
+**/history/*.db-shm
+**/history/*.db-wal
 
 # Collected aggregates. These were TRACKED internally as a "text backup of the DB" and
 # that was a mistake for a public repo: snapshots.jsonl carries per-company commit / LOC

@@ -2492,6 +2492,71 @@ _SCORE_MIN_ACTIVITY = 5          # commits + PRs opened in the window to be scor
 # is a data-collection gap (e.g. flow before board snapshots accumulate), not a
 # per-person shortfall, so it's dropped for everyone rather than tanking scores.
 _SCORE_PILLAR_COVERAGE = 0.5
+# v0.3 — three corrections, all aimed at one measured defect: the score is mostly built
+# from FRICTION, and friction needs collaborators, so working unreviewed maximised it.
+# Measured on the 30d window of 2026-08-13: the share of a person's merged PRs that
+# nobody reviewed correlated +0.59 with their score — a stronger predictor than volume
+# (+0.50). The top of the board was three people whose work was 100%, 77% and 100%
+# unreviewed. What produced that, per pillar:
+#
+#   craft   avg review rounds, LOWER better → 0.00 when nobody reviews you (best on the
+#           board), and merge_rate → 1.00 because a self-merge is never declined
+#   flow    friction/item → 0.00 across all 22 items for the rank-1 person: friction is
+#           built from bounces, re-requests and reassignments, none of which can happen
+#           without a second person
+#   delivery median time-to-merge → half an hour, because you do not wait for yourself
+#
+# Fixed here: (1) an unreviewed PR no longer counts as a zero-round PR, (2) how much of
+# your merged work was reviewed at all becomes a signal instead of a free pass, and
+# (3) every ratio is shrunk toward the team median by how few observations back it, so a
+# ratio over 3 PRs stops outranking the same ratio over 800.
+#
+# All of which needed a fourth thing to mean anything: "reviewed" now counts PEER reviews
+# from the bot-free `review` table rather than pull_request.review_count, which counts
+# CodeRabbit and the author's own reviews. That correction cuts both ways and mostly
+# HELPED the people doing the most work — the review rounds it was charging them for were
+# largely automated. On the same window one high-volume contributor went from 5.25 rounds
+# to 1.41 and from rank 8 to 2, another from 3.72 to 1.75. Volume's correlation with the
+# score went 0.50 → 0.60, and the unreviewed-share correlation this note is about went
+# 0.59 → 0.16. (No logins here on purpose: this is a public repo, and a per-person rank
+# is not a fact about the code.)
+#
+# Deliberately NOT a rework signal built on CHANGES_REQUESTED: it is zero for 76% of
+# people with a merged PR in the window, so percentile-ranking it would sort a large tie
+# by nothing. And a PR's CI checks cannot be attributed here at all — `ci_run` keys on
+# head_sha while pull_request stores no sha, so there is no join.
+#
+# NOT fixed here, and deliberately: flow still reads 0.00 for solo work. Shrinkage does
+# not touch it (22 items is a real sample; the friction in it is structurally
+# unreachable) and the remedy — counting only items that had a chance to accrue friction
+# — changes what the metric means, so it is a separate decision.
+_SCORE_SHRINK_K = 10.0
+# Which signals are RATIOS, i.e. a value over a denominator that can be tiny. Counts
+# (commits, LOC, reviews given) are not shrunk: 3 commits is 3 commits, no inference.
+_SCORE_RATIO_SIGNALS = frozenset(
+    {"ttm", "size", "rounds", "merge_rate", "reviewed_share", "flow"})
+
+
+def _score_shrink_k() -> float:
+    """Effective shrinkage strength, in "virtual observations at the team median".
+    config.yaml `developer_score_shrink_k`, else the built-in. 0 disables shrinkage."""
+    try:
+        import configstore
+        cfg = configstore.apply_overlay(configstore.base_config(), configstore.load_overlay())
+        v = cfg.get("developer_score_shrink_k")
+        return max(0.0, float(v)) if v is not None else _SCORE_SHRINK_K
+    except Exception:                # noqa: BLE001 — config is optional
+        return _SCORE_SHRINK_K
+
+
+def _shrink(value, n, median, k):
+    """Pull a ratio toward the team median by how little evidence stands behind it:
+    (n·value + k·median) / (n + k). At n≫k the value stands on its own; at n≈0 it is
+    the median, which is the honest reading of "we do not know yet"."""
+    if value is None or median is None or k <= 0:
+        return value
+    n = max(0, n or 0)
+    return (n * value + k * median) / (n + k)
 
 
 def _score_weights() -> dict:
@@ -2516,7 +2581,11 @@ _SCORE_SIGNALS = [
     ("engagement", "commits", 1), ("engagement", "loc", 1), ("engagement", "prs_merged", 1),
     ("engagement", "reviews_given", 1), ("engagement", "specs", 1),
     ("delivery", "ttm", -1), ("delivery", "size", -1),
-    ("craft", "rounds", -1), ("craft", "merge_rate", 1),
+    # `rounds` counts rounds only over REVIEWED PRs, so a low value means "reviewed and
+    # accepted quickly" rather than "never opened"; `reviewed_share` is what carries the
+    # unreviewed case, and it has to be in the same pillar — otherwise dropping the
+    # unreviewed PRs from `rounds` just makes them invisible instead of counted.
+    ("craft", "rounds", -1), ("craft", "reviewed_share", 1), ("craft", "merge_rate", 1),
     ("flow", "flow", -1),       # flow FRICTION per item (lower is better); see person_flow
 ]
 # the ONE headline metric per pillar used to explain a rank gap in real terms
@@ -2524,7 +2593,12 @@ _SCORE_SIGNALS = [
 _PILLAR_PRIMARY = {
     "engagement": {"key": "commits", "label": "commits", "lower_better": False},
     "delivery":   {"key": "ttm", "label": "median merge time", "lower_better": True},
-    "craft":      {"key": "rounds", "label": "review rounds/PR", "lower_better": True},
+    # reviewed_share, not rounds: since v0.3 `rounds` is None for somebody nobody reviews,
+    # and a rank explanation that reads "their review rounds: —" explains nothing. The
+    # share is defined for everyone who merged anything, and it is the axis that actually
+    # separates the board.
+    "craft":      {"key": "reviewed_share", "label": "merged work reviewed",
+                   "lower_better": False},
     "flow":       {"key": "flow", "label": "friction/item", "lower_better": True},
 }
 # How each signal is NAMED and PRINTED. Split from _SCORE_SIGNALS above so the tuple
@@ -2548,7 +2622,8 @@ _SCORE_SIGNAL_META = {
     "specs":         ("Spec edits", "int"),
     "ttm":           ("Median merge time", "hours"),
     "size":          ("PR size", "f1"),
-    "rounds":        ("Review rounds per PR", "f2"),
+    "rounds":        ("Peer review rounds per reviewed PR", "f2"),
+    "reviewed_share": ("Merged work a peer reviewed", "pct01"),
     "merge_rate":    ("Merge rate", "pct01"),
     "flow":          ("Friction per item", "f3"),
 }
@@ -3158,8 +3233,13 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
     prf, prp = _repo_filter(repos, "repo")
 
     def blank():
+        # _rounds holds rounds for REVIEWED PRs only; _merged_with_review counts how many
+        # of _merged_scored were reviewed at all. Kept as two counters rather than one
+        # list of maybe-zeros because that list is exactly what made "nobody looked at it"
+        # score as "nothing to fix" — see the v0.3 note by _SCORE_SHRINK_K.
         return {"commits": 0, "loc": 0, "specs": 0, "ai": 0, "prs_opened": 0,
-                "prs_merged": 0, "_ttms": [], "_sizes": [], "_rounds": [], "reviews_given": 0}
+                "prs_merged": 0, "_ttms": [], "_sizes": [], "_rounds": [],
+                "_merged_scored": 0, "_merged_with_review": 0, "reviews_given": 0}
     raw: dict = {}
     for r in conn.execute(
         "SELECT author_login lg, COUNT(*) commits, IFNULL(SUM(meaningful_additions),0) loc, "
@@ -3168,8 +3248,30 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
         + rf + " GROUP BY author_login", (since, until) + rp):
         e = raw.setdefault(r["lg"], blank())
         e.update(commits=r["commits"], loc=r["loc"], specs=r["specs"], ai=r["ai"])
+    # PEER reviews per PR: submitted by a human who is not the author.
+    #
+    # pull_request.review_count cannot answer "did anybody look at this". It is GitHub's
+    # reviews.totalCount, so it counts BOT reviews — coderabbitai, qodo-code-review,
+    # aikido-pr-checks and the rest of config bot_logins — and the author's own reviews.
+    # Measured on the 30d window of 2026-08-13: of 520 merged PRs, 36 had a non-zero
+    # review_count with no human review at all and 15 more had only the author's own;
+    # per person the gap reaches 100% → 33%. The `review` table is already bot-free
+    # (collect.py drops bot reviewers as it writes), so counting rows there, minus
+    # self-reviews, is the only reading that means somebody else looked.
+    peer_reviews: dict = {}
     for r in conn.execute(
-        "SELECT author_login lg, created_at, merged_at, changed_files, review_count, is_revert "
+        "SELECT rv.repo rp, rv.pr_number n, COUNT(*) k FROM review rv "
+        "JOIN pull_request pr ON pr.repo=rv.repo AND pr.number=rv.pr_number "
+        "WHERE rv.reviewer_login<>'' AND rv.reviewer_login<>pr.author_login "
+        "AND pr.created_at>=? AND pr.created_at<=?"
+        + _repo_filter(repos, "pr.repo")[0] + " GROUP BY rv.repo, rv.pr_number",
+            (since, until) + prp):
+        peer_reviews[(r["rp"], r["n"])] = r["k"]
+
+    for r in conn.execute(
+        # review_count is deliberately NOT selected: peer_reviews above is what answers
+        # "was this reviewed", and leaving the column here would suggest otherwise.
+        "SELECT repo, number, author_login lg, created_at, merged_at, changed_files, is_revert "
         "FROM pull_request WHERE is_bot=0 AND is_migration=0 AND author_login<>'' "
         "AND created_at>=? AND created_at<=?" + prf, (since, until) + prp):
         e = raw.setdefault(r["lg"], blank())
@@ -3178,8 +3280,11 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             e["_sizes"].append(r["changed_files"])
         if r["merged_at"]:
             e["prs_merged"] += 1
-            if r["review_count"] is not None:
-                e["_rounds"].append(r["review_count"])
+            e["_merged_scored"] += 1
+            k = peer_reviews.get((r["repo"], r["number"]), 0)
+            if k > 0:
+                e["_merged_with_review"] += 1
+                e["_rounds"].append(k)
             try:
                 d0 = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
                 d1 = datetime.fromisoformat(r["merged_at"].replace("Z", "+00:00"))
@@ -3203,26 +3308,60 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
     # tracked movement (it strengthens as snapshots accumulate).
     try:
         import semantic_metrics
-        flow = semantic_metrics.person_flow(conn, repos, since, until)
+        flow, flow_items = semantic_metrics.person_flow(
+            conn, repos, since, until, with_items=True)
     except Exception:                # noqa: BLE001 — taxonomy/flow is optional
-        flow = {}
+        flow, flow_items = {}, {}
 
     # derive per-person metrics (medians / rates) from the collected rows
     for lg, e in raw.items():
         e["ttm"] = statistics.median(e["_ttms"]) if e["_ttms"] else None
         e["size"] = statistics.median(e["_sizes"]) if e["_sizes"] else None
+        # None, not 0, when nothing they merged was reviewed: we have no reading on how
+        # cleanly their work passes review, and 0 would rank as the best on the board.
         e["rounds"] = (sum(e["_rounds"]) / len(e["_rounds"])) if e["_rounds"] else None
+        e["reviewed_share"] = (e["_merged_with_review"] / e["_merged_scored"]
+                               if e["_merged_scored"] else None)
         e["merge_rate"] = (e["prs_merged"] / e["prs_opened"]) if e["prs_opened"] else None
         e["ai_share"] = (100.0 * e["ai"] / e["commits"]) if e["commits"] else 0.0
         e["activity"] = e["commits"] + e["prs_opened"]
         e["flow"] = flow.get(lg)
+        e["flow_items"] = flow_items.get(lg, 0)
 
     eligible = [lg for lg, e in raw.items() if e["activity"] >= _SCORE_MIN_ACTIVITY]
 
-    # per-signal sorted value lists over eligible people (for percentile ranking)
+    # how many observations stand behind each ratio, per person — the shrinkage denominator
+    def obs_of(e):
+        return {"ttm": len(e["_ttms"]), "size": len(e["_sizes"]), "rounds": len(e["_rounds"]),
+                "reviewed_share": e["_merged_scored"], "merge_rate": e["prs_opened"],
+                "flow": e["flow_items"]}
+
+    # RAW distributions: what the team actually did, used for the medians shown next to
+    # each driver and as the anchor the shrinkage pulls toward. Kept separate from the
+    # ranked distributions below so the UI never quotes a shrunk number as real work.
+    raw_dists = {}
+    for _, key, _dir in _SCORE_SIGNALS:
+        raw_dists[key] = sorted(raw[lg][key] for lg in eligible
+                                if raw[lg].get(key) is not None)
+    shrink_k = _score_shrink_k()
+    shrink_medians = {k: (statistics.median(v) if v else None)
+                      for k, v in raw_dists.items() if k in _SCORE_RATIO_SIGNALS}
+
+    # the values actually RANKED: ratios shrunk toward the team median by their evidence,
+    # counts untouched. Held per person so a delta can reproduce this run's arithmetic.
+    ranked_vals = {}
+    for lg in eligible:
+        e = raw[lg]
+        n_of = obs_of(e)
+        ranked_vals[lg] = {
+            key: (_shrink(e.get(key), n_of.get(key), shrink_medians.get(key), shrink_k)
+                  if key in _SCORE_RATIO_SIGNALS else e.get(key))
+            for _, key, _dir in _SCORE_SIGNALS}
+
     dists = {}
     for _, key, _dir in _SCORE_SIGNALS:
-        dists[key] = sorted(raw[lg][key] for lg in eligible if raw[lg].get(key) is not None)
+        dists[key] = sorted(ranked_vals[lg][key] for lg in eligible
+                            if ranked_vals[lg].get(key) is not None)
 
     def pctl(key, v, direction):
         vals = dists[key]
@@ -3240,7 +3379,7 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
         e = raw[lg]
         buckets: dict = {}
         for pillar, key, direction in _SCORE_SIGNALS:
-            v = e.get(key)
+            v = ranked_vals[lg].get(key)          # shrunk for ratios, raw for counts
             if v is not None:
                 buckets.setdefault(pillar, []).append(pctl(key, v, direction))
         per_pillars[lg] = {p: (round(100 * sum(buckets[p]) / len(buckets[p]))
@@ -3257,8 +3396,10 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
               if p == "engagement" or coverage[p] >= _SCORE_PILLAR_COVERAGE]
     den = sum(weights[p] for p in active) or 1
     # team medians of each driver metric — the concrete anchor next to each pillar
-    # ("40h · team 15h"), so the relative score reads against real work.
-    team_medians = {k: (statistics.median(v) if v else None) for k, v in dists.items()}
+    # ("40h · team 15h"), so the relative score reads against real work. From raw_dists,
+    # NOT the shrunk ones the ranking used: this number is printed beside the person's own
+    # raw driver, and shrinking one side of that comparison would make it a lie.
+    team_medians = {k: (statistics.median(v) if v else None) for k, v in raw_dists.items()}
 
     band_spec = score_band_spec()        # once per run; see _score_band
     board = []
@@ -3297,13 +3438,20 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             "band": band, "tone": tone,
             "pillars": pillars, "pillar_bands": pillar_bands,
             "contributions": {p: contrib.get(p) for p in _SCORE_WEIGHTS},
+            # drivers stay RAW — this is what the person actually did, and it is what the
+            # UI prints beside the team median.
             "drivers": {
                 "commits": e["commits"], "loc": e["loc"], "prs_merged": e["prs_merged"],
                 "prs_opened": e["prs_opened"], "ttm": e["ttm"], "size": e["size"],
-                "rounds": e["rounds"], "merge_rate": e["merge_rate"],
+                "rounds": e["rounds"], "reviewed_share": e["reviewed_share"],
+                "merge_rate": e["merge_rate"],
                 "reviews_given": e["reviews_given"], "specs": e["specs"],
                 "flow": e["flow"], "ai_share": round(e["ai_share"]),
             },
+            # How many observations back each ratio. Returned because score_delta has to
+            # shrink the PREVIOUS window's drivers the same way this run shrank these,
+            # and n is part of the person, not of the distribution.
+            "obs": obs_of(e),
         })
     board.sort(key=lambda x: (-(x["score"] or 0), x["name"].lower()))
     for i, row in enumerate(board):
@@ -3341,6 +3489,12 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             # counterfactual that separates "the team moved" from "you moved". Rebuilding
             # them at the call site would be a second copy of the ranking rule.
             "dists": dists,
+            # The shrinkage this run applied, so a delta can put the previous window's raw
+            # drivers on the same footing as `dists` before ranking them. Without it the
+            # counterfactual would rank a raw value against a shrunk distribution and
+            # quietly attribute the difference to the person.
+            "shrink": {"k": shrink_k, "medians": shrink_medians,
+                       "ratios": sorted(_SCORE_RATIO_SIGNALS)},
             "by_login": {r["login"]: r for r in board}}
 
 
@@ -3378,9 +3532,23 @@ def score_delta(cur: dict, prev: dict, login: str) -> dict | None:
         p = (below + 0.5 * equal) / n
         return p if direction > 0 else (1.0 - p)
 
+    # The previous drivers have to be shrunk the way THIS run shrank the distribution they
+    # are about to be ranked against — same k, same medians, but their OWN observation
+    # counts, because n is part of "what the person did" and the median is part of "what the
+    # team did". Ranking a raw value against a shrunk distribution would land the whole
+    # difference on the person, which is precisely the confusion this function exists to
+    # prevent. `obs` is absent from a payload produced before v0.3; treating that as zero
+    # observations would shrink everything to the median, so fall back to no shrinkage.
+    shrink = cur.get("shrink") or {}
+    k, medians = shrink.get("k") or 0, shrink.get("medians") or {}
+    ratios = set(shrink.get("ratios") or ())
+    prev_obs = a.get("obs")
+
     buckets: dict = {}
     for pillar, key, direction in _SCORE_SIGNALS:
         v = a["drivers"].get(key)
+        if prev_obs is not None and key in ratios:
+            v = _shrink(v, prev_obs.get(key), medians.get(key), k)
         if v is not None:
             buckets.setdefault(pillar, []).append(pctl(key, v, direction))
     pil = {p: (round(100 * sum(buckets[p]) / len(buckets[p])) if p in buckets else None)
@@ -4072,11 +4240,21 @@ _mreg.register_for(developer_scores, [
        formula="mean(pctl(−median_ttm), pctl(−median_changed_files)) ×100",
        snippet="ttm_h = (merged_at − created_at); size = changed_files  # both lower-is-better"),
     _m("score_craft", type="computed", group="score", unit="0–100",
-       desc="Craft & rework pillar (weight 25): how clean the work is — average review rounds per "
-            "merged PR (lower better) and merge rate (merged/opened, higher better). Proxy for "
-            "quality; does NOT use revert/reopen blame (ambiguous per author).",
-       formula="mean(pctl(−avg_review_rounds), pctl(merge_rate)) ×100",
-       snippet="rounds = AVG(review_count) over merged PRs; merge_rate = prs_merged / prs_opened"),
+       desc="Craft & rework pillar (weight 25): how clean the work is — average PEER review "
+            "rounds per peer-reviewed merged PR (lower better), the share of merged work a peer "
+            "reviewed at all (higher better), and merge rate (merged/opened, higher better). "
+            "Proxy for quality; does NOT use revert/reopen blame (ambiguous per author). "
+            "A peer review is a row in `review` (already bot-free) by somebody other than the "
+            "author — NOT pull_request.review_count, which is GitHub's reviews.totalCount and "
+            "counts CodeRabbit/qodo/aikido and self-reviews alike. Since v0.3 a PR nobody "
+            "reviewed is excluded from the rounds average instead of counting as a zero-round "
+            "one (otherwise being unreviewed was the best craft score on the board), and "
+            "reviewed_share is what accounts for it.",
+       formula="mean(pctl(−avg_peer_rounds), pctl(reviewed_share), pctl(merge_rate)) ×100",
+       snippet="peer = reviews by reviewer_login <> author_login;\n"
+               "rounds = AVG(peer) over merged PRs with peer>0;\n"
+               "reviewed_share = merged PRs with peer>0 / merged PRs;\n"
+               "merge_rate = prs_merged / prs_opened"),
     _m("score_flow", type="computed", group="score", unit="0–100",
        desc="Flow pillar (weight 35): how smoothly a person's items move, from RETROSPECTIVE "
             "issue/PR timeline events (not the history-less Projects-v2 board). Friction per "

@@ -358,7 +358,7 @@ _FLOW_BACK_W = 2.0
 _FLOW_CHURN_W = 1.0
 
 
-def person_flow(conn, repos=None, since=None, until=None) -> dict:
+def person_flow(conn, repos=None, since=None, until=None, with_items=False):
     """Retrospective flow FRICTION per person from issue/PR TIMELINE events (not the
     Projects-v2 board, which has no change-history). For each item a person owns (PR →
     author, issue → first assignee) we score friction = 2·bounces (convert_to_draft /
@@ -366,7 +366,14 @@ def person_flow(conn, repos=None, since=None, until=None) -> dict:
     a person's value is friction-per-item — LOWER is smoother flow. Combining several
     rare event types gives more spread than a binary no-bounce ratio. Window-scoped by
     event date when since/until are given (so it moves with the period like the other
-    pillars). {login: friction/item} for people with ≥3 owned tracked items."""
+    pillars). {login: friction/item} for people with ≥3 owned tracked items.
+
+    with_items=True returns (ratios, {login: owned tracked items}) instead. The count is
+    what the score shrinks the ratio by, and it is returned from here rather than
+    recomputed by the caller because the ownership rule above (PR → author, issue → first
+    assignee, PR wins a collision) is the thing that would drift. The item map is NOT
+    gated by _FLOW_MIN_ITEMS — a caller needs the count for people whose ratio was
+    withheld, to tell "too few items" from "no items"."""
     import json
     rf, rp = _repo_filter(repos)
     wf, wp = "", ()
@@ -376,7 +383,7 @@ def person_flow(conn, repos=None, since=None, until=None) -> dict:
         "SELECT repo, number, event FROM timeline_event WHERE number IS NOT NULL" + rf + wf,
         rp + wp).fetchall()
     if not rows:
-        return {}
+        return ({}, {}) if with_items else {}
     per_item: dict = {}
     for r in rows:
         d = per_item.setdefault((r["repo"], r["number"]), {"back": 0, "rr": 0, "asg": 0})
@@ -406,6 +413,9 @@ def person_flow(conn, repos=None, since=None, until=None) -> dict:
              + _FLOW_CHURN_W * (max(0, d["rr"] - 1) + max(0, d["asg"] - 1)))
         friction[owner] = friction.get(owner, 0.0) + f
         items[owner] = items.get(owner, 0) + 1
+    if with_items:
+        return ({lg: friction[lg] / items[lg]
+                 for lg in items if items[lg] >= _FLOW_MIN_ITEMS}, items)
     return {lg: friction[lg] / items[lg]
             for lg in items if items[lg] >= _FLOW_MIN_ITEMS}
 
