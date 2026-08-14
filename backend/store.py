@@ -3901,6 +3901,21 @@ def chat_conversations(conn, since: str, until: str, session_id: str = "",
         f"FROM chat_message WHERE {where} ORDER BY id DESC LIMIT {int(limit)}", params)]
 
 
+def is_chat_log_admin(conn, login) -> bool:
+    """True if `login` is a CURRENT org admin. Org owners/admins may read every chat
+    transcript in the /chat-log viewer, not only their own — everyone else is scoped to
+    their own sessions (see _chat_owner_clause). 'Current' is the most recent membership
+    snapshot; role is collected per org from GitHub (collect.py, role='admin' for
+    owners/admins). A viewer with no resolved person login is never an admin (a raw proxy
+    identity is not proof of an org role)."""
+    if not login:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM membership_snapshot WHERE role='admin' AND login=? "
+        "AND date=(SELECT MAX(date) FROM membership_snapshot) LIMIT 1",
+        (login,)).fetchone() is not None
+
+
 def _chat_owner_clause(viewer_login, viewer_ident):
     """SQL fragment + params restricting chat rows to ONE viewer's own conversations.
 
@@ -3923,11 +3938,12 @@ def _chat_owner_clause(viewer_login, viewer_ident):
 
 
 def chat_sessions(conn, since: str, until: str, viewer_login, viewer_ident,
-                  limit: int = 200) -> list:
+                  limit: int = 200, all_sessions: bool = False) -> list:
     """Conversation list for the (unlinked) chat-log viewer: one row per session in
-    [since, until], newest activity first, restricted to the viewer's OWN sessions."""
+    [since, until], newest activity first. Restricted to the viewer's OWN sessions
+    unless all_sessions (an org admin — see is_chat_log_admin), which lists everyone's."""
     lo, hi = since[:10] + "T00:00:00Z", until[:10] + "T23:59:59Z"
-    own, own_p = _chat_owner_clause(viewer_login, viewer_ident)
+    own, own_p = ("1=1", []) if all_sessions else _chat_owner_clause(viewer_login, viewer_ident)
     return [dict(r) for r in conn.execute(
         "SELECT COALESCE(session_id, '') AS session_id, "
         "COALESCE(viewer_login, viewer_ident, '(anon)') AS who, "
@@ -3940,11 +3956,13 @@ def chat_sessions(conn, since: str, until: str, viewer_login, viewer_ident,
         (lo, hi, *own_p, int(limit)))]
 
 
-def chat_session_detail(conn, session_id: str, viewer_login, viewer_ident) -> dict:
+def chat_session_detail(conn, session_id: str, viewer_login, viewer_ident,
+                        all_sessions: bool = False) -> dict:
     """Full transcript for one session (chronological) plus the tool calls of each
-    assistant turn, keyed by message id. Scoped to the viewer's OWN session: another
-    person's session id returns empty rather than their transcript."""
-    own, own_p = _chat_owner_clause(viewer_login, viewer_ident)
+    assistant turn, keyed by message id. Scoped to the viewer's OWN session (another
+    person's session id returns empty) unless all_sessions (an org admin), which may open
+    any session."""
+    own, own_p = ("1=1", []) if all_sessions else _chat_owner_clause(viewer_login, viewer_ident)
     if session_id:
         where, params = "session_id = ? AND " + own, (session_id, *own_p)
     else:

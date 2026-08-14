@@ -30,6 +30,13 @@ def _store():
             conn.close()
 
 
+def _make_admin(conn, login):
+    # org admins are read from the latest membership snapshot (role='admin').
+    conn.execute("INSERT INTO membership_snapshot (date, org, login, role) "
+                 "VALUES ('2026-06-30', 'o', ?, 'admin')", (login,))
+    conn.commit()
+
+
 def _seed(store, conn):
     # alice (resolved to a person login) and bob (login) each hold a session; carol has
     # only a raw proxy identity, no person row.
@@ -85,6 +92,45 @@ class ChatSessionScopeTest(unittest.TestCase):
             self.assertEqual(store.chat_sessions(conn, SINCE, UNTIL, None, "anon"), [])
             self.assertEqual(
                 store.chat_session_detail(conn, "sess-alice", None, "anon")["messages"], [])
+
+
+class ChatAdminTest(unittest.TestCase):
+    """Org admins (role='admin' in the latest membership snapshot) read everyone's
+    transcripts; everyone else stays scoped to their own."""
+
+    def test_an_admin_sees_every_session(self):
+        with _store() as (store, conn):
+            _seed(store, conn)
+            _make_admin(conn, "alice")
+            self.assertTrue(store.is_chat_log_admin(conn, "alice"))
+            ids = {r["session_id"] for r in store.chat_sessions(
+                conn, SINCE, UNTIL, "alice", "alice@co", all_sessions=True)}
+            self.assertEqual(ids, {"sess-alice", "sess-bob", "sess-carol"})
+
+    def test_an_admin_can_open_anyone_elses_session(self):
+        with _store() as (store, conn):
+            _seed(store, conn)
+            _make_admin(conn, "alice")
+            got = store.chat_session_detail(conn, "sess-bob", "alice", "alice@co",
+                                            all_sessions=True)
+            self.assertEqual(len(got["messages"]), 1, "bob's transcript is visible to an admin")
+
+    def test_a_non_admin_is_not_an_admin(self):
+        with _store() as (store, conn):
+            _seed(store, conn)
+            _make_admin(conn, "alice")
+            self.assertFalse(store.is_chat_log_admin(conn, "bob"))
+            self.assertFalse(store.is_chat_log_admin(conn, None), "no login is never admin")
+
+    def test_only_the_latest_snapshot_defines_admins(self):
+        """Someone who was an admin in an OLD snapshot but not the newest is not one now."""
+        with _store() as (store, conn):
+            _seed(store, conn)
+            conn.execute("INSERT INTO membership_snapshot (date, org, login, role) "
+                         "VALUES ('2026-05-01', 'o', 'bob', 'admin')")
+            _make_admin(conn, "alice")   # newest snapshot 2026-06-30, admins={alice}
+            self.assertTrue(store.is_chat_log_admin(conn, "alice"))
+            self.assertFalse(store.is_chat_log_admin(conn, "bob"))
 
 
 if __name__ == "__main__":

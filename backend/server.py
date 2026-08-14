@@ -2851,10 +2851,13 @@ class Handler(BaseHTTPRequestHandler):
             since, until = _usage_range(parse_qs(urlparse(self.path).query))
             conn = store.connect()
             try:
-                # Own sessions only — the transcript is confidential to the person who
-                # held the conversation; see store._chat_owner_clause.
+                # Own sessions only (the transcript is confidential to the person who held
+                # it; see store._chat_owner_clause) — EXCEPT org admins, who may read all.
                 login, ident = self._resolve_viewer(conn)
-                data = {"sessions": store.chat_sessions(conn, since, until, login, ident)}
+                admin = store.is_chat_log_admin(conn, login)
+                data = {"sessions": store.chat_sessions(conn, since, until, login, ident,
+                                                        all_sessions=admin),
+                        "is_admin": admin}
             finally:
                 conn.close()
             self.send_json({"ok": True, **data})
@@ -2865,7 +2868,8 @@ class Handler(BaseHTTPRequestHandler):
             conn = store.connect()
             try:
                 login, ident = self._resolve_viewer(conn)
-                data = store.chat_session_detail(conn, sid, login, ident)
+                admin = store.is_chat_log_admin(conn, login)
+                data = store.chat_session_detail(conn, sid, login, ident, all_sessions=admin)
             finally:
                 conn.close()
             self.send_json({"ok": True, **data})
