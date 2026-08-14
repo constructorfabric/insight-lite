@@ -36,8 +36,13 @@ def calibrate_json(rater: str = "") -> dict:
         # SCORE, and the score is a weighted mean of percentiles, so the two are not the same
         # scale: 30 sits near the 11th percentile of people, not the 30th, and averaging keeps
         # the whole population inside roughly 18-85 rather than 0-100.
+        # Filter on each person's OWN scored set (scored_on), NOT the team's active_pillars:
+        # someone whose flow was renormalised away for want of data is still banded and still a
+        # real score, so they belong in this population. This predicate MUST stay identical to
+        # suggest_score_bands' full-coverage filter — the floors it computes and the "captures
+        # N%" this dist annotates them with have to be measured over the same people.
         dist = sorted(p["score"] for p in board
-                      if all(p["pillars"].get(k) is not None for k in act))
+                      if all(p["pillars"].get(k) is not None for k in (p.get("scored_on") or act)))
     finally:
         conn.close()
     rows = []

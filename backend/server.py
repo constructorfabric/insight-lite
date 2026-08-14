@@ -70,6 +70,14 @@ JOB = {
     "log": "",
 }
 LOCK = threading.Lock()
+# Serialises the read-version → check → write sequence of every override-mutating
+# endpoint (/api/config, /api/semantic, /api/people-yaml). The version check and the
+# write happen on different connections, so without this two saves that both loaded the
+# same version can both pass the check and the second silently clobbers the first (the
+# roster drop-guard then measures against the wrong baseline). Single-process
+# ThreadingHTTPServer, so one in-process lock is enough. Held only across the tiny
+# check+write region, never across render/collect.
+_OVERRIDE_LOCK = threading.Lock()
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -1383,7 +1391,13 @@ class Handler(BaseHTTPRequestHandler):
                 span = du - ds
                 if 0 < span.days <= 731:
                     p_since = (ds - span).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    prev = semantic_metrics.flow_kpis(conn, repos, p_since, since,
+                    # End the previous window the DAY BEFORE the current since, not on
+                    # it. board_rewinds/person_flow window inclusively on since[:10] and
+                    # until[:10] ([lo, hi]), so a prev until equal to `since` would share
+                    # the boundary day with the current window and count moves dated that
+                    # day in BOTH — inflating the period-over-period delta by up to a day.
+                    p_until = (ds - timedelta(days=1)).strftime("%Y-%m-%dT23:59:59Z")
+                    prev = semantic_metrics.flow_kpis(conn, repos, p_since, p_until,
                                                       rewind_scan)
                     block["deltas"] = render.delta_map(
                         block, prev, keys=semantic_metrics.FLOW_DELTA_KEYS)
@@ -2837,7 +2851,13 @@ class Handler(BaseHTTPRequestHandler):
             since, until = _usage_range(parse_qs(urlparse(self.path).query))
             conn = store.connect()
             try:
-                data = {"sessions": store.chat_sessions(conn, since, until)}
+                # Own sessions only (the transcript is confidential to the person who held
+                # it; see store._chat_owner_clause) — EXCEPT org admins, who may read all.
+                login, ident = self._resolve_viewer(conn)
+                admin = store.is_chat_log_admin(conn, login)
+                data = {"sessions": store.chat_sessions(conn, since, until, login, ident,
+                                                        all_sessions=admin),
+                        "is_admin": admin}
             finally:
                 conn.close()
             self.send_json({"ok": True, **data})
@@ -2847,7 +2867,9 @@ class Handler(BaseHTTPRequestHandler):
             sid = (parse_qs(urlparse(self.path).query).get("id", [""])[0] or "")[:120]
             conn = store.connect()
             try:
-                data = store.chat_session_detail(conn, sid)
+                login, ident = self._resolve_viewer(conn)
+                admin = store.is_chat_log_admin(conn, login)
+                data = store.chat_session_detail(conn, sid, login, ident, all_sessions=admin)
             finally:
                 conn.close()
             self.send_json({"ok": True, **data})
@@ -3159,20 +3181,28 @@ class Handler(BaseHTTPRequestHandler):
             return
         # /api/config — persist classification/element overrides to the DB + apply
         import store as _store
-        _conn = _store.connect()
-        cur_ver = _store.overrides_version(_conn, configstore.CONFIG_SCOPES)
-        _conn.close()
-        sent_ver = payload.get("_version")
-        if sent_ver is not None and sent_ver != cur_ver:
-            self.send_json({"ok": False, "error": "stale edit — the config changed in "
-                            "another session; reload before saving"}, 409)
-            return
-        try:
-            ov = configstore.overlay_from_post(payload)
-            configstore.save_overlay(ov)
-        except Exception as exc:                    # noqa: BLE001
-            self.send_json({"ok": False, "error": str(exc)}, 400)
-            return
+        # Hold _OVERRIDE_LOCK across read-version → check → write so this and the other
+        # override-mutating endpoints can't interleave a check with each other's write
+        # (the version read and the save run on different connections). Released before
+        # the slow apply below — that must not serialise.
+        with _OVERRIDE_LOCK:
+            _conn = _store.connect()
+            cur_ver = _store.overrides_version(_conn, configstore.CONFIG_SCOPES)
+            _conn.close()
+            # Required, not optional: a client that sends no _version has not proven it saw
+            # the current state, so omitting it must NOT be a way to skip the check and
+            # clobber a concurrent editor. The editors always echo the version they loaded.
+            sent_ver = payload.get("_version")
+            if sent_ver != cur_ver:
+                self.send_json({"ok": False, "error": "stale edit — the config changed in "
+                                "another session; reload before saving"}, 409)
+                return
+            try:
+                ov = configstore.overlay_from_post(payload)
+                configstore.save_overlay(ov)
+            except Exception as exc:                    # noqa: BLE001
+                self.send_json({"ok": False, "error": str(exc)}, 400)
+                return
         applied, apply_error = False, None
         try:
             import reconfig
@@ -3193,29 +3223,34 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._read_json_body()
         if payload is None:
             return
-        conn = store.connect()
-        try:
-            cur_ver = store.overrides_version(conn, ("semantic",))
-            if payload.get("_version") not in (None, cur_ver):
-                self.send_json({"ok": False, "error": "stale edit — reload before saving"}, 409)
+        # Hold _OVERRIDE_LOCK across read-version → check → write so this and the other
+        # override-mutating endpoints can't interleave a check with each other's write.
+        # Released before the slow reconfig below — that must not serialise.
+        with _OVERRIDE_LOCK:
+            conn = store.connect()
+            try:
+                cur_ver = store.overrides_version(conn, ("semantic",))
+                # Required (see /api/config): omitting _version must not skip the check.
+                if payload.get("_version") != cur_ver:
+                    self.send_json({"ok": False, "error": "stale edit — reload before saving"}, 409)
+                    return
+                assignments = payload.get("assignments")
+                if not isinstance(assignments, dict):
+                    self.send_json({"ok": False, "error": "missing assignments"}, 400)
+                    return
+                level = (payload.get("level") or "global").strip()
+                target = (payload.get("target") or "").strip()
+                import re as _re
+                if level not in ("global", "org", "element", "repo", "project") or \
+                        not _re.match(r"^[A-Za-z0-9_./-]{0,120}$", target):
+                    self.send_json({"ok": False, "error": "invalid scope"}, 400)
+                    return
+                new_ver = semantic_editor.save(conn, level, target, assignments)
+            except Exception as exc:                     # noqa: BLE001
+                self.send_json({"ok": False, "error": str(exc)}, 400)
                 return
-            assignments = payload.get("assignments")
-            if not isinstance(assignments, dict):
-                self.send_json({"ok": False, "error": "missing assignments"}, 400)
-                return
-            level = (payload.get("level") or "global").strip()
-            target = (payload.get("target") or "").strip()
-            import re as _re
-            if level not in ("global", "org", "element", "repo", "project") or \
-                    not _re.match(r"^[A-Za-z0-9_./-]{0,120}$", target):
-                self.send_json({"ok": False, "error": "invalid scope"}, 400)
-                return
-            new_ver = semantic_editor.save(conn, level, target, assignments)
-        except Exception as exc:                     # noqa: BLE001
-            self.send_json({"ok": False, "error": str(exc)}, 400)
-            return
-        finally:
-            conn.close()
+            finally:
+                conn.close()
         # unified taxonomy: a taxonomy edit must re-tag issues (bug/epic/story) and
         # re-render the main report, not just Delivery/Flow. reconfig recategorises
         # from the new resolver + rebuilds — same instant-recompute path as /config.
@@ -3466,41 +3501,48 @@ class Handler(BaseHTTPRequestHandler):
             # optimistic concurrency: reject a stale tab's full-replace instead of
             # silently clobbering edits another session made since it loaded.
             import store as _store
-            _conn = _store.connect()
-            cur_ver = _store.overrides_version(_conn, ("person",))
-            _conn.close()
-            sent_ver = self.headers.get("X-Override-Version")
-            if sent_ver is not None and sent_ver != cur_ver:
-                self.send_json({"ok": False, "error": "stale edit — another session saved "
-                                "changes; reload before saving"}, 409)
-                return
-            # deliberate roster shrink, confirmed by a client that measured it (see
-            # _check_roster_drop) — never a blanket "yes", the count has to match
-            try:
-                allow_drop = int(self.headers.get("X-Allow-Drop") or 0)
-            except ValueError:
-                allow_drop = 0
-            # Both editors POST application/json: the roster mapping as data, with no
-            # hand-written YAML in between. A text/yaml BODY still parses, so an edit
-            # from a tab on a pre-JSON bundle is not stranded, but nothing shipped
-            # generates one and no people.yaml file is involved either way.
-            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-            try:
-                if ctype == "application/json":
-                    try:
-                        body = json.loads(text)
-                    except json.JSONDecodeError as exc:
-                        self.send_json({"ok": False, "error": f"invalid JSON: {exc}"}, 400)
-                        return
-                    if not isinstance(body, dict):
-                        self.send_json({"ok": False, "error": "expected a JSON object"}, 400)
-                        return
-                    save_people(body.get("people"), allow_drop=allow_drop)
-                else:
-                    write_people_yaml(text, allow_drop=allow_drop)
-            except ValueError as exc:
-                self.send_json({"ok": False, "error": str(exc)}, 400)
-                return
+            # Hold _OVERRIDE_LOCK across read-version → check (incl. the roster
+            # drop-guard, which measures against this baseline) → write so this and the
+            # other override-mutating endpoints can't interleave a check with each
+            # other's write. Released before the slow reindex below.
+            with _OVERRIDE_LOCK:
+                _conn = _store.connect()
+                cur_ver = _store.overrides_version(_conn, ("person",))
+                _conn.close()
+                # Required (see /api/config): a save with no X-Override-Version header has
+                # not proven it saw the current roster, so it must not bypass the check.
+                sent_ver = self.headers.get("X-Override-Version")
+                if sent_ver != cur_ver:
+                    self.send_json({"ok": False, "error": "stale edit — another session saved "
+                                    "changes; reload before saving"}, 409)
+                    return
+                # deliberate roster shrink, confirmed by a client that measured it (see
+                # _check_roster_drop) — never a blanket "yes", the count has to match
+                try:
+                    allow_drop = int(self.headers.get("X-Allow-Drop") or 0)
+                except ValueError:
+                    allow_drop = 0
+                # Both editors POST application/json: the roster mapping as data, with no
+                # hand-written YAML in between. A text/yaml BODY still parses, so an edit
+                # from a tab on a pre-JSON bundle is not stranded, but nothing shipped
+                # generates one and no people.yaml file is involved either way.
+                ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                try:
+                    if ctype == "application/json":
+                        try:
+                            body = json.loads(text)
+                        except json.JSONDecodeError as exc:
+                            self.send_json({"ok": False, "error": f"invalid JSON: {exc}"}, 400)
+                            return
+                        if not isinstance(body, dict):
+                            self.send_json({"ok": False, "error": "expected a JSON object"}, 400)
+                            return
+                        save_people(body.get("people"), allow_drop=allow_drop)
+                    else:
+                        write_people_yaml(text, allow_drop=allow_drop)
+                except ValueError as exc:
+                    self.send_json({"ok": False, "error": str(exc)}, 400)
+                    return
             # apply the edit immediately: fold company/name/aliases into the
             # collected data + re-render (seconds, no GitHub). Saving still
             # succeeds even if the fast apply hiccups.
@@ -3631,10 +3673,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/mcp/token":
             import secrets as _secrets
             import store as _store
-            tok = _secrets.token_hex(24)
             conn = _store.connect()
-            _store.set_secret(conn, "mcp_token", tok)
-            conn.close()
+            try:
+                # Rotating this invalidates the org-wide MCP credential for every client
+                # and hands the caller the new one, so it must be gated the same way the
+                # other mutating admin endpoints are (a resolved person, not merely
+                # portal-authenticated). Without this, any signed-in user could DoS every
+                # MCP client and read the fresh token.
+                login, _ = self._resolve_viewer(conn)
+                if login is None:
+                    self.send_json({"ok": False, "error": "sign-in required"}, 403)
+                    return
+                tok = _secrets.token_hex(24)
+                _store.set_secret(conn, "mcp_token", tok)
+            finally:
+                conn.close()
             self.send_json({"ok": True, "token": tok})
             return
         if path == "/api/mcp/public-url":

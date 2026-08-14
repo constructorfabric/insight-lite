@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 
 import { PILLAR_COLORS } from "../lib/tokens";
+import { bandColor } from "../widgets/score/bands";
 
 type Person = { login: string; name: string; score: number | null; avg: string; mine: number };
 type Weights = { cur: Record<string, number>; def: Record<string, number> };
@@ -41,13 +42,6 @@ const BAND_KEYS: [string, string][] = [
 // question: below what. It was also the wrong number. Three floors define four bands, and
 // what you are calibrating is how big those bands come out — so the editor reports the BANDS,
 // which needs no preposition to be unambiguous.
-// One colour per band STEP. tone would not do: the model gives Strong and Solid the same
-// "good", so two bands would come out the same colour on a scale that has to show four.
-// var(), not the generated token map — see the same ramp in PersonScore: this lands in a
-// `background:` inline style, so a custom property resolves and flips with the theme, while
-// the JS map carries the light palette only.
-const BAND_RAMP = ["var(--bad)", "var(--warn)", "var(--c-pr)", "var(--good)"];
-
 function bandSizes(dist: number[], floors: [string, number][]): { band: string; n: number }[] {
   const asc = floors.slice().sort((a, b) => a[1] - b[1]);
   return asc.map(([band, lo], i) => {
@@ -86,8 +80,7 @@ function FloorChart({ dist, floors }: { dist: number[]; floors: [string, number]
             key={i}
             style={{
               height: `${(100 * n) / max}%`,
-              background: BAND_RAMP[Math.round((bandAt(i * BUCKET + BUCKET / 2) * (BAND_RAMP.length - 1))
-                                              / Math.max(1, asc.length - 1))],
+              background: bandColor(bandAt(i * BUCKET + BUCKET / 2), asc.length),
             }}
             title={`${i * BUCKET}–${i * BUCKET + BUCKET}: ${n}`}
           />

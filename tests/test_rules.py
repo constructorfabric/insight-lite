@@ -688,19 +688,31 @@ class PortalHttpTest(unittest.TestCase):
         with TemporaryDirectory() as tmp, \
                 patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}), \
                 patch("reindex.apply", return_value={}):
+            # A real save echoes the version it loaded (optimistic concurrency); the
+            # endpoint now REQUIRES it, so the test sends the current one like the editor.
+            conn = store.connect()
+            ver = store.overrides_version(conn, ("person",))
+            conn.close()
+            vh = {"X-Override-Version": ver}
             valid = b"people:\n  alice:\n    company: Constructor\n    emails: []\n"
             ok_status, _, ok_payload = self.request(
                 "POST",
                 "/api/people-yaml",
                 body=valid,
-                headers={"Content-Type": "text/yaml", "Content-Length": str(len(valid))},
+                headers={"Content-Type": "text/yaml", "Content-Length": str(len(valid)), **vh},
             )
+            # The valid save advanced the version; refetch it so the bad payload is
+            # rejected on its CONTENT (400), not as a stale edit (409) — a real editor
+            # reloads after a save too.
+            conn = store.connect()
+            vh2 = {"X-Override-Version": store.overrides_version(conn, ("person",))}
+            conn.close()
             bad = b"not_people: {}\n"
             bad_status, _, bad_payload = self.request(
                 "POST",
                 "/api/people-yaml",
                 body=bad,
-                headers={"Content-Type": "text/yaml", "Content-Length": str(len(bad))},
+                headers={"Content-Type": "text/yaml", "Content-Length": str(len(bad)), **vh2},
             )
 
             self.assertEqual(ok_status, 200)

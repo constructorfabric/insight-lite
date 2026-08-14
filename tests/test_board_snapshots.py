@@ -444,6 +444,78 @@ class BoardCfdTest(BoardSnapshotFixture):
         self.assertEqual(cfd["dates"], ["2026-06-02", "2026-06-03"])
 
 
+class SameDaySnapshotCountTest(BoardSnapshotFixture):
+    """The NOW-state readers (flow_metrics, drill_flow_stage) must count each item once,
+    even when its last day holds several snapshots.
+
+    work_item_status keeps MULTIPLE rows per (item_id, date) — the collector can photograph
+    the board several times a day. Pinning "latest status per item" to MAX(date) matched
+    every same-day snapshot on the item's last day, so an item was counted once per
+    snapshot (flow_total 7706 vs ~1905 real items on prod). MAX(taken_at) picks the single
+    newest row instead. board_cfd already did this; these two now agree."""
+
+    def test_flow_metrics_counts_each_item_once_with_two_snapshots_that_day(self):
+        # A second snapshot on item 7's last day (06-04): under MAX(date) both same-day
+        # rows matched and item 7 was counted twice (flow_total 3); MAX(taken_at) picks one.
+        self._second_snapshot_that_day("2026-06-04", "In Progress")
+        with patch.object(semantic, "stage_for", _stage):
+            fm = sm.flow_metrics(self.conn, None)
+        self.assertEqual(fm["flow_total"], 2, "item 7 once + item 9 once, not 3")
+        by_key = {s["key"]: s["count"] for s in fm["flow_stages"]}
+        self.assertEqual(by_key["in_progress"], 1, "item 7, counted once")
+        self.assertEqual(by_key["done"], 1, "item 9")
+
+    def test_drill_flow_stage_counts_each_item_once_with_two_snapshots_that_day(self):
+        self._second_snapshot_that_day("2026-06-04", "In Progress")
+        with patch.object(semantic, "stage_for", _stage):
+            drill = sm.drill_flow_stage(self.conn, "in_progress", None)
+        self.assertEqual(drill["total"], 1, "item 7 appears once, not once per snapshot")
+        self.assertEqual(len(drill["rows"]), 1)
+        self.assertEqual(drill["rows"][0]["ref"], "#7")
+
+    def test_flow_metrics_strips_status_before_resolving(self):
+        # A trailing space made "Done " resolve to 'other' here while board_cfd/moves saw
+        # 'done' — the taxonomy key is the trimmed value. Give item 7 a whitespace-padded
+        # latest status and it must still land in its real stage.
+        self.conn.execute(
+            "INSERT INTO work_item_status (taken_at, date, item_id, project, item_type, "
+            "repo, number, status_raw, title) VALUES (?,?,?,?,?,?,?,?,?)",
+            ("2026-06-05T00:00:00Z", "2026-06-05", "IT7", "P", "PullRequest",
+             "o/r", 7, "Done ", "widget"))
+        self.conn.commit()
+        with patch.object(semantic, "stage_for", _stage):
+            fm = sm.flow_metrics(self.conn, None)
+        by_key = {s["key"]: s["count"] for s in fm["flow_stages"]}
+        self.assertEqual(by_key["done"], 2, "'Done ' trims to 'Done' -> done (item 7 + 9)")
+        self.assertEqual(fm["flow_unmapped"], 0, "nothing falls through to 'other'")
+
+
+class BoardMovesScopeAndShareTest(BoardSnapshotFixture):
+    """board_moves_scan scopes its owner maps to the repo slice, and person_flow /
+    drill_person_flow / flow_report can reuse a scan instead of recomputing it."""
+
+    def test_owner_maps_are_scoped_but_still_resolve_in_scope_owners(self):
+        # The owner lookups used to SELECT every PR/issue in the org, ignoring `repos`.
+        # Scoped now — but every (repo, number) a move can reference is in-scope by
+        # construction, so owners still resolve: item 7's moves stay attributed to alice.
+        with patch.object(semantic, "stage_for", _stage):
+            scan = sm.board_moves_scan(self.conn, ["o/r"])
+        self.assertTrue(scan["moves"], "item 7 moved")
+        self.assertEqual({m["repo"] for m in scan["moves"]}, {"o/r"})
+        self.assertEqual({m["owner"] for m in scan["moves"]}, {"alice"},
+                         "the scoped pull_request read still finds the author")
+
+    def test_a_shared_scan_gives_the_same_answer_as_recomputing(self):
+        with patch.object(semantic, "stage_for", _stage):
+            scan = sm.board_moves_scan(self.conn, None)
+            self.assertEqual(sm.person_flow(self.conn, None, with_items=True, scan=scan),
+                             sm.person_flow(self.conn, None, with_items=True))
+            self.assertEqual(sm.drill_person_flow(self.conn, "alice", None, scan=scan),
+                             sm.drill_person_flow(self.conn, "alice", None))
+            self.assertEqual(sm.flow_report(self.conn, None, None, None, scan=scan),
+                             sm.flow_report(self.conn, None, None, None))
+
+
 class RepoFilterAliasTest(unittest.TestCase):
     """_repo_filter takes an alias so a joined query can scope on `w.repo`. Three call
     sites used to rewrite its output with str.replace, which tied the exact text of the

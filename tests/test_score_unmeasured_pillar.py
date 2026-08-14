@@ -192,6 +192,44 @@ class RankGapTest(unittest.TestCase):
                                        res["active_pillars"])
             self.assertIsNotNone(got["pillar"])
 
+    def test_above_picks_the_largest_percentile_gap_not_the_largest_points_gap(self):
+        """The explaining pillar is chosen by PILLAR PERCENTILES (one 0..100 scale for
+        everyone), not contribution POINTS (each person's share of their own denominator,
+        which is not comparable when flow is renormalised away for one of them)."""
+        with _store() as (store, conn):
+            _work(conn, "ann", flow_items=6, bounces=0)
+            _work(conn, "bob", flow_items=6, bounces=3, base=100)
+            _work(conn, "cat", flow_items=6, bounces=1, base=200)
+            _work(conn, "dan", flow_items=0, base=300)          # no flow → own denominator
+            board = _board(store, conn)["board"]
+            active = _board(store, conn)["active_pillars"]
+            for i, row in enumerate(board):
+                ab = row.get("above")
+                if not ab or ab.get("pillar") is None:
+                    continue
+                above_row = board[i - 1]
+                shared = [p for p in active
+                          if p in row["scored_on"] and p in above_row["scored_on"]]
+                expect = max(shared, key=lambda p: (above_row["pillars"].get(p) or 0)
+                             - (row["pillars"].get(p) or 0))
+                self.assertEqual(ab["pillar"], expect,
+                                 f"{row['login']}: pillar not chosen by percentile gap")
+
+    def test_compare_row_to_picks_the_largest_percentile_gap(self):
+        with _store() as (store, conn):
+            _work(conn, "ann", flow_items=6, bounces=0)
+            _work(conn, "bob", flow_items=6, bounces=3, base=100)
+            _work(conn, "dan", flow_items=0, base=300)          # no flow reading
+            res = _board(store, conn)
+            active = res["active_pillars"]
+            row, anchor = res["by_login"]["bob"], res["by_login"]["dan"]
+            got = store.compare_row_to(row, anchor, active)
+            shared = [p for p in active
+                      if p in row["scored_on"] and p in anchor["scored_on"]]
+            expect = max(shared, key=lambda p: abs((row["pillars"].get(p) or 0)
+                         - (anchor["pillars"].get(p) or 0)))
+            self.assertEqual(got["pillar"], expect)
+
 
 class DeltaTest(unittest.TestCase):
     def test_the_counterfactual_renormalises_the_same_way(self):

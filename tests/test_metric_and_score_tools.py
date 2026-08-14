@@ -39,6 +39,45 @@ def _tools(seed=True):
             yield tooldefs
 
 
+#: Flow reads board movement; the default taxonomy maps no statuses, so patch it or every
+#: status resolves to "other", which has no position and so is never a direction.
+_STAGES = {"Backlog": "backlog", "In progress": "in_progress",
+           "To Verify": "qa", "Done": "done"}
+
+
+@contextlib.contextmanager
+def _renorm_tools():
+    """A window where the flow pillar is ACTIVE for the team but ABSENT for one person, so
+    that person's flow weight is renormalised away. This is the shape where Σ over ALL
+    pillars stops reproducing the score and scored_on/weight_gaps are the only honest way
+    to check the arithmetic. alice and bob each move three board items in-window; carol
+    moves none, so flow covers 2/3 of the team (≥50%, active) yet is null for carol."""
+    import semantic
+    with TemporaryDirectory() as tmp:
+        with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}), \
+             patch.object(semantic, "stage_for",
+                          lambda _c, raw: _STAGES.get(raw, "other")):
+            import store
+            conn = store.connect()
+            _seed(conn)                     # alice/bob/carol above the floor, June
+            # alice's cohort PRs are 6100..6105, bob's 6200..6206 (see _seed's numbering).
+            # Three of each advance Backlog -> In progress inside the window; carol's
+            # 6300.. never appear on the board, so she is the person with no flow reading.
+            def snap(num, day, status):
+                conn.execute(
+                    "INSERT INTO work_item_status (taken_at, date, item_id, project, "
+                    "item_type, repo, number, status_raw, title) "
+                    "VALUES (?, ?, ?, 'o/1', 'pull_request', 'o/r', ?, ?, ?)",
+                    (f"{day}T00:00:00Z", day, f"IT{num}", num, status, f"t{num}"))
+            for num in (6100, 6101, 6102, 6200, 6201, 6202):
+                snap(num, "2026-06-12", "Backlog")
+                snap(num, "2026-06-13", "In progress")
+            conn.commit()
+            conn.close()
+            import tooldefs
+            yield tooldefs
+
+
 def _seed(conn, logins=("alice", "bob", "carol"), n=6, month="06", people=True):
     """`n` commits + `n` PRs each, above the score's activity floor of 5, so the board is
     non-empty and there is a team to be a median of. `month` so the window BEFORE the one
@@ -194,6 +233,43 @@ class DeveloperScoreTest(unittest.TestCase):
         with _tools() as t:
             self.assertIs(t.developer_score("alice", since=SINCE, until=UNTIL)["experimental"],
                           True)
+
+
+class RenormalisedScoreTest(unittest.TestCase):
+    """A person whose flow pillar was renormalised away. Without scored_on/weight_gaps in
+    the payload, Σ weights_pct·pillar / Σ weights_pct over ALL pillars does not reproduce
+    `score` — the reader then either says the arithmetic is wrong or reads flow=None as a
+    scored zero. The payload has to say which pillars the mean was actually taken over."""
+
+    def test_scored_on_and_weight_gaps_are_present(self):
+        with _renorm_tools() as t:
+            out = t.developer_score("carol", since=SINCE, until=UNTIL)
+            self.assertTrue(out["scored"])
+            self.assertIn("scored_on", out)
+            self.assertIn("weight_gaps", out)
+            self.assertIn("flow", out["weight_gaps"], "carol has no board movement")
+            self.assertNotIn("flow", out["scored_on"])
+
+    def test_the_score_is_the_weighted_mean_over_scored_on(self):
+        with _renorm_tools() as t:
+            out = t.developer_score("carol", since=SINCE, until=UNTIL)
+            w, pil, so = out["weights_pct"], out["pillars"], out["scored_on"]
+            den = sum(w[p] for p in so)
+            recon = round(sum(w[p] * pil[p] for p in so) / den)
+            self.assertEqual(recon, out["score"],
+                             "Σ over scored_on must reproduce the score")
+            # The naive mean over ALL pillars (flow counted as a 0) does NOT — which is the
+            # whole reason scored_on/weight_gaps have to travel with the number.
+            allp = so + out["weight_gaps"]
+            naive = round(sum(w[p] * (pil[p] or 0) for p in allp) / sum(w[p] for p in allp))
+            self.assertLess(naive, out["score"],
+                            "renormalising the flow weight away is what lifts the score")
+
+    def test_how_it_works_explains_the_renormalisation(self):
+        with _renorm_tools() as t:
+            hiw = t.developer_score("carol", since=SINCE, until=UNTIL)["how_it_works"]
+            self.assertIn("scored_on", hiw)
+            self.assertIn("weight_gaps", hiw)
 
 
 class PreviousWindowTest(unittest.TestCase):
