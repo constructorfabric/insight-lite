@@ -25,6 +25,16 @@ class QuietHandler(server.Handler):
         pass
 
 
+#: The default taxonomy maps no board statuses, so the flow tests below supply their own
+#: — same idiom as tests/test_board_snapshots.py.
+_FLOW_STAGES_MAP = {"Backlog": "backlog", "In progress": "in_progress",
+                    "To Verify": "qa", "Done": "done"}
+
+
+def _flow_stage(_cfg, raw):
+    return _FLOW_STAGES_MAP.get(raw, "other")
+
+
 class CollectRulesTest(unittest.TestCase):
     def test_classify_unknown_repos_as_unclassified(self):
         cfg = {"repos": {"platform": ["core"], "app": ["product"], "ignore": ["meta"]}}
@@ -1153,28 +1163,63 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(store._score_weights(),
                              {"engagement": 20.0, "delivery": 25.0, "craft": 25.0, "flow": 35.0})
 
-    def test_person_flow_from_timeline_events(self):
+    def test_person_flow_from_board_movement(self):
+        """v0.3: the backward SHARE of a person's board moves, not friction per item.
+        The old reading counted bad events over every owned item, so somebody whose items
+        never moved scored a perfect zero — see the note on semantic_metrics.person_flow.
+        Items that never moved are now in neither half of the ratio.
+
+        stage_for is patched because the default taxonomy maps none of these statuses —
+        the same fixture idiom as tests/test_board_snapshots.py, and a real dependency of
+        the new metric: without a configured stage order there is no direction to read."""
+        import semantic
         import store, semantic_metrics
-        with TemporaryDirectory() as tmp:
+        with patch.object(semantic, "stage_for", _flow_stage), TemporaryDirectory() as tmp:
             _, conn = self._db(tmp)
             conn.executemany("INSERT INTO pull_request (repo,number,author_login) VALUES (?,?,?)",
                              [("o/r", 1, "alice"), ("o/r", 2, "alice"), ("o/r", 3, "alice"),
-                              ("o/r", 9, "bob")])
+                              ("o/r", 4, "alice"), ("o/r", 9, "bob")])
+            # daily board snapshots. alice: #1 and #2 advance, #3 goes back, #4 never moves.
+            snaps = [
+                (1, "d1", "Backlog"), (1, "d2", "In progress"),          # forward
+                (2, "d1", "In progress"), (2, "d2", "Done"),             # forward
+                (3, "d1", "To Verify"), (3, "d2", "In progress"),        # BACKWARD
+                (4, "d1", "Backlog"), (4, "d2", "Backlog"),              # stood still
+                (9, "d1", "Backlog"), (9, "d2", "Done"),                 # bob, one item
+            ]
+            day = {"d1": "2026-06-01", "d2": "2026-06-02"}
             conn.executemany(
-                "INSERT INTO timeline_event (repo,item_type,number,event,actor_login,created_at) "
-                "VALUES (?,?,?,?,?,?)",
-                [("o/r", "pull_request", 1, "ready_for_review", "x", "2026-06-01T00:00:00Z"),
-                 ("o/r", "pull_request", 1, "merged", "x", "2026-06-02T00:00:00Z"),        # clean → 0
-                 ("o/r", "pull_request", 2, "convert_to_draft", "x", "2026-06-03T00:00:00Z"),  # bounce → 2·1
-                 ("o/r", "pull_request", 3, "review_requested", "x", "2026-06-04T00:00:00Z"),
-                 ("o/r", "pull_request", 3, "review_requested", "x", "2026-06-05T00:00:00Z"),   # extra re-request → 1
-                 ("o/r", "pull_request", 9, "merged", "x", "2026-06-06T00:00:00Z")])
+                "INSERT INTO work_item_status (taken_at,date,item_id,project,item_type,repo,"
+                "number,status_raw,title) VALUES (?,?,?,?,?,?,?,?,?)",
+                [(f"{day[d]}T00:00:00Z", day[d], f"IT{n}", "o/1", "pull_request", "o/r",
+                  n, s, f"t{n}") for n, d, s in snaps])
             conn.commit()
-            pf = semantic_metrics.person_flow(conn)
-            # alice: friction = (0 + 2·1 + 1) / 3 items = 1.0 per item (lower = smoother)
-            self.assertAlmostEqual(pf["alice"], 1.0, places=3)
-            # bob: only 1 item (< min) → not scored
+            pf, items = semantic_metrics.person_flow(conn, with_items=True)
+            # alice moved 3 items (the still one does not count): 2 forward, 1 backward
+            self.assertEqual(items["alice"], 3)
+            self.assertAlmostEqual(pf["alice"], 1 / 3, places=3)
+            # bob: only 1 moved item (< min) → no reading, but the count is still reported
             self.assertNotIn("bob", pf)
+            self.assertEqual(items["bob"], 1)
+
+    def test_person_flow_gives_no_reading_when_nothing_moved(self):
+        """The defect this replaced: standing still used to score as perfect flow."""
+        import semantic
+        import store, semantic_metrics
+        with patch.object(semantic, "stage_for", _flow_stage), TemporaryDirectory() as tmp:
+            _, conn = self._db(tmp)
+            conn.executemany("INSERT INTO pull_request (repo,number,author_login) VALUES (?,?,?)",
+                             [("o/r", n, "still") for n in (1, 2, 3, 4)])
+            conn.executemany(
+                "INSERT INTO work_item_status (taken_at,date,item_id,project,item_type,repo,"
+                "number,status_raw,title) VALUES (?,?,?,?,?,?,?,?,?)",
+                [(f"2026-06-0{d}T00:00:00Z", f"2026-06-0{d}", f"IT{n}", "o/1",
+                  "pull_request", "o/r", n, "Backlog", f"t{n}")
+                 for n in (1, 2, 3, 4) for d in (1, 2, 3)])
+            conn.commit()
+            pf, items = semantic_metrics.person_flow(conn, with_items=True)
+            self.assertNotIn("still", pf, "four motionless items are not perfect flow")
+            self.assertEqual(items.get("still", 0), 0)
 
     def test_flow_report_rates_and_cycle_times(self):
         import store, semantic_metrics

@@ -359,130 +359,101 @@ _FLOW_CHURN_W = 1.0
 
 
 def person_flow(conn, repos=None, since=None, until=None, with_items=False):
-    """Retrospective flow FRICTION per person from issue/PR TIMELINE events (not the
-    Projects-v2 board, which has no change-history). For each item a person owns (PR →
-    author, issue → first assignee) we score friction = 2·bounces (convert_to_draft /
-    reopened) + extra review-requests + extra assignments (churn beyond the first);
-    a person's value is friction-per-item — LOWER is smoother flow. Combining several
-    rare event types gives more spread than a binary no-bounce ratio. Window-scoped by
-    event date when since/until are given (so it moves with the period like the other
-    pillars). {login: friction/item} for people with ≥3 owned tracked items.
+    """Flow FRICTION per person: the share of their board moves that went BACKWARD.
+    Lower is smoother. {login: backward / (forward + backward)} over the window, for
+    people with ≥_FLOW_MIN_ITEMS items that actually moved.
 
-    with_items=True returns (ratios, {login: owned tracked items}) instead. The count is
-    what the score shrinks the ratio by, and it is returned from here rather than
-    recomputed by the caller because the ownership rule above (PR → author, issue → first
-    assignee, PR wins a collision) is the thing that would drift. The item map is NOT
-    gated by _FLOW_MIN_ITEMS — a caller needs the count for people whose ratio was
-    withheld, to tell "too few items" from "no items"."""
-    import json
-    rf, rp = _repo_filter(repos)
-    wf, wp = "", ()
-    if since is not None and until is not None:
-        wf, wp = " AND created_at>=? AND created_at<=?", (since, until)
-    rows = conn.execute(
-        "SELECT repo, number, event FROM timeline_event WHERE number IS NOT NULL" + rf + wf,
-        rp + wp).fetchall()
-    if not rows:
-        return ({}, {}) if with_items else {}
-    per_item: dict = {}
-    for r in rows:
-        d = per_item.setdefault((r["repo"], r["number"]), {"back": 0, "rr": 0, "asg": 0})
-        ev = r["event"]
-        if ev in _FLOW_BACKWARD:
-            d["back"] += 1
-        elif ev == "review_requested":
-            d["rr"] += 1
-        elif ev == "assigned":
-            d["asg"] += 1
-    pr_author = {(r["repo"], r["number"]): r["author_login"] for r in conn.execute(
-        "SELECT repo, number, author_login FROM pull_request WHERE author_login<>''")}
-    issue_owner: dict = {}
-    for r in conn.execute("SELECT repo, number, assignees FROM issue"):
-        try:
-            a = json.loads(r["assignees"] or "[]")
-        except (ValueError, TypeError):
-            a = []
-        issue_owner[(r["repo"], r["number"])] = a[0] if a else None
-    friction: dict = {}
-    items: dict = {}
-    for key, d in per_item.items():
-        owner = pr_author.get(key) or issue_owner.get(key)
-        if not owner:
+    WHY THIS AND NOT FRICTION-PER-ITEM, which is what it was until v0.3. That version
+    counted bad events — reopens, converts-to-draft, repeated review requests and
+    reassignments — over every item a person owned, and divided. It had one property that
+    made it unusable in a score: doing nothing scored perfectly. 84% of tracked items had
+    zero friction, and the four people sitting at exactly 0.000 shared the top percentile,
+    among them somebody whose 22 items never bounced because there was nobody else in the
+    repository to bounce them. Measured on 2026-08-14, the share of a person's merged work
+    that nobody reviewed predicted their score at +0.59.
+    Three ways out were measured and rejected before this one:
+      * counting only items that COULD accrue friction — no change, 16 qualifying items
+        and still 0.000, because the events simply never happened;
+      * requiring a peer to have been involved — correlates 0.74 with craft's
+        reviewed_share, so it charges one behaviour to two pillars;
+      * backward board moves per ITEM — worse, 10 of 25 people at zero, because an item
+        that sits still forever never moves backward either.
+    The defect is the SHAPE: a count of bad events is maximised by inactivity, whatever
+    it is counted from. Only conditioning on movement fixes it — an item that never moved
+    contributes to neither half of this ratio, and somebody whose items all sat still has
+    no reading rather than a perfect one. store._SCORE_GAP_PILLARS is what makes that
+    safe: no reading is renormalised away, not scored zero.
+
+    The trade is coverage. This can only see people who use the Projects board, and the
+    scan reconstructs moves by diffing DAILY snapshots (board_moves_scan), so it is a
+    floor: a there-and-back within one day is invisible, and nothing before the first
+    snapshot exists. On 2026-08-14 that was 13 of 34 scored people — below the score's
+    own pillar-coverage gate, so the flow pillar drops out for everyone until board use
+    spreads, which is the honest reading rather than a bad one.
+
+    with_items=True returns (ratios, {login: items that moved}) instead — the count the
+    score shrinks the ratio by. That map is NOT gated by _FLOW_MIN_ITEMS: a caller needs
+    the count for people whose ratio was withheld, to tell "too few" from "none"."""
+    scan = board_moves_scan(conn, repos)
+    lo = since[:10] if since else None
+    hi = until[:10] if until else None
+    fwd: dict = {}
+    back: dict = {}
+    moved: dict = {}
+    for m in scan["moves"]:
+        if (lo and m["date"] < lo) or (hi and m["date"] > hi):
             continue
-        f = (_FLOW_BACK_W * d["back"]
-             + _FLOW_CHURN_W * (max(0, d["rr"] - 1) + max(0, d["asg"] - 1)))
-        friction[owner] = friction.get(owner, 0.0) + f
-        items[owner] = items.get(owner, 0) + 1
-    if with_items:
-        return ({lg: friction[lg] / items[lg]
-                 for lg in items if items[lg] >= _FLOW_MIN_ITEMS}, items)
-    return {lg: friction[lg] / items[lg]
-            for lg in items if items[lg] >= _FLOW_MIN_ITEMS}
+        lg = m["owner"]
+        if not lg:
+            continue
+        moved.setdefault(lg, set()).add(m["item_id"])
+        if m["dir"] > 0:
+            fwd[lg] = fwd.get(lg, 0) + 1
+        else:
+            back[lg] = back.get(lg, 0) + 1
+    items = {lg: len(s) for lg, s in moved.items()}
+    ratios = {lg: back.get(lg, 0) / (fwd.get(lg, 0) + back.get(lg, 0))
+              for lg in items if items[lg] >= _FLOW_MIN_ITEMS}
+    return (ratios, items) if with_items else ratios
 
 
 def drill_person_flow(conn, login, repos=None, since=None, until=None,
                       limit=500, offset=0) -> dict:
-    """The board items behind a person's Flow pillar: each owned issue/PR with the
-    lifecycle events it accrued, worst (highest friction) first. Mirrors person_flow's
-    ownership + window rules so the list explains the number."""
-    import json
-    rf, rp = _repo_filter(repos)
-    wf, wp = "", ()
-    if since is not None and until is not None:
-        wf, wp = " AND created_at>=? AND created_at<=?", (since, until)
-    rows = conn.execute(
-        "SELECT repo, number, item_type, event FROM timeline_event "
-        "WHERE number IS NOT NULL" + rf + wf, rp + wp).fetchall()
-    pr_author = {(r["repo"], r["number"]): r["author_login"] for r in conn.execute(
-        "SELECT repo, number, author_login FROM pull_request WHERE author_login<>''")}
-    issue_owner: dict = {}
-    for r in conn.execute("SELECT repo, number, assignees FROM issue"):
-        try:
-            a = json.loads(r["assignees"] or "[]")
-        except (ValueError, TypeError):
-            a = []
-        issue_owner[(r["repo"], r["number"])] = a[0] if a else None
+    """The board items behind a person's Flow pillar: each item of theirs that MOVED, with
+    the moves it made, worst (most backward) first. Reads the same board_moves_scan the
+    pillar does, so the list and the number cannot disagree — and an item that never moved
+    is absent here for the same reason it is absent from the ratio: it is not evidence of
+    smooth flow, it is not evidence of anything."""
+    scan = board_moves_scan(conn, repos)
+    lo = since[:10] if since else None
+    hi = until[:10] if until else None
     per: dict = {}
-    for r in rows:
-        key = (r["repo"], r["number"])
-        owner = pr_author.get(key) or issue_owner.get(key)
-        if owner != login:
+    for m in scan["moves"]:
+        if m["owner"] != login:
             continue
-        d = per.setdefault(key, {"item_type": r["item_type"], "cd": 0, "ro": 0, "rr": 0, "asg": 0})
-        ev = r["event"]
-        if ev == "convert_to_draft":
-            d["cd"] += 1
-        elif ev == "reopened":
-            d["ro"] += 1
-        elif ev == "review_requested":
-            d["rr"] += 1
-        elif ev == "assigned":
-            d["asg"] += 1
-    titles: dict = {}
-    for r in conn.execute("SELECT repo, number, title FROM pull_request"):
-        titles[("pr", r["repo"], r["number"])] = r["title"]
-    for r in conn.execute("SELECT repo, number, title FROM issue"):
-        titles[("issue", r["repo"], r["number"])] = r["title"]
+        if (lo and m["date"] < lo) or (hi and m["date"] > hi):
+            continue
+        d = per.setdefault(m["item_id"], {"m": [], "back": 0, "fwd": 0,
+                                          "repo": m["repo"], "ref": m["ref"],
+                                          "title": m["title"], "url": m["url"]})
+        d["m"].append(m)
+        if m["dir"] < 0:
+            d["back"] += 1
+        else:
+            d["fwd"] += 1
     out = []
-    for (repo, num), d in per.items():
-        churn = max(0, d["rr"] - 1) + max(0, d["asg"] - 1)
-        friction = 2 * (d["cd"] + d["ro"]) + churn
-        is_pr = "pull" in (d["item_type"] or "").lower()
-        parts = []
-        if d["ro"]:
-            parts.append(f"{d['ro']} reopened")
-        if d["cd"]:
-            parts.append(f"{d['cd']} back to draft")
-        if max(0, d["rr"] - 1):
-            parts.append(f"{d['rr'] - 1} extra review req")
-        if max(0, d["asg"] - 1):
-            parts.append(f"{d['asg'] - 1} reassigned")
+    for _iid, d in per.items():
+        moves = sorted(d["m"], key=lambda x: x["date"])
         out.append({
-            "repo": repo, "ref": f"#{num}", "title": titles.get(
-                ("pr" if is_pr else "issue", repo, num)) or "",
-            "item_type": "PR" if is_pr else "issue", "friction": friction,
-            "detail": " · ".join(parts) or "clean",
-            "url": f"https://github.com/{repo}/{'pull' if is_pr else 'issues'}/{num}"})
+            "repo": d["repo"], "ref": d["ref"], "title": d["title"],
+            "item_type": "PR" if "/pull/" in (d["url"] or "") else "issue",
+            # `friction` keeps its name and its meaning for the client: how much of this
+            # item's movement went the wrong way. 0 for an item that only advanced.
+            # `forward` beside it so a caller can add the two up rather than counting the
+            # arrows in `detail`, which is display text and may not survive translation.
+            "friction": d["back"], "forward": d["fwd"],
+            "detail": " · ".join(f"{m['from']} → {m['to']}" for m in moves),
+            "url": d["url"]})
     out.sort(key=lambda x: (-x["friction"], x["repo"], x["ref"]))
     total = len(out)
     return {"entity": "flowitems", "total": total, "shown": min(limit, max(0, total - offset)),
@@ -576,6 +547,75 @@ def board_snapshot_rows(conn, repos=None) -> list:
 
 
 
+#: Stage order for reading a board move's DIRECTION. Same list the pipeline is drawn in,
+#: so "forward" here means the direction the Flow tab draws left to right. A status that
+#: resolves outside it (`other`) has no position, so a move into or out of one is not a
+#: direction and is skipped rather than guessed.
+_STAGE_RANK = {k: i for i, (k, _n, _c) in enumerate(_FLOW_STAGES)}
+
+
+def board_moves_scan(conn, repos=None, rows=None, instants=None) -> dict:
+    """Every stage move the snapshots can show — forward and backward — no window.
+
+    The generalisation of board_rewind_scan, which is now a filter over this: rewinds are
+    the qa→dev subset. Written as one scan because both readings must agree about what a
+    move IS (the stage resolution, the ownership rule, the once-a-day sampling floor), and
+    two implementations of that would drift the first time the taxonomy moved.
+
+    Each move carries `dir`: +1 toward done, -1 back toward development, and 0 never —
+    a pair that resolves to the same rank is not a move and is not emitted."""
+    resolved = _resolver(conn)
+    if rows is None:
+        rows = board_snapshot_rows(conn, repos)
+    if instants is None:
+        instants = board_snapshot_instants(conn, repos)
+
+    seq: dict = {}
+    for r in rows:
+        raw = (r["status_raw"] or "").strip()
+        if not raw:
+            continue
+        seq.setdefault(r["item_id"], []).append(
+            (r["taken_at"], semantic.stage_for(resolved(r["repo"] or ""), raw), r))
+
+    pr_author = {(r["repo"], r["number"]): r["author_login"] for r in conn.execute(
+        "SELECT repo, number, author_login FROM pull_request WHERE author_login<>''")}
+    issue_owner: dict = {}
+    for r in conn.execute("SELECT repo, number, assignees FROM issue"):
+        try:
+            a = json.loads(r["assignees"] or "[]")
+        except (ValueError, TypeError):
+            a = []
+        issue_owner[(r["repo"], r["number"])] = a[0] if a else None
+    names = {r["login"]: (r["name"] or r["login"])
+             for r in conn.execute("SELECT login, name FROM person")}
+
+    moves = []
+    for item_id, s in seq.items():
+        for (_d0, a, _r0), (d1, b, r1) in zip(s, s[1:]):
+            ra, rb = _STAGE_RANK.get(a), _STAGE_RANK.get(b)
+            if ra is None or rb is None or ra == rb:
+                continue
+            repo, num = r1["repo"], r1["number"]
+            owner = pr_author.get((repo, num)) or issue_owner.get((repo, num))
+            is_pr = "pull" in (r1["item_type"] or "").lower()
+            moves.append({
+                "item_id": item_id, "repo": repo, "ref": (f"#{num}" if num else ""),
+                "number": num, "title": r1["title"] or "",
+                "from_stage": a, "to_stage": b,
+                "from": _STAGE_NAME.get(a, a), "to": _STAGE_NAME.get(b, b),
+                "dir": 1 if rb > ra else -1,
+                "date": d1[:10], "owner": owner, "owner_name": names.get(owner, owner or "—"),
+                "url": (f"https://github.com/{repo}/{'pull' if is_pr else 'issues'}/{num}"
+                        if num else ""),
+            })
+    moves.sort(key=lambda x: (x["date"], x["repo"], x["ref"]), reverse=True)
+    days = sorted({s[:10] for s in instants})
+    return {"has_history": len(instants) >= 2, "n_dates": len(instants),
+            "first_date": days[0] if days else None,
+            "last_date": days[-1] if days else None, "moves": moves}
+
+
 def board_rewind_scan(conn, repos=None, rows=None, instants=None) -> dict:
     """Every qa→dev move the snapshots can show, with no window applied.
 
@@ -596,55 +636,13 @@ def board_rewind_scan(conn, repos=None, rows=None, instants=None) -> dict:
     `rows` and `instants` accept a board_snapshot_rows() / board_snapshot_instants() read
     instead of doing their own. has_history and the date range come from the instants,
     which describe the snapshot SET — the row list omits days on which nothing moved."""
-    resolved = _resolver(conn)
-    if rows is None:
-        rows = board_snapshot_rows(conn, repos)
-    if instants is None:
-        instants = board_snapshot_instants(conn, repos)
-    snaps = instants
-
-    seq: dict = {}
-    for r in rows:
-        raw = (r["status_raw"] or "").strip()
-        if not raw:
-            continue
-        stg = semantic.stage_for(resolved(r["repo"] or ""), raw)
-        seq.setdefault(r["item_id"], []).append((r["taken_at"], stg, r))
-
-    pr_author = {(r["repo"], r["number"]): r["author_login"] for r in conn.execute(
-        "SELECT repo, number, author_login FROM pull_request WHERE author_login<>''")}
-    issue_owner: dict = {}
-    for r in conn.execute("SELECT repo, number, assignees FROM issue"):
-        try:
-            a = json.loads(r["assignees"] or "[]")
-        except (ValueError, TypeError):
-            a = []
-        issue_owner[(r["repo"], r["number"])] = a[0] if a else None
-    names = {r["login"]: (r["name"] or r["login"])
-             for r in conn.execute("SELECT login, name FROM person")}
-
-    events = []
-    for item_id, s in seq.items():
-        for (_d0, a, _r0), (d1, b, r1) in zip(s, s[1:]):
-            if a == "qa" and b in _DEV_STAGES:
-                day = d1[:10]
-                repo, num = r1["repo"], r1["number"]
-                owner = pr_author.get((repo, num)) or issue_owner.get((repo, num))
-                is_pr = "pull" in (r1["item_type"] or "").lower()
-                events.append({
-                    "repo": repo, "ref": (f"#{num}" if num else ""),
-                    "title": r1["title"] or "",
-                    "from": _STAGE_NAME.get(a, a), "to": _STAGE_NAME.get(b, b),
-                    "date": day, "owner": owner, "owner_name": names.get(owner, owner or "—"),
-                    "url": (f"https://github.com/{repo}/{'pull' if is_pr else 'issues'}/{num}"
-                            if num else ""),
-                })
-    events.sort(key=lambda x: (x["date"], x["repo"], x["ref"]), reverse=True)
-    days = sorted({s[:10] for s in snaps})
+    scan = board_moves_scan(conn, repos, rows, instants)
+    keep = ("repo", "ref", "title", "from", "to", "date", "owner", "owner_name", "url")
+    events = [{k: m[k] for k in keep} for m in scan["moves"]
+              if m["from_stage"] == "qa" and m["to_stage"] in _DEV_STAGES]
     return {
-        "has_history": len(snaps) >= 2,
-        "n_dates": len(snaps), "first_date": days[0] if days else None,
-        "last_date": days[-1] if days else None,
+        "has_history": scan["has_history"], "n_dates": scan["n_dates"],
+        "first_date": scan["first_date"], "last_date": scan["last_date"],
         "events": events,
     }
 
@@ -1340,12 +1338,17 @@ _reg.register_for(flow_report, [
                      "first item's date, or all-time trends would be mostly empty buckets.",
                 formula="for each sub-window: _flow_scalars(items created in it)",
                 snippet="buckets[int((d - s0).days / (span + 1) * nb)].append(r)"),
-    _reg.metric("flow_friction_per_item", type="computed", group="flow",
-                desc="Per-person friction/item — 2×(back-to-draft + reopened) + review-request "
-                     "and assignment churn, averaged over owned items. The Flow pillar of the "
-                     "Developer score; lower is smoother.",
-                formula="person_flow(): sum(2*bounces + churn) / owned items",
-                snippet="friction = 2*(cd+ro) + max(0,rr-1) + max(0,asg-1)"),
+    _reg.metric("flow_friction_per_item", type="computed", group="flow", unit="0–1",
+                desc="Per-person friction — the share of somebody's Projects-board moves that "
+                     "went BACKWARD, over items of theirs that actually moved. The Flow pillar "
+                     "of the Developer score; lower is smoother. An item that never moved is in "
+                     "neither half: standing still is not smooth flow, it is no reading. "
+                     "Reconstructed by diffing daily snapshots, so it is a floor — a "
+                     "there-and-back inside one day is invisible. The `per_item` in the NAME "
+                     "is historical — it was friction per owned item until v0.3, and the id "
+                     "is kept so saved views and dashboards do not break.",
+                formula="friction = backward moves / (forward + backward moves)",
+                snippet="dir = +1 toward done, -1 back; see board_moves_scan()"),
 ])
 
 

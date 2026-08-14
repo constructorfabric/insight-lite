@@ -2603,7 +2603,8 @@ _SCORE_SIGNALS = [
     # unreviewed case, and it has to be in the same pillar — otherwise dropping the
     # unreviewed PRs from `rounds` just makes them invisible instead of counted.
     ("craft", "rounds", -1), ("craft", "reviewed_share", 1), ("craft", "merge_rate", 1),
-    ("flow", "flow", -1),       # flow FRICTION per item (lower is better); see person_flow
+    # backward SHARE of the person's board moves (lower is better); see person_flow
+    ("flow", "flow", -1),
 ]
 # the ONE headline metric per pillar used to explain a rank gap in real terms
 # ("you merge in 40h, they in 9h"). key → driver field, label, whether lower is better.
@@ -2616,7 +2617,8 @@ _PILLAR_PRIMARY = {
     # separates the board.
     "craft":      {"key": "reviewed_share", "label": "merged work reviewed",
                    "lower_better": False},
-    "flow":       {"key": "flow", "label": "friction/item", "lower_better": True},
+    "flow":       {"key": "flow", "label": "board moves that went backward",
+                   "lower_better": True},
 }
 # How each signal is NAMED and PRINTED. Split from _SCORE_SIGNALS above so the tuple
 # stays the machine-readable definition, but kept next to it because they have to
@@ -2642,7 +2644,7 @@ _SCORE_SIGNAL_META = {
     "rounds":        ("Peer review rounds per reviewed PR", "f2"),
     "reviewed_share": ("Merged work a peer reviewed", "pct01"),
     "merge_rate":    ("Merge rate", "pct01"),
-    "flow":          ("Friction per item", "f3"),
+    "flow":          ("Board moves that went backward", "pct01"),
 }
 
 
@@ -4310,12 +4312,18 @@ _mreg.register_for(developer_scores, [
                "reviewed_share = merged PRs with peer>0 / merged PRs;\n"
                "merge_rate = prs_merged / prs_opened"),
     _m("score_flow", type="computed", group="score", unit="0–100",
-       desc="Flow pillar (weight 35): how smoothly a person's items move, from RETROSPECTIVE "
-            "issue/PR timeline events (not the history-less Projects-v2 board). Friction per "
-            "owned item = 2·bounces (convert_to_draft / reopened) + extra review-requests + "
-            "extra assignments; lower is smoother. Independent of the commit/PR volume signals. "
-            "People with <3 tracked items are reweighted out.",
-       formula="friction/item = (2·bounces + churn) / owned items; percentile inverted (lower→higher)",
-       snippet="owner = PR author / issue first-assignee; events from timeline_event\n"
+       desc="Flow pillar (weight 35): how smoothly a person's items move, read from "
+            "Projects-board MOVEMENT — the share of their board moves that went backward, "
+            "lower is smoother. Until v0.3 this was friction per owned item counted from "
+            "timeline events, which had the property that doing nothing scored perfectly: "
+            "84% of items had no friction and the people at exactly 0.000 shared the top "
+            "percentile. An item that never moved is now in neither half of the ratio, so "
+            "standing still is no reading rather than a perfect one. Independent of the "
+            "commit/PR volume signals. People with <3 moved items are reweighted out — and "
+            "since flow is in _SCORE_GAP_PILLARS, a person with no reading has it dropped "
+            "from their score rather than counted as zero. Requires the stages taxonomy: "
+            "a status that resolves outside the ordered pipeline has no direction.",
+       formula="backward moves / (forward + backward moves); percentile inverted (lower→higher)",
+       snippet="owner = PR author / issue first-assignee; moves from board_moves_scan()\n"
                "see semantic_metrics.person_flow()"),
 ])

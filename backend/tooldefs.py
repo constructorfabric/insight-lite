@@ -653,11 +653,11 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
 
 def friction_breakdown(login: str, since: str = "", until: str = "",
                        scope: str = "") -> dict:
-    """What ONE person's flow friction is made of: how many items they owned, their
-    friction per item, and the parts that drive it — draft bounces, reopens and extra
-    review requests — plus the team median to compare against. Use this for "how is MY
-    friction calculated"; metric_definition('friction') gives the formula, this gives the
-    numbers that went into it."""
+    """What ONE person's flow friction is made of: how many of their board items moved,
+    how many of those moves went forward and how many went backward, the backward share
+    that is the metric, the worst items behind it, and the team median to compare
+    against. Use this for "how is MY friction calculated"; metric_definition('friction')
+    gives the formula, this gives the numbers that went into it."""
     if not (login or "").strip():
         return {"error": "login is required"}
     import semantic_metrics
@@ -673,42 +673,55 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
     people = rep.get("people") or []
     mine = next((p for p in people if p.get("login") == login), None)
     # A row with no friction value is not an answer. The person can be listed in the flow
-    # report and still have none — friction needs at least three owned TRACKED items, and
-    # an item is tracked only once it has timeline events — and returning found=True with a
-    # null would have the assistant reporting "your friction is None".
+    # report and still have none — friction needs at least three board items that MOVED —
+    # and returning found=True with a null would have the assistant reporting "your
+    # friction is None".
     if mine is not None and mine.get("friction") is None:
         mine = None
     if mine is None:
         return {"login": login, "found": False, "scope": scope, "covers": covers,
                 "people_with_flow_data": len(people),
-                "note": ("no flow data for this login in this window — friction needs at "
-                         "least three owned tracked items, and a scope narrows what counts. "
-                         "Try a wider window, or scope='', or check the login with "
-                         "find_person()")}
+                "note": ("no flow data for this login in this window — friction is read "
+                         "from Projects-board movement and needs at least three items of "
+                         "theirs that actually moved, so somebody whose work is not on a "
+                         "board, or whose items sat still, has none. A scope narrows what "
+                         "counts. Try a wider window, or scope='', or check the login with "
+                         "find_person(). Note this is NOT scored as a zero: the developer "
+                         "score leaves the flow pillar out for a person with no reading.")}
+
+    # The moves themselves, from the same scan the pillar reads, so the parts add up to
+    # the number instead of approximating it. The previous version reported draft bounces
+    # and reopens as the "parts" — those describe timeline events and stopped explaining
+    # this metric when it moved to board movement in v0.3.
+    conn = store.connect()
+    try:
+        # Every item, not a page of them: `parts` has to sum to the share reported above,
+        # and a capped read would report the totals of the first page as the totals.
+        drill = semantic_metrics.drill_person_flow(
+            conn, login, repos=_repos(conn, scope),
+            since=_iso(since), until=_iso(until, end=True))
+    finally:
+        conn.close()
+    rows = drill.get("rows") or []
+    backward = sum(r["friction"] for r in rows)
+    forward = sum(r["forward"] for r in rows)
+
     vals = sorted(p["friction"] for p in people if p.get("friction") is not None)
     median = vals[len(vals) // 2] if vals else None
     return {
         "login": login, "found": True, "since": since, "until": until, "scope": scope,
-        "covers": covers, "friction_per_item": mine.get("friction"),
+        "covers": covers, "backward_share": mine.get("friction"),
         "team_median": median, "lower_is_better": True,
-        "owned_items": mine.get("items"),
-        "parts": {"draft_bounces_pct_of_items": mine.get("bounce_pct"),
-                  "reopens_pct_of_items": mine.get("reopen_pct"),
-                  "extra_review_requests": mine.get("extra_reqs")},
-        "formula": "(2 x (draft bounces + reopens) + extra review requests + extra "
-                   "assignments) / owned items",
-        # The formula has four terms and `parts` can only carry three: the flow report's
-        # per-person row exposes bounce_pct, reopen_pct and extra_reqs and does not break
-        # out assignment churn, which is folded into `friction`. Named here, because a
-        # caller told to explain a number cannot account for a term it was never given.
-        "not_broken_out": ("extra assignments — counted inside friction_per_item but not "
-                           "reported separately by the flow report, so the parts below "
-                           "account for the other three terms only"),
-        # Said plainly because the parts come from the Flow page's own rounded shares: they
-        # explain the number, they do not reconstruct it to the last digit.
-        "note": ("bounces and reopens are rounded PERCENTAGES of owned items, as shown on "
-                 "the Flow page, so multiplying them back out approximates the counts "
-                 "rather than reproducing them exactly"),
+        "items_that_moved": drill.get("total"),
+        "parts": {"backward_moves": backward, "forward_moves": max(0, forward)},
+        "worst_items": [{"ref": f"{r['repo']}{r['ref']}", "title": r["title"],
+                         "backward_moves": r["friction"], "moves": r["detail"]}
+                        for r in rows[:5]],
+        "formula": "backward board moves / (forward + backward board moves)",
+        "note": ("moves are reconstructed by diffing DAILY board snapshots, so this is a "
+                 "floor: a there-and-back inside one day is invisible, and nothing before "
+                 "the first snapshot exists. Items that never moved are in neither half — "
+                 "standing still is not smooth flow, it is no reading at all."),
     }
 
 

@@ -29,11 +29,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 SINCE, UNTIL = "2026-06-01", "2026-07-01"
 
+#: Flow reads board movement, and the default taxonomy maps no statuses — without this
+#: every status resolves to "other", which has no position, so nothing is a direction.
+_STAGES = {"Backlog": "backlog", "In progress": "in_progress", "Done": "done"}
+
+
+def _stage(_cfg, raw):
+    return _STAGES.get(raw, "other")
+
 
 @contextlib.contextmanager
 def _store():
+    import semantic
     with TemporaryDirectory() as tmp:
-        with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}):
+        with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}), \
+             patch.object(semantic, "stage_for", _stage):
             import store
             conn = store.connect()
             yield store, conn
@@ -41,9 +51,9 @@ def _store():
 
 
 def _work(conn, login, *, prs=6, peer_reviews=1, base=0, flow_items=6, bounces=0):
-    """One person with enough activity to be scored, plus `flow_items` owned tracked
-    items carrying `bounces` reopens between them. flow_items=0 leaves them with no flow
-    reading at all — the case under test."""
+    """One person with enough activity to be scored, plus `flow_items` items that MOVE on
+    the board — `bounces` of them backward, the rest forward. flow_items=0 leaves them
+    with no flow reading at all, which is the case under test."""
     conn.execute("INSERT OR IGNORE INTO person (login, name) VALUES (?,?)",
                  (login, login.title()))
     conn.execute("INSERT OR IGNORE INTO person (login, name) VALUES ('reviewer','R')")
@@ -65,14 +75,15 @@ def _work(conn, login, *, prs=6, peer_reviews=1, base=0, flow_items=6, bounces=0
                 "INSERT INTO review (repo, pr_number, reviewer_login, state, submitted_at) "
                 "VALUES ('o/r', ?, 'reviewer', 'COMMENTED', ?)", (num, f"{day}T03:0{j}:00Z"))
         if i < flow_items:
-            conn.execute(
-                "INSERT INTO timeline_event (repo, number, event, actor_login, created_at) "
-                "VALUES ('o/r', ?, 'assigned', 'reviewer', ?)", (num, f"{day}T01:00:00Z"))
-            if i < bounces:
+            # two snapshots so the item MOVES: forward normally, backward for `bounces`
+            a, b = (("Done", "In progress") if i < bounces
+                    else ("Backlog", "In progress"))
+            for d, status in (("2026-06-05", a), ("2026-06-06", b)):
                 conn.execute(
-                    "INSERT INTO timeline_event (repo, number, event, actor_login, "
-                    "created_at) VALUES ('o/r', ?, 'reopened', 'reviewer', ?)",
-                    (num, f"{day}T02:00:00Z"))
+                    "INSERT INTO work_item_status (taken_at, date, item_id, project, "
+                    "item_type, repo, number, status_raw, title) "
+                    "VALUES (?, ?, ?, 'o/1', 'pull_request', 'o/r', ?, ?, ?)",
+                    (f"{d}T00:00:00Z", d, f"{login}-{num}", num, status, f"t{num}"))
     conn.commit()
 
 
