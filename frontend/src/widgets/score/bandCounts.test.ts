@@ -75,3 +75,42 @@ describe("bandCounts", () => {
     expect(bandCounts(board, SCALE, []).reduce((a, c) => a + c.n, 0)).toBe(2);
   });
 });
+
+// A pillar the score RENORMALISED AWAY for want of data is not a hole in that person's
+// coverage: their score is an honest mean of everything we could measure, so withholding
+// their band would report our collection gap as their thin row.
+describe("a pillar left out of one person's score", () => {
+  /** `scored_on` omits flow, and flow is the pillar they have no reading for. */
+  function renormalised(band: string) {
+    const pillars: Record<string, number | null> = { flow: null };
+    ACTIVE.filter((p) => p !== "flow").forEach((p) => { pillars[p] = 50; });
+    return { band, pillars, scored_on: ACTIVE.filter((p) => p !== "flow"),
+             weight_gaps: ["flow"] } as never;
+  }
+
+  it("is banded, because nothing it is scored on is missing", () => {
+    const counts = bandCounts([renormalised("Solid")], SCALE, ACTIVE);
+    expect(counts.map((c) => [c.band, c.n])).toEqual([["Solid", 1]]);
+  });
+
+  it("still withholds the band when a pillar they ARE scored on has no data", () => {
+    // craft missing means "opened no PRs" — a fact about them, still counted as zero,
+    // so the row really is thin and must not be banded.
+    const thin = { band: "Building",
+                   pillars: { flow: null, delivery: 50, craft: null, engagement: 50 },
+                   scored_on: ["delivery", "craft", "engagement"],
+                   weight_gaps: ["flow"] } as never;
+    expect(bandCounts([thin], SCALE, ACTIVE)).toEqual([]);
+  });
+
+  it("keeps the sum invariant with a mix of both", () => {
+    const board = [renormalised("Strong"), row("Strong", 4), row("Solid", 3)];
+    const banded = bandCounts(board, SCALE, ACTIVE).reduce((a, c) => a + c.n, 0);
+    expect(banded).toBe(2);                       // the thin row(…, 3) is withheld
+    expect(banded + (board.length - banded)).toBe(board.length);
+  });
+
+  it("falls back to the active list when the payload predates scored_on", () => {
+    expect(bandCounts([row("Solid", 4)], SCALE, ACTIVE)[0].n).toBe(1);
+  });
+});

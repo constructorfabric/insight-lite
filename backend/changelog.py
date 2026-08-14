@@ -14,6 +14,30 @@ import html as _h
 # {type, title, detail}. Prepend new releases at the top.
 CHANGELOG = [
     {
+        "date": "2026-08-14",
+        "changes": [
+            {"type": "fix", "title": "Flow no longer costs you a third of your score when we have no data for you",
+             "detail": "Flow is the heaviest part of the score, and it is built from issue "
+                       "timelines and Projects-board snapshots — which exist per repository, "
+                       "not per person. If your work happens somewhere we collect none of "
+                       "that, there was no reading for you, and a pillar with no reading "
+                       "counted as zero. So the score was charging people 35% for where they "
+                       "work rather than for how they work. Flow is now left out of your own "
+                       "score when there is nothing to read, and its weight goes to the parts "
+                       "we can measure — the panel says “not measured here” and the pillar "
+                       "carries no points instead of zero points. This is only Flow: Delivery "
+                       "and Craft are missing only when somebody opened no pull requests, "
+                       "which is a fact about the work and still counts."},
+            {"type": "fix", "title": "Rank comparisons stop blaming a pillar that was not counted",
+             "detail": "“Why am I behind them” picks the pillar with the biggest points "
+                       "gap. Points are a share of each person’s own total, so once a "
+                       "pillar could be left out for one of the two, an absent one read as "
+                       "zero and won the comparison — the panel said one person led on Flow "
+                       "against somebody whose score never included Flow. The comparison now "
+                       "only considers pillars both people are scored on."},
+        ],
+    },
+    {
         "date": "2026-08-13",
         "changes": [
             {"type": "fix", "title": "The score no longer rewards work nobody reviewed",
