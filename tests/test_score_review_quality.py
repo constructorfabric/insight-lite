@@ -147,6 +147,26 @@ class PeerReviewOnlyTest(unittest.TestCase):
             self.assertEqual(d["reviewed_share"], 1.0)
             self.assertEqual(d["rounds"], 1.0)
 
+    def test_self_reviews_do_not_inflate_reviews_given(self):
+        """reviews_given feeds engagement, so it must count reviewing OTHERS' work. A
+        person who only ever "reviewed" their own PRs has given zero peer reviews — the
+        engagement query excludes self-reviews the same way peer_reviews does."""
+        with _store() as (store, conn):
+            _work(conn, "selfie", peer_reviews=0, self_reviews=3)
+            _work(conn, "other", peer_reviews=0, base=100)   # keep a real board
+            self.assertEqual(_row(store, conn, "selfie")["drivers"]["reviews_given"], 0,
+                             "reviewing your own PRs is not engagement")
+
+    def test_peer_reviews_still_count_toward_reviews_given(self):
+        """The exclusion must not throw out genuine peer reviews. `reviewer` reviews
+        everyone's PRs; those all count."""
+        with _store() as (store, conn):
+            _work(conn, "author", peer_reviews=2)            # 6 PRs × 2 = 12 by 'reviewer'
+            _person(conn, "reviewer")
+            # give 'reviewer' enough of their own activity to be scored
+            _work(conn, "reviewer", peer_reviews=0, base=100)
+            self.assertEqual(_row(store, conn, "reviewer")["drivers"]["reviews_given"], 12)
+
     def test_review_rounds_do_not_punish_a_well_discussed_pr(self):
         """The balance property: somebody whose work draws discussion must not be ranked
         below somebody whose work draws none, once the automated noise is out. Both are
@@ -325,6 +345,66 @@ class FlowItemsTest(unittest.TestCase):
         with _store() as (store, conn):
             _work(conn, "a", peer_reviews=1)
             self.assertIsInstance(sm.person_flow(conn, None, SINCE, UNTIL), dict)
+
+
+class TimezoneGuardTest(unittest.TestCase):
+    """One PR whose created_at is offset-aware ("…Z") and merged_at offset-naive makes
+    the (d1 - d0) subtraction raise TypeError, which used to escape the parse guard and
+    crash developer_scores/score_summary for the WHOLE window. The one bad row's TTM must
+    be skipped, not the whole board lost."""
+
+    def test_a_mixed_timezone_row_does_not_crash_the_board(self):
+        with _store() as (store, conn):
+            _work(conn, "clean", peer_reviews=1)                 # a normal, scorable person
+            # a bad PR: aware created_at, naive merged_at — subtraction raises TypeError
+            conn.execute("INSERT OR IGNORE INTO person (login, name) VALUES ('mix','Mix')")
+            for i in range(6):
+                conn.execute(
+                    "INSERT INTO commits (repo, sha, committed_at, author_login, additions, "
+                    "meaningful_additions, is_spec, ai_marked, is_bot) "
+                    "VALUES ('o/r', ?, ?, 'mix', 10, 8, 0, 0, 0)",
+                    (f"mix{i}", f"2026-06-{10 + i:02d}T00:00:00Z"))
+            conn.execute(
+                "INSERT INTO pull_request (repo, number, org, author_login, created_at, "
+                "merged_at, changed_files, review_count, is_revert, is_bot, is_migration) "
+                "VALUES ('o/r', 500, 'o', 'mix', '2026-06-12T00:00:00Z', "
+                "'2026-06-12T06:00:00', 3, 0, 0, 0, 0)")
+            conn.commit()
+            res = store.developer_scores(conn, since=SINCE, until=UNTIL)
+            self.assertTrue(res["board"], "the board must survive one un-subtractable row")
+            self.assertIn("mix", res["by_login"])
+            # the bad row contributed no TTM, so delivery has no ttm reading for them
+            self.assertIsNone(res["by_login"]["mix"]["drivers"]["ttm"])
+
+
+class PercentileReuseTest(unittest.TestCase):
+    """The score and its delta must rank with ONE percentile rule; _percentile is that
+    rule, shared by developer_scores and score_delta so tie handling cannot diverge."""
+
+    def test_percentile_midrank_and_direction(self):
+        import store
+        vals = [1.0, 2.0, 2.0, 3.0]
+        # ties share their average rank: (below=1) + 0.5*(equal=2) = 2, /4 = 0.5
+        self.assertAlmostEqual(store._percentile(vals, 2.0, 1), 0.5)
+        # lower-is-better flips it
+        self.assertAlmostEqual(store._percentile(vals, 2.0, -1), 0.5)
+        self.assertAlmostEqual(store._percentile(vals, 1.0, 1), 0.125)
+        self.assertAlmostEqual(store._percentile(vals, 1.0, -1), 0.875)
+
+    def test_no_spread_sits_at_the_midpoint(self):
+        import store
+        self.assertEqual(store._percentile([], 5.0, 1), 0.5)
+        self.assertEqual(store._percentile([7.0], 7.0, 1), 0.5)
+
+    def test_delta_against_itself_is_zero(self):
+        """A window compared to itself cannot move — this only holds if the delta's
+        ranking is byte-for-byte the score's ranking, which sharing _percentile pins."""
+        with _store() as (store, conn):
+            _work(conn, "a", peer_reviews=2)
+            _work(conn, "b", peer_reviews=1, base=100)
+            cur = store.developer_scores(conn, since=SINCE, until=UNTIL)
+            d = store.score_delta(cur, cur, "a")
+            self.assertEqual((d["total"], d["team"], d["you"]), (0, 0, 0))
 
 
 if __name__ == "__main__":

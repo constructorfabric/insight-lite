@@ -20,6 +20,7 @@ git-ignored; the JSONL files under history/ remain as a portable export/seed.
 """
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import sqlite3
@@ -2577,6 +2578,24 @@ def _shrink(value, n, median, k):
     return (n * value + k * median) / (n + k)
 
 
+def _percentile(sorted_vals, v, direction):
+    """Mid-rank percentile of `v` within `sorted_vals` (ascending), returned in 0..1.
+    Ties share their average rank so equal values get equal percentiles; `direction`
+    flips it for lower-is-better signals. n<=1 has no spread, so everyone sits at 0.5.
+
+    This is the ONE ranking rule: developer_scores ranks each person's drivers with it
+    and score_delta ranks the previous window's drivers against the current distribution
+    with the SAME call, so a future change to tie handling cannot make a delta rank a
+    value differently from the score it is a delta of."""
+    n = len(sorted_vals)
+    if n <= 1:
+        return 0.5
+    below = bisect.bisect_left(sorted_vals, v)
+    equal = bisect.bisect_right(sorted_vals, v) - below
+    p = (below + 0.5 * equal) / n
+    return p if direction > 0 else (1.0 - p)
+
+
 def _score_weights() -> dict:
     """Effective pillar weights: config.yaml `developer_score_weights` merged with
     the Config overlay, falling back to the built-in defaults. Non-negative; if the
@@ -2642,7 +2661,10 @@ _SCORE_SIGNAL_META = {
     "specs":         ("Spec edits", "int"),
     "ttm":           ("Median merge time", "hours"),
     "size":          ("PR size", "f1"),
-    "rounds":        ("Peer review rounds per reviewed PR", "f2"),
+    # "reviews" not "rounds": the metric is total peer-review SUBMISSIONS on a reviewed
+    # PR, so two approvers in one clean pass reads as 2.0 — the same as two rework cycles.
+    # The label must not promise "rework rounds" when it counts submissions.
+    "rounds":        ("Peer reviews per reviewed PR", "f2"),
     "reviewed_share": ("Merged work a peer reviewed", "pct01"),
     "merge_rate":    ("Merge rate", "pct01"),
     "flow":          ("Board moves that went backward", "pct01"),
@@ -3251,19 +3273,20 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
     """EXPERIMENTAL v0 compound score per person for the window (+ optional slice).
     Returns weights, the eligibility floor, and a `board` (ranked, each with pillar
     sub-scores + the raw drivers) plus a `by_login` lookup. See notes above."""
-    import bisect
     weights = _score_weights()
     rf, rp = _repo_filter(repos)
     prf, prp = _repo_filter(repos, "repo")
 
     def blank():
         # _rounds holds rounds for REVIEWED PRs only; _merged_with_review counts how many
-        # of _merged_scored were reviewed at all. Kept as two counters rather than one
+        # of the person's merged PRs were reviewed at all. Kept as a counter rather than a
         # list of maybe-zeros because that list is exactly what made "nobody looked at it"
-        # score as "nothing to fix" — see the v0.3 note by _SCORE_SHRINK_K.
+        # score as "nothing to fix" — see the v0.3 note by _SCORE_SHRINK_K. The
+        # reviewed_share denominator is prs_merged itself: every merged PR is scored for
+        # review, so a separate counter would only ever equal prs_merged.
         return {"commits": 0, "loc": 0, "specs": 0, "ai": 0, "prs_opened": 0,
                 "prs_merged": 0, "_ttms": [], "_sizes": [], "_rounds": [],
-                "_merged_scored": 0, "_merged_with_review": 0, "reviews_given": 0}
+                "_merged_with_review": 0, "reviews_given": 0}
     raw: dict = {}
     for r in conn.execute(
         "SELECT author_login lg, COUNT(*) commits, IFNULL(SUM(meaningful_additions),0) loc, "
@@ -3304,7 +3327,6 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             e["_sizes"].append(r["changed_files"])
         if r["merged_at"]:
             e["prs_merged"] += 1
-            e["_merged_scored"] += 1
             k = peer_reviews.get((r["repo"], r["number"]), 0)
             if k > 0:
                 e["_merged_with_review"] += 1
@@ -3315,12 +3337,25 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
                 h = (d1 - d0).total_seconds() / 3600.0
                 if h >= 0:
                     e["_ttms"].append(h)
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, TypeError):
+                # TypeError: one timestamp is offset-aware ("…Z") and the other naive, so
+                # the subtraction raises. Skip the one bad row — dropping its TTM reading
+                # must never crash scoring for the whole window.
                 pass
+    # reviews_given feeds engagement, so it must count reviewing OTHERS' work, not your
+    # own. Same self-exclusion as peer_reviews above: join to the PR and drop rows where
+    # the reviewer is the author. LEFT JOIN, not INNER, so a review with no matching PR
+    # row still counts — those are reviews of issues/discussions (no PR author to be, so
+    # they cannot be a PR self-review) or of a PR we did not ingest; keeping them credits
+    # genuine engagement, and the only thing excluded is a confirmed self-review.
     for r in conn.execute(
-        "SELECT reviewer_login lg, COUNT(*) n FROM review WHERE reviewer_login IS NOT NULL "
-        "AND reviewer_login<>'' AND submitted_at>=? AND submitted_at<=?"
-        + prf + " GROUP BY reviewer_login", (since, until) + prp):
+        "SELECT rv.reviewer_login lg, COUNT(*) n FROM review rv "
+        "LEFT JOIN pull_request pr ON pr.repo=rv.repo AND pr.number=rv.pr_number "
+        "WHERE rv.reviewer_login IS NOT NULL AND rv.reviewer_login<>'' "
+        "AND rv.submitted_at>=? AND rv.submitted_at<=? "
+        "AND (pr.author_login IS NULL OR pr.author_login<>rv.reviewer_login)"
+        + _repo_filter(repos, "rv.repo")[0] + " GROUP BY rv.reviewer_login",
+            (since, until) + prp):
         if r["lg"] in raw:
             raw[r["lg"]]["reviews_given"] = r["n"]
 
@@ -3344,8 +3379,8 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
         # None, not 0, when nothing they merged was reviewed: we have no reading on how
         # cleanly their work passes review, and 0 would rank as the best on the board.
         e["rounds"] = (sum(e["_rounds"]) / len(e["_rounds"])) if e["_rounds"] else None
-        e["reviewed_share"] = (e["_merged_with_review"] / e["_merged_scored"]
-                               if e["_merged_scored"] else None)
+        e["reviewed_share"] = (e["_merged_with_review"] / e["prs_merged"]
+                               if e["prs_merged"] else None)
         e["merge_rate"] = (e["prs_merged"] / e["prs_opened"]) if e["prs_opened"] else None
         e["ai_share"] = (100.0 * e["ai"] / e["commits"]) if e["commits"] else 0.0
         e["activity"] = e["commits"] + e["prs_opened"]
@@ -3357,7 +3392,7 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
     # how many observations stand behind each ratio, per person — the shrinkage denominator
     def obs_of(e):
         return {"ttm": len(e["_ttms"]), "size": len(e["_sizes"]), "rounds": len(e["_rounds"]),
-                "reviewed_share": e["_merged_scored"], "merge_rate": e["prs_opened"],
+                "reviewed_share": e["prs_merged"], "merge_rate": e["prs_opened"],
                 "flow": e["flow_items"]}
 
     # RAW distributions: what the team actually did, used for the medians shown next to
@@ -3388,14 +3423,7 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
                             if ranked_vals[lg].get(key) is not None)
 
     def pctl(key, v, direction):
-        vals = dists[key]
-        n = len(vals)
-        if n <= 1:
-            return 0.5
-        below = bisect.bisect_left(vals, v)
-        equal = bisect.bisect_right(vals, v) - below
-        p = (below + 0.5 * equal) / n
-        return p if direction > 0 else (1.0 - p)
+        return _percentile(dists[key], v, direction)
 
     # per-person pillar percentiles (None where the pillar has no signal for them)
     per_pillars = {}
@@ -3499,20 +3527,28 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             row["above"] = None
             continue
         ab = board[i - 1]
-        # Only pillars BOTH are scored on. Points are a share of each person's own
-        # denominator, so a pillar one of them was not scored on has no comparable
-        # number: treating its absent contribution as 0 reported "they lead on Flow"
-        # against somebody whose score never included Flow and who lost nothing for it.
+        # Only pillars BOTH are scored on. A pillar one of them was not scored on has no
+        # comparable number: treating its absent contribution as 0 reported "they lead on
+        # Flow" against somebody whose score never included Flow and who lost nothing for it.
         shared = [p for p in active
                   if p in row["scored_on"] and p in ab["scored_on"]]
-        gaps = {p: (ab["contributions"].get(p) or 0) - (row["contributions"].get(p) or 0)
-                for p in shared}
-        gp = max(gaps, key=gaps.get) if gaps else None
+        # Choose the explaining pillar by PILLAR PERCENTILES, not contribution points.
+        # Points are each person's weight-share of their OWN denominator (which differs
+        # when flow is renormalised away for one but not the other), so a points gap can
+        # be positive where the percentiles are equal, or vice versa. Percentiles are on
+        # one 0..100 scale for everyone, so "ab leads row here" is a true statement.
+        pgaps = {p: (ab["pillars"].get(p) or 0) - (row["pillars"].get(p) or 0)
+                 for p in shared}
+        gp = max(pgaps, key=pgaps.get) if pgaps else None
         prim = _PILLAR_PRIMARY.get(gp) if gp else None
+        # gap_pts stays a POINTS gap for display (how much of the score the pillar explains);
+        # only the CHOICE of pillar moved to percentiles.
+        gap_pts = ((ab["contributions"].get(gp) or 0)
+                   - (row["contributions"].get(gp) or 0)) if gp else 0
         row["above"] = {
             "name": ab["name"], "login": ab["login"], "score": ab["score"],
             "gap_total": ab["score"] - row["score"],
-            "pillar": gp, "gap_pts": gaps.get(gp, 0) if gp else 0,
+            "pillar": gp, "gap_pts": gap_pts,
             "metric_label": prim["label"] if prim else None,
             "lower_better": prim["lower_better"] if prim else None,
             "mine": row["drivers"].get(prim["key"]) if prim else None,
@@ -3557,7 +3593,6 @@ def score_delta(cur: dict, prev: dict, login: str) -> dict | None:
 
     Uses cur["dists"], the very lists the current run ranked against, so the counterfactual
     and the real score cannot disagree about the ranking rule."""
-    import bisect                    # local, as in developer_scores
     a, b = prev.get("by_login", {}).get(login), cur.get("by_login", {}).get(login)
     if not a or not b:
         return None
@@ -3565,14 +3600,7 @@ def score_delta(cur: dict, prev: dict, login: str) -> dict | None:
     active = cur["active_pillars"]
 
     def pctl(key, v, direction):
-        vals = dists.get(key) or []
-        n = len(vals)
-        if n <= 1:
-            return 0.5
-        below = bisect.bisect_left(vals, v)
-        equal = bisect.bisect_right(vals, v) - below
-        p = (below + 0.5 * equal) / n
-        return p if direction > 0 else (1.0 - p)
+        return _percentile(dists.get(key) or [], v, direction)
 
     # The previous drivers have to be shrunk the way THIS run shrank the distribution they
     # are about to be ranked against — same k, same medians, but their OWN observation
@@ -3626,11 +3654,16 @@ def compare_row_to(row, anchor, active):
     shared = [p for p in (active or [])
               if p in (row.get("scored_on") or active or [])
               and p in (anchor.get("scored_on") or active or [])]
-    diffs = {p: (row["contributions"].get(p) or 0) - (anchor["contributions"].get(p) or 0)
-             for p in shared}
-    if not diffs:
+    # Pick the explaining pillar by PILLAR PERCENTILES, not contribution points — same
+    # reason as `above` in developer_scores: points are a share of each person's own
+    # denominator and are not comparable across two people whose denominators differ,
+    # whereas percentiles share one 0..100 scale. abs() because the anchor's row may be
+    # ahead of OR behind them, and either direction explains the gap.
+    pdiffs = {p: (row["pillars"].get(p) or 0) - (anchor["pillars"].get(p) or 0)
+              for p in shared}
+    if not pdiffs:
         return None
-    gp = max(diffs, key=lambda p: abs(diffs[p]))
+    gp = max(pdiffs, key=lambda p: abs(pdiffs[p]))
     prim = _PILLAR_PRIMARY.get(gp)
     return {
         "delta": (row["score"] or 0) - (anchor["score"] or 0),
@@ -4325,8 +4358,11 @@ _mreg.register_for(developer_scores, [
        snippet="ttm_h = (merged_at − created_at); size = changed_files  # both lower-is-better"),
     _m("score_craft", type="computed", group="score", unit="0–100",
        desc="Craft & rework pillar (weight 25): how clean the work is — average PEER review "
-            "rounds per peer-reviewed merged PR (lower better), the share of merged work a peer "
-            "reviewed at all (higher better), and merge rate (merged/opened, higher better). "
+            "SUBMISSIONS per peer-reviewed merged PR (lower better; this counts review rows, "
+            "NOT rework cycles, so two approvers in one clean pass score the same as two "
+            "back-and-forth rounds — it does not distinguish multi-approver repos from "
+            "genuine rework), the share of merged work a peer reviewed at all (higher better), "
+            "and merge rate (merged/opened, higher better). "
             "Proxy for quality; does NOT use revert/reopen blame (ambiguous per author). "
             "A peer review is a row in `review` (already bot-free) by somebody other than the "
             "author — NOT pull_request.review_count, which is GitHub's reviews.totalCount and "
