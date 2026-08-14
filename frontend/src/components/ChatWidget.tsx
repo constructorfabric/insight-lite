@@ -289,7 +289,46 @@ export default function ChatWidget() {
     let acc = "";
     let botIdx = -1;
 
+    // Re-parsing the whole answer and rebuilding the message HTML on every streamed chunk is
+    // O(chunks × length): a long answer runs mxMarkdown hundreds of times over ever-growing
+    // input and hands React a fresh innerHTML each time. Coalesce with a trailing rAF so a
+    // burst of chunks turns the ENTIRE accumulated `acc` into markup ONCE per frame. What the
+    // finished message looks like is unchanged — only how often it is re-parsed mid-stream.
+    let rafId: number | null = null;
+    const renderBot = () => {
+      const htmlStr = mxMarkdown(acc);
+      setMsgs((m) => {
+        const copy = m.slice();
+        if (botIdx === -1) {
+          botIdx = copy.length;
+          copy.push({ cls: "bot", html: htmlStr });
+        } else {
+          copy[botIdx] = { cls: "bot", html: htmlStr };
+        }
+        return copy;
+      });
+    };
+    // Commit the pending parse NOW, synchronously. Called before any non-text event (so the
+    // bot message keeps its place in the transcript relative to tool/error rows) and once the
+    // stream ends or errors (so the finished — or partial — message is fully parsed, and the
+    // memoised math typeset effect runs over the final markup).
+    const flushRender = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (acc) renderBot();
+    };
+    const scheduleRender = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        renderBot();
+      });
+    };
+
     const finish = () => {
+      flushRender();
       if (acc) history.current.push({ role: "assistant", text: acc });
       setBusy(false);
       taRef.current?.focus();
@@ -324,21 +363,13 @@ export default function ChatWidget() {
                 return;
               }
               if (ev.type === "tool") {
+                flushRender();
                 setMsgs((m) => [...m, { cls: "tool", tools: ev.tools || [] }]);
               } else if (ev.type === "text") {
                 acc += ev.text;
-                const htmlStr = mxMarkdown(acc);
-                setMsgs((m) => {
-                  const copy = m.slice();
-                  if (botIdx === -1) {
-                    botIdx = copy.length;
-                    copy.push({ cls: "bot", html: htmlStr });
-                  } else {
-                    copy[botIdx] = { cls: "bot", html: htmlStr };
-                  }
-                  return copy;
-                });
+                scheduleRender();
               } else if (ev.type === "error") {
+                flushRender();
                 setMsgs((m) => [...m, { cls: "err", text: ev.error || "Something went wrong." }]);
               }
             });
