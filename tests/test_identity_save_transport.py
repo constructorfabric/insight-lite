@@ -320,6 +320,16 @@ class SaveEndpointTest(unittest.TestCase):
 
     def post(self, body: bytes, ctype="application/json", extra=None):
         headers = {"Content-Type": ctype, "Content-Length": str(len(body))}
+        # A real editor echoes the version it loaded, and the endpoint now REQUIRES it.
+        # Default to the CURRENT version (a client that just reloaded) so a plain save
+        # succeeds; a test that wants to simulate a stale tab passes its own via `extra`.
+        if not (extra and "X-Override-Version" in extra):
+            import store
+            conn = store.connect()
+            try:
+                headers["X-Override-Version"] = store.overrides_version(conn, ("person",))
+            finally:
+                conn.close()
         headers.update(extra or {})
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         conn.request("POST", "/api/people-yaml", body=body, headers=headers)

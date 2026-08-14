@@ -70,6 +70,14 @@ JOB = {
     "log": "",
 }
 LOCK = threading.Lock()
+# Serialises the read-version → check → write sequence of every override-mutating
+# endpoint (/api/config, /api/semantic, /api/people-yaml). The version check and the
+# write happen on different connections, so without this two saves that both loaded the
+# same version can both pass the check and the second silently clobbers the first (the
+# roster drop-guard then measures against the wrong baseline). Single-process
+# ThreadingHTTPServer, so one in-process lock is enough. Held only across the tiny
+# check+write region, never across render/collect.
+_OVERRIDE_LOCK = threading.Lock()
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -2837,7 +2845,10 @@ class Handler(BaseHTTPRequestHandler):
             since, until = _usage_range(parse_qs(urlparse(self.path).query))
             conn = store.connect()
             try:
-                data = {"sessions": store.chat_sessions(conn, since, until)}
+                # Own sessions only — the transcript is confidential to the person who
+                # held the conversation; see store._chat_owner_clause.
+                login, ident = self._resolve_viewer(conn)
+                data = {"sessions": store.chat_sessions(conn, since, until, login, ident)}
             finally:
                 conn.close()
             self.send_json({"ok": True, **data})
@@ -2847,7 +2858,8 @@ class Handler(BaseHTTPRequestHandler):
             sid = (parse_qs(urlparse(self.path).query).get("id", [""])[0] or "")[:120]
             conn = store.connect()
             try:
-                data = store.chat_session_detail(conn, sid)
+                login, ident = self._resolve_viewer(conn)
+                data = store.chat_session_detail(conn, sid, login, ident)
             finally:
                 conn.close()
             self.send_json({"ok": True, **data})
@@ -3162,8 +3174,11 @@ class Handler(BaseHTTPRequestHandler):
         _conn = _store.connect()
         cur_ver = _store.overrides_version(_conn, configstore.CONFIG_SCOPES)
         _conn.close()
+        # Required, not optional: a client that sends no _version has not proven it saw
+        # the current state, so omitting it must NOT be a way to skip the check and
+        # clobber a concurrent editor. The editors always echo the version they loaded.
         sent_ver = payload.get("_version")
-        if sent_ver is not None and sent_ver != cur_ver:
+        if sent_ver != cur_ver:
             self.send_json({"ok": False, "error": "stale edit — the config changed in "
                             "another session; reload before saving"}, 409)
             return
@@ -3196,7 +3211,8 @@ class Handler(BaseHTTPRequestHandler):
         conn = store.connect()
         try:
             cur_ver = store.overrides_version(conn, ("semantic",))
-            if payload.get("_version") not in (None, cur_ver):
+            # Required (see /api/config): omitting _version must not skip the check.
+            if payload.get("_version") != cur_ver:
                 self.send_json({"ok": False, "error": "stale edit — reload before saving"}, 409)
                 return
             assignments = payload.get("assignments")
@@ -3469,8 +3485,10 @@ class Handler(BaseHTTPRequestHandler):
             _conn = _store.connect()
             cur_ver = _store.overrides_version(_conn, ("person",))
             _conn.close()
+            # Required (see /api/config): a save with no X-Override-Version header has
+            # not proven it saw the current roster, so it must not bypass the check.
             sent_ver = self.headers.get("X-Override-Version")
-            if sent_ver is not None and sent_ver != cur_ver:
+            if sent_ver != cur_ver:
                 self.send_json({"ok": False, "error": "stale edit — another session saved "
                                 "changes; reload before saving"}, 409)
                 return
@@ -3631,10 +3649,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/mcp/token":
             import secrets as _secrets
             import store as _store
-            tok = _secrets.token_hex(24)
             conn = _store.connect()
-            _store.set_secret(conn, "mcp_token", tok)
-            conn.close()
+            try:
+                # Rotating this invalidates the org-wide MCP credential for every client
+                # and hands the caller the new one, so it must be gated the same way the
+                # other mutating admin endpoints are (a resolved person, not merely
+                # portal-authenticated). Without this, any signed-in user could DoS every
+                # MCP client and read the fresh token.
+                login, _ = self._resolve_viewer(conn)
+                if login is None:
+                    self.send_json({"ok": False, "error": "sign-in required"}, 403)
+                    return
+                tok = _secrets.token_hex(24)
+                _store.set_secret(conn, "mcp_token", tok)
+            finally:
+                conn.close()
             self.send_json({"ok": True, "token": tok})
             return
         if path == "/api/mcp/public-url":

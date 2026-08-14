@@ -3868,10 +3868,33 @@ def chat_conversations(conn, since: str, until: str, session_id: str = "",
         f"FROM chat_message WHERE {where} ORDER BY id DESC LIMIT {int(limit)}", params)]
 
 
-def chat_sessions(conn, since: str, until: str, limit: int = 200) -> list:
+def _chat_owner_clause(viewer_login, viewer_ident):
+    """SQL fragment + params restricting chat rows to ONE viewer's own conversations.
+
+    A transcript carries the person's chat verbatim — first-person questions, the data
+    the tools returned about them — so the log viewer must never be a window onto other
+    people's sessions. It is scoped to the resolved viewer: their person login when the
+    proxy identity maps to one, and always their raw identity (older rows, or a viewer
+    with no person row, are stored under viewer_ident). A caller that resolved to nobody
+    (login None, ident 'anon'/'') matches only rows stored the same way, not everything."""
+    clauses, params = [], []
+    if viewer_login:
+        clauses.append("viewer_login = ?")
+        params.append(viewer_login)
+    if viewer_ident and viewer_ident not in ("", "anon"):
+        clauses.append("viewer_ident = ?")
+        params.append(viewer_ident)
+    if not clauses:                       # unresolved viewer: only the anon rows are theirs
+        return "(viewer_login IS NULL AND (viewer_ident IS NULL OR viewer_ident = ''))", []
+    return "(" + " OR ".join(clauses) + ")", params
+
+
+def chat_sessions(conn, since: str, until: str, viewer_login, viewer_ident,
+                  limit: int = 200) -> list:
     """Conversation list for the (unlinked) chat-log viewer: one row per session in
-    [since, until], newest activity first."""
+    [since, until], newest activity first, restricted to the viewer's OWN sessions."""
     lo, hi = since[:10] + "T00:00:00Z", until[:10] + "T23:59:59Z"
+    own, own_p = _chat_owner_clause(viewer_login, viewer_ident)
     return [dict(r) for r in conn.execute(
         "SELECT COALESCE(session_id, '') AS session_id, "
         "COALESCE(viewer_login, viewer_ident, '(anon)') AS who, "
@@ -3879,17 +3902,21 @@ def chat_sessions(conn, since: str, until: str, limit: int = 200) -> list:
         "SUM(CASE WHEN role='user' THEN 1 ELSE 0 END) AS questions, "
         "COALESCE(SUM(tokens_in),0)+COALESCE(SUM(tokens_out),0) AS tokens, "
         "SUM(cost_usd) AS cost "
-        "FROM chat_message WHERE ts >= ? AND ts <= ? "
-        "GROUP BY session_id, who ORDER BY last DESC LIMIT ?", (lo, hi, int(limit)))]
+        "FROM chat_message WHERE ts >= ? AND ts <= ? AND " + own + " "
+        "GROUP BY session_id, who ORDER BY last DESC LIMIT ?",
+        (lo, hi, *own_p, int(limit)))]
 
 
-def chat_session_detail(conn, session_id: str) -> dict:
+def chat_session_detail(conn, session_id: str, viewer_login, viewer_ident) -> dict:
     """Full transcript for one session (chronological) plus the tool calls of each
-    assistant turn, keyed by message id."""
+    assistant turn, keyed by message id. Scoped to the viewer's OWN session: another
+    person's session id returns empty rather than their transcript."""
+    own, own_p = _chat_owner_clause(viewer_login, viewer_ident)
     if session_id:
-        where, params = "session_id = ?", (session_id,)
+        where, params = "session_id = ? AND " + own, (session_id, *own_p)
     else:
-        where, params = "session_id IS NULL OR session_id = ''", ()
+        where = "(session_id IS NULL OR session_id = '') AND " + own
+        params = tuple(own_p)
     msgs = [dict(r) for r in conn.execute(
         f"SELECT id, ts, COALESCE(viewer_login, viewer_ident, '(anon)') AS who, role, text, "
         f"view, period, tokens_in, tokens_out, tokens_cached, cost_usd "
