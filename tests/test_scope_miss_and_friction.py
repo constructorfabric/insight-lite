@@ -93,6 +93,20 @@ def _seed(conn):
     for n in (200, 201, 202, 203, 204):
         snap(n, "2026-06-12", "In progress")
         snap(n, "2026-06-13", "Done")
+    # `dan` is the contradiction between the two definitions of "flow". His PRs were CREATED
+    # in MAY — before the window — so flow_report's cohort-gated `people` list (issues + PRs
+    # created in the window, ≥3 to be listed) never lists him. But three of his items MOVE
+    # inside the window, which is what person_flow and the score's flow pillar read, so both
+    # of THOSE give him a friction reading. found must follow the pillar, not the cohort list.
+    conn.execute("INSERT INTO person (login, name) VALUES ('dan', 'Dan')")
+    for num in (900, 901, 902):
+        conn.execute(
+            "INSERT INTO pull_request (repo, number, org, author_login, created_at, "
+            "merged_at, changed_files, review_count, is_revert, is_bot, is_migration) "
+            "VALUES ('o/alpha', ?, 'o', 'dan', '2026-05-20T00:00:00Z', "
+            "'2026-05-20T06:00:00Z', 3, 1, 0, 0, 0)", (num,))
+        snap(num, "2026-06-12", "Backlog")
+        snap(num, "2026-06-13", "In progress")
     conn.commit()
 
 
@@ -206,6 +220,18 @@ class FrictionBreakdownTest(unittest.TestCase):
         with _tools() as t:
             self.assertIn("org|element|repo|project",
                           t.friction_breakdown("ann", scope="person:ann")["error"])
+
+    def test_items_that_moved_but_were_created_earlier_are_still_found(self):
+        """The gate contradiction. `dan`'s three items MOVED in the window but his PRs were
+        created in May, so the cohort-gated flow-report `people` list never lists him —
+        while the score's flow pillar, read from board MOVEMENT, does. Deriving found from
+        that list answered found=False and told him he needed '≥3 items that actually
+        moved', which he had. found now comes from person_flow, the pillar's own source."""
+        with _tools() as t:
+            out = t.friction_breakdown("dan", since=SINCE, until=UNTIL)
+            self.assertTrue(out["found"], "3 items moved in-window; the flow pillar has him")
+            self.assertEqual(out["items_that_moved"], 3)
+            self.assertEqual(out["backward_share"], 0.0, "all three only advanced")
 
     def test_it_carries_the_formula_and_the_direction(self):
         with _tools() as t:

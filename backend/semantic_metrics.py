@@ -159,7 +159,7 @@ def drill_issue_category(conn, since: str, until: str, category: str,
             "meta": " · ".join(x for x in [(r["state"] or "").lower(),
                                r["issue_type"] or "", " ".join(kinds)] if x)})
     return {"entity": "issue", "total": total, "shown": len(out),
-            "capped": total > len(out), "rows": out}
+            "capped": total > offset + limit, "rows": out}
 
 
 def drill_ci_runs(conn, since: str, until: str, repos=None, limit: int = 500, offset: int = 0) -> dict:
@@ -196,7 +196,7 @@ def drill_ci_runs(conn, since: str, until: str, repos=None, limit: int = 500, of
             "url": f"https://github.com/{r['repo']}/actions/runs/{r['run_id']}",
             "meta": " · ".join(x for x in [r["conclusion"] or "", dur_txt] if x)})
     return {"entity": "ci", "total": total, "shown": len(out),
-            "capped": total > len(out), "rows": out}
+            "capped": total > offset + limit, "rows": out}
 
 
 def drill_flow_stage(conn, stage: str, repos=None, limit: int = 500, offset: int = 0) -> dict:
@@ -208,13 +208,13 @@ def drill_flow_stage(conn, stage: str, repos=None, limit: int = 500, offset: int
     rows = conn.execute(
         "SELECT w.repo AS repo, w.number AS number, w.item_type AS item_type, "
         "w.status_raw AS status_raw, w.title AS title FROM work_item_status w "
-        "JOIN (SELECT item_id, MAX(date) md FROM work_item_status GROUP BY item_id) x "
-        "ON w.item_id=x.item_id AND w.date=x.md "
+        "JOIN (SELECT item_id, MAX(taken_at) mt FROM work_item_status GROUP BY item_id) x "
+        "ON w.item_id=x.item_id AND w.taken_at=x.mt "
         "WHERE w.status_raw IS NOT NULL AND w.status_raw<>''" + rf
         + " ORDER BY w.repo, w.number", rp).fetchall()
     out, total = [], 0
     for r in rows:
-        if semantic.stage_for(resolved(r["repo"] or ""), r["status_raw"] or "") != stage:
+        if semantic.stage_for(resolved(r["repo"] or ""), (r["status_raw"] or "").strip()) != stage:
             continue
         total += 1
         if total - 1 < max(0, offset) or len(out) >= limit:
@@ -226,7 +226,7 @@ def drill_flow_stage(conn, stage: str, repos=None, limit: int = 500, offset: int
                     "title": r["title"] or "", "item_type": r["item_type"] or "",
                     "status": r["status_raw"] or "", "url": url})
     return {"entity": "flow", "total": total, "shown": len(out),
-            "capped": total > len(out), "rows": out}
+            "capped": total > offset + limit, "rows": out}
 
 
 def ci_metrics(conn, since: str, until: str, repos=None) -> dict:
@@ -334,12 +334,12 @@ def flow_metrics(conn, repos=None) -> dict:
     rf, rp = _repo_filter(repos, "w")
     rows = conn.execute(
         "SELECT w.repo AS repo, w.status_raw AS status_raw FROM work_item_status w "
-        "JOIN (SELECT item_id, MAX(date) md FROM work_item_status GROUP BY item_id) x "
-        "ON w.item_id=x.item_id AND w.date=x.md "
+        "JOIN (SELECT item_id, MAX(taken_at) mt FROM work_item_status GROUP BY item_id) x "
+        "ON w.item_id=x.item_id AND w.taken_at=x.mt "
         "WHERE w.status_raw IS NOT NULL AND w.status_raw<>''" + rf, rp).fetchall()
     counts: dict = {}
     for r in rows:
-        stg = semantic.stage_for(resolved(r["repo"] or ""), r["status_raw"] or "")
+        stg = semantic.stage_for(resolved(r["repo"] or ""), (r["status_raw"] or "").strip())
         counts[stg] = counts.get(stg, 0) + 1
     known = {k for k, _, _ in _FLOW_STAGES}
     stages = [{"key": k, "name": n, "color": c, "count": counts.get(k, 0)}
@@ -349,16 +349,10 @@ def flow_metrics(conn, repos=None) -> dict:
             "flow_unmapped": sum(v for k, v in counts.items() if k not in known)}
 
 
-_FLOW_BACKWARD = {"convert_to_draft", "reopened"}   # lifecycle bounces = rework
 _FLOW_MIN_ITEMS = 3                                  # owned tracked items to be scored
-# friction weights: hard bounces cost most; re-requesting review / re-assigning are
-# softer churn. Combining several rare event types spreads people out more than a
-# single binary "had a bounce" (which ties ~60% at zero in a healthy org).
-_FLOW_BACK_W = 2.0
-_FLOW_CHURN_W = 1.0
 
 
-def person_flow(conn, repos=None, since=None, until=None, with_items=False):
+def person_flow(conn, repos=None, since=None, until=None, with_items=False, scan=None):
     """Flow FRICTION per person: the share of their board moves that went BACKWARD.
     Lower is smoother. {login: backward / (forward + backward)} over the window, for
     people with ≥_FLOW_MIN_ITEMS items that actually moved.
@@ -393,8 +387,14 @@ def person_flow(conn, repos=None, since=None, until=None, with_items=False):
 
     with_items=True returns (ratios, {login: items that moved}) instead — the count the
     score shrinks the ratio by. That map is NOT gated by _FLOW_MIN_ITEMS: a caller needs
-    the count for people whose ratio was withheld, to tell "too few" from "none"."""
-    scan = board_moves_scan(conn, repos)
+    the count for people whose ratio was withheld, to tell "too few" from "none".
+
+    `scan` accepts a board_moves_scan() result to reuse instead of recomputing — the same
+    sharing rewind_scan does for board_rewinds. It MUST come from board_moves_scan(conn,
+    repos) for the same repos, since that is exactly the call scan=None makes; passing None
+    reproduces today's output."""
+    if scan is None:
+        scan = board_moves_scan(conn, repos)
     lo = since[:10] if since else None
     hi = until[:10] if until else None
     fwd: dict = {}
@@ -418,13 +418,17 @@ def person_flow(conn, repos=None, since=None, until=None, with_items=False):
 
 
 def drill_person_flow(conn, login, repos=None, since=None, until=None,
-                      limit=500, offset=0) -> dict:
+                      limit=500, offset=0, scan=None) -> dict:
     """The board items behind a person's Flow pillar: each item of theirs that MOVED, with
     the moves it made, worst (most backward) first. Reads the same board_moves_scan the
     pillar does, so the list and the number cannot disagree — and an item that never moved
     is absent here for the same reason it is absent from the ratio: it is not evidence of
-    smooth flow, it is not evidence of anything."""
-    scan = board_moves_scan(conn, repos)
+    smooth flow, it is not evidence of anything.
+
+    `scan` accepts a board_moves_scan() result to reuse — see person_flow. scan=None
+    reproduces today's output."""
+    if scan is None:
+        scan = board_moves_scan(conn, repos)
     lo = since[:10] if since else None
     hi = until[:10] if until else None
     per: dict = {}
@@ -472,8 +476,9 @@ def _hours_between(a: str, b: str):
 
 _FLOW_PERSON_MIN = 3         # cohort items to appear in the per-person flow table
 
-# ordered pipeline for detecting BACKWARD board moves; "dev" = anything before review
-_STAGE_ORDER = {k: i for i, (k, _n, _c) in enumerate(_FLOW_STAGES)}
+# stage names + the "back to development" targets for reading BACKWARD board moves
+# ("dev" = anything before review). The stage ORDER used to live here too, as
+# _STAGE_ORDER — it is now _STAGE_RANK, the single ranking board_moves_scan reads.
 _STAGE_NAME = {k: n for k, n, _c in _FLOW_STAGES}
 _DEV_STAGES = {"backlog", "ready", "in_progress"}   # "back to development" targets
 
@@ -578,10 +583,16 @@ def board_moves_scan(conn, repos=None, rows=None, instants=None) -> dict:
         seq.setdefault(r["item_id"], []).append(
             (r["taken_at"], semantic.stage_for(resolved(r["repo"] or ""), raw), r))
 
+    # Owner lookups only ever resolve (repo, number) pairs already in `seq`, which came
+    # from the repo-scoped row read — so scope these SELECTs to the same slice rather than
+    # JSON-parsing every issue/PR in the org. repos=None leaves the fragment empty, so an
+    # unscoped call reads exactly what it read before.
+    orf, orp = _repo_filter(repos)
     pr_author = {(r["repo"], r["number"]): r["author_login"] for r in conn.execute(
-        "SELECT repo, number, author_login FROM pull_request WHERE author_login<>''")}
+        "SELECT repo, number, author_login FROM pull_request WHERE author_login<>''"
+        + orf, orp)}
     issue_owner: dict = {}
-    for r in conn.execute("SELECT repo, number, assignees FROM issue"):
+    for r in conn.execute("SELECT repo, number, assignees FROM issue WHERE 1=1" + orf, orp):
         try:
             a = json.loads(r["assignees"] or "[]")
         except (ValueError, TypeError):
@@ -1178,7 +1189,7 @@ def flow_kpis(conn, repos=None, since=None, until=None, rewind_scan=None) -> dic
 
 
 def flow_report(conn, repos=None, since=None, until=None, rewind_scan=None,
-                rows=None, instants=None) -> dict:
+                rows=None, instants=None, scan=None) -> dict:
     """The Flow tab dataset — retrospective delivery-flow health that EXPLAINS what
     "friction" means and adds the metrics the timeline stream makes possible.
 
@@ -1193,7 +1204,10 @@ def flow_report(conn, repos=None, since=None, until=None, rewind_scan=None,
     `rewind_scan` is passed straight to board_rewinds — a caller that also wants the
     preceding window's rewinds hands the same scan to both and pays for it once.
     `rows` is a board_snapshot_rows() read to reuse; pass it alongside `rewind_scan`
-    when you produced the scan yourself, or this reads the table again for the dwell."""
+    when you produced the scan yourself, or this reads the table again for the dwell.
+    `scan` is a board_moves_scan() result forwarded to person_flow for the `friction`
+    column — a caller that already scanned board moves reuses it here. scan=None recomputes
+    it exactly as before."""
     # One read of work_item_status for the two consumers that walk sequences (see
     # board_snapshot_rows). cfd does not want rows at all — it aggregates in SQL. A
     # caller that already scanned rewinds passes both `rewind_scan` and the `rows` it
@@ -1228,7 +1242,7 @@ def flow_report(conn, repos=None, since=None, until=None, rewind_scan=None,
         if r["ttfr"] is not None:
             p["ttfr"].append(r["ttfr"])
 
-    friction_map = person_flow(conn, repos, since, until)
+    friction_map = person_flow(conn, repos, since, until, scan=scan)
     names = {r["login"]: (r["name"] or r["login"])
              for r in conn.execute("SELECT login, name FROM person")}
     people = []
@@ -1385,7 +1399,12 @@ def delivery_spark(conn, since: str, until: str, repos=None, nbuckets: int = 8) 
     series: dict = {k: [] for k in DELIVERY_KPI_KEYS}
     for i in range(nb):
         bs = (s0 + timedelta(days=round(span * i / nb))).strftime("%Y-%m-%dT00:00:00Z")
-        be = (s0 + timedelta(days=round(span * (i + 1) / nb))).strftime("%Y-%m-%dT00:00:00Z")
+        # Bucket edges are day-floors (…T00:00:00Z). The last edge would land on
+        # day(until)T00:00:00Z, but callers pass `until` as …T23:59:59Z, so items created
+        # on the final day (created_at > the floor) would fall in no bucket. Reach the true
+        # `until` on the last bucket so the final day is counted.
+        be = (until if i == nb - 1 else
+              (s0 + timedelta(days=round(span * (i + 1) / nb))).strftime("%Y-%m-%dT00:00:00Z"))
         m = delivery_metrics(conn, bs, be, repos)
         for k in DELIVERY_KPI_KEYS:
             series[k].append(m.get(k) or 0)

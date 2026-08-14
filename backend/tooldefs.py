@@ -640,8 +640,18 @@ def developer_score(login: str, since: str = "", until: str = "", scope: str = "
            "rank": row.get("rank"), "of_scored": sc.get("n_ranked"),
            "experimental": True,
            "how_it_works": ("each signal is a percentile within the people scored in this "
-                            "window; pillars are averaged, weighted and normalised"),
+                            "window; pillars are averaged, weighted and normalised. A "
+                            "pillar with no data for THIS person (listed in weight_gaps) "
+                            "is left out and its weight redistributed over the rest, so "
+                            "the score is the weighted mean of the pillars in scored_on — "
+                            "Σ weights_pct·pillar / Σ weights_pct across scored_on — not "
+                            "over all pillars. A gapped pillar is not a zero."),
            "weights_pct": sc.get("weights"),
+           # The pillars this person's score is a mean OF, and the ones dropped for want of
+           # data. Without them Σ weights_pct·pillar / Σ weights_pct over ALL pillars does
+           # not reproduce `score` for anyone whose flow was renormalised away, and the
+           # reader either says the math is wrong or treats a null pillar as a scored zero.
+           "scored_on": row.get("scored_on"), "weight_gaps": row.get("weight_gaps"),
            "pillars": row.get("pillars"), "pillar_bands": row.get("pillar_bands"),
            "pillar_points": row.get("contributions"),
            "bands": store.score_band_spec(), "signals": signals,
@@ -661,40 +671,47 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
     if not (login or "").strip():
         return {"error": "login is required"}
     import semantic_metrics
-    # ONE connection for both reads. `parts` has to sum to `backward_share`, and they come
-    # from two different queries — taking them from two connections means a collection
-    # landing between them can make the explanation contradict the number it explains.
+    # ONE connection AND one board scan for every read below. `parts` has to sum to
+    # `backward_share`, and both are read off the same moves — taking them from separate
+    # scans (or connections) means a collection landing between them can make the
+    # explanation contradict the number it explains. board_moves_scan(conn, repos) is
+    # exactly the call person_flow/drill_person_flow make when scan=None, so passing it
+    # through reuses one scan instead of recomputing it three times per breakdown.
     conn = store.connect()
     try:
         repos = _repos(conn, scope)
-        rep = semantic_metrics.flow_report(conn, repos=repos,
-                                           since=_iso(since), until=_iso(until, end=True))
         covers = _covers(conn, scope)
+        scan = semantic_metrics.board_moves_scan(conn, repos)
+        # found/not-found comes from person_flow — the SAME source the score's flow pillar
+        # reads — NOT from flow_report's `people` list. That list gates membership on ≥3
+        # cohort items CREATED in the window, while flow (and the pillar) is defined over
+        # items that MOVED in it. A person whose ≥3 items moved but were created earlier is
+        # in the pillar yet was absent from that list, so the old gate answered found=False
+        # to somebody the developer score shows a flow pillar — and told them they needed
+        # "≥3 items that actually moved", which they had. person_flow(with_items=True)
+        # returns the ratio for a login iff they have ≥_FLOW_MIN_ITEMS moved items, which is
+        # exactly the "found" condition we want; the team median is the median of its ratios.
+        ratios, _items = semantic_metrics.person_flow(
+            conn, repos=repos, since=_iso(since), until=_iso(until, end=True),
+            with_items=True, scan=scan)
         # Every item, not a page of them: a capped read would report the totals of the
         # first page as the totals.
         drill = semantic_metrics.drill_person_flow(
             conn, login, repos=repos,
-            since=_iso(since), until=_iso(until, end=True))
+            since=_iso(since), until=_iso(until, end=True), scan=scan)
     except ValueError as exc:
         return {"error": str(exc)}
     finally:
         conn.close()
-    people = rep.get("people") or []
-    mine = next((p for p in people if p.get("login") == login), None)
-    # A row with no friction value is not an answer. The person can be listed in the flow
-    # report and still have none — friction needs at least three board items that MOVED —
-    # and returning found=True with a null would have the assistant reporting "your
-    # friction is None".
-    if mine is not None and mine.get("friction") is None:
-        mine = None
+    # person_flow returns a login in `ratios` iff it has a friction reading (≥_FLOW_MIN_ITEMS
+    # moved items). No reading is not an answer — found=True with a null would have the
+    # assistant reporting "your friction is None".
+    mine = ratios.get(login)
     if mine is None:
         return {"login": login, "found": False, "scope": scope, "covers": covers,
-                # people with a READING, not people in the report: the flow table lists
-                # anyone in the cohort, including those whose friction is null, and
-                # counting those would answer "how many have flow data" with a number
-                # that includes the ones that do not.
-                "people_with_flow_data": sum(1 for p in people
-                                             if p.get("friction") is not None),
+                # people with a READING: person_flow only holds logins that cleared the
+                # min-items gate, so this counts exactly those who have flow data.
+                "people_with_flow_data": len(ratios),
                 "note": ("no flow data for this login in this window — friction is read "
                          "from Projects-board movement and needs at least three items of "
                          "theirs that actually moved, so somebody whose work is not on a "
@@ -713,12 +730,12 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
 
     # semantic_metrics._median, not an upper-middle pick: the flow report computes its own
     # medians with it, and a tool that prints "you 0.15, team 0.20" beside that page must
-    # not mean something different by "median".
-    median = semantic_metrics._median(
-        [p["friction"] for p in people if p.get("friction") is not None])
+    # not mean something different by "median". Over person_flow's ratios — the same
+    # population the pillar is a percentile within.
+    median = semantic_metrics._median(list(ratios.values()))
     return {
         "login": login, "found": True, "since": since, "until": until, "scope": scope,
-        "covers": covers, "backward_share": mine.get("friction"),
+        "covers": covers, "backward_share": mine,
         "team_median": median, "lower_is_better": True,
         "items_that_moved": drill.get("total"),
         "parts": {"backward_moves": backward, "forward_moves": max(0, forward)},

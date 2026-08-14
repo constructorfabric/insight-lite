@@ -15,7 +15,7 @@ resolver falls back WHOLE rather than per key, and the writer refuses it outrigh
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 import store  # noqa: E402
@@ -122,6 +122,42 @@ class BandSuggestionTest(unittest.TestCase):
                                          "board": full + thin})
         self.assertGreater(got["Developing"], 40,
                            "the bottom floor followed the unbanded rows down")
+
+
+class CalibrateDistTest(unittest.TestCase):
+    """The Calibrate page's `dist` — the population its band slider says a floor CAPTURES —
+    must be measured over the SAME people suggest_score_bands fits the floors to. A person
+    whose flow was renormalised away (pillars['flow'] is None, and it is not in their
+    scored_on) is still banded and still a real score, so they belong in both."""
+
+    def test_dist_includes_a_renormalised_person(self):
+        import calibrate
+        board = [
+            {"login": "full", "name": "Full", "score": 60,
+             "pillars": {"engagement": 60, "flow": 60},
+             "scored_on": ["engagement", "flow"]},
+            # flow renormalised away: no reading, so it is not in scored_on and its
+            # pillar value is None. The OLD filter (against active_pillars) dropped this
+            # person; the fixed one keeps them, matching suggest_score_bands.
+            {"login": "renorm", "name": "Renorm", "score": 42,
+             "pillars": {"engagement": 42, "flow": None},
+             "scored_on": ["engagement"]},
+        ]
+        sc = {"board": board, "active_pillars": ["engagement", "flow"]}
+        conn = MagicMock()
+        with patch("store.connect", return_value=conn), \
+             patch("store.developer_scores", return_value=sc), \
+             patch("store.label_summary", return_value={}), \
+             patch("store.read_score_labels", return_value=[]), \
+             patch("store.suggest_score_bands", return_value=None), \
+             patch("store._score_weights", return_value={}), \
+             patch("store._SCORE_WEIGHTS", {}), \
+             patch("store._score_band_floors", return_value={}):
+            out = calibrate.calibrate_json(rater="me")
+        dist = out["bands"]["dist"]
+        self.assertIn(42, dist, "renormalised person dropped from the slider population")
+        self.assertEqual(dist, [42, 60])
+        conn.close.assert_called_once()
 
 
 if __name__ == "__main__":
