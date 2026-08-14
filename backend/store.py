@@ -2492,6 +2492,24 @@ _SCORE_MIN_ACTIVITY = 5          # commits + PRs opened in the window to be scor
 # is a data-collection gap (e.g. flow before board snapshots accumulate), not a
 # per-person shortfall, so it's dropped for everyone rather than tanking scores.
 _SCORE_PILLAR_COVERAGE = 0.5
+# A pillar missing FOR ONE PERSON is two different things, and the score used to treat
+# them as one. "You opened no PRs" is a shortfall and scoring it 0 is the point. "Your
+# repositories are not on the Projects board" is a gap in what we COLLECT, and charging
+# somebody 35% of their score for it measures our data pipeline, not their work.
+#
+# The team-level version of this distinction already exists — _SCORE_PILLAR_COVERAGE
+# drops a pillar for everyone when almost nobody has it — but there was no per-person
+# one. Pillars listed here are renormalised away for a person who has no reading:
+# their weight is redistributed over the pillars that DO have one, so the score is a
+# mean of what could actually be measured.
+#
+# Only flow, deliberately. Its input is Projects-board movement, which exists per
+# REPOSITORY: it has a reading for 13 of 34 scored people on the 30d window of
+# 2026-08-14, and one top-ranked person's repository has zero rows on the board at all.
+# delivery and craft are missing only when somebody opened no pull requests, which is a
+# fact about them rather than about the collector, so those keep scoring 0 — changing
+# that is a separate decision.
+_SCORE_GAP_PILLARS = frozenset({"flow"})
 # v0.3 — three corrections, all aimed at one measured defect: the score is mostly built
 # from FRICTION, and friction needs collaborators, so working unreviewed maximised it.
 # Measured on the 30d window of 2026-08-13: the share of a person's merged PRs that
@@ -2586,7 +2604,8 @@ _SCORE_SIGNALS = [
     # unreviewed case, and it has to be in the same pillar — otherwise dropping the
     # unreviewed PRs from `rounds` just makes them invisible instead of counted.
     ("craft", "rounds", -1), ("craft", "reviewed_share", 1), ("craft", "merge_rate", 1),
-    ("flow", "flow", -1),       # flow FRICTION per item (lower is better); see person_flow
+    # backward SHARE of the person's board moves (lower is better); see person_flow
+    ("flow", "flow", -1),
 ]
 # the ONE headline metric per pillar used to explain a rank gap in real terms
 # ("you merge in 40h, they in 9h"). key → driver field, label, whether lower is better.
@@ -2599,7 +2618,8 @@ _PILLAR_PRIMARY = {
     # separates the board.
     "craft":      {"key": "reviewed_share", "label": "merged work reviewed",
                    "lower_better": False},
-    "flow":       {"key": "flow", "label": "friction/item", "lower_better": True},
+    "flow":       {"key": "flow", "label": "board moves that went backward",
+                   "lower_better": True},
 }
 # How each signal is NAMED and PRINTED. Split from _SCORE_SIGNALS above so the tuple
 # stays the machine-readable definition, but kept next to it because they have to
@@ -2625,7 +2645,7 @@ _SCORE_SIGNAL_META = {
     "rounds":        ("Peer review rounds per reviewed PR", "f2"),
     "reviewed_share": ("Merged work a peer reviewed", "pct01"),
     "merge_rate":    ("Merge rate", "pct01"),
-    "flow":          ("Friction per item", "f3"),
+    "flow":          ("Board moves that went backward", "pct01"),
 }
 
 
@@ -2728,8 +2748,11 @@ def suggest_score_bands(sc: dict) -> dict | None:
 
     Computed over people with FULL pillar coverage only, because those are the only rows
     that get banded — a missing pillar counts as zero, and letting those scores into the
-    quantiles would drag the bottom floor down to accommodate a data gap. Returns None when
-    there is too little to fit, which is not the same as a scale of zeros.
+    quantiles would drag the bottom floor down to accommodate a data gap. Full coverage is
+    measured against the pillars each person is SCORED ON: one renormalised away for want
+    of data is not a hole in their score, they do get banded, and excluding them here would
+    fit the scale to a different population than the one it labels. Returns None when there
+    is too little to fit, which is not the same as a scale of zeros.
 
     Takes a developer_scores RESULT rather than a window, because it used to score the window
     itself — so the Calibrate page ran the full scorer three times for one request, over a
@@ -2737,7 +2760,8 @@ def suggest_score_bands(sc: dict) -> dict | None:
     import statistics
     act = sc["active_pillars"]
     scores = sorted(r["score"] for r in sc["board"]
-                    if all(r["pillars"].get(p) is not None for p in act))
+                    if all(r["pillars"].get(p) is not None
+                           for p in (r.get("scored_on") or act)))
     if len(scores) < 8:
         return None
 
@@ -3387,8 +3411,9 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
 
     # which pillars are SCORED this window: those with data across ≥ coverage of the
     # team (engagement is always in). A pillar missing for ~everyone is a data gap,
-    # dropped for all; a pillar present for the team but missing for ONE person
-    # counts as 0 for them — "didn't ship / didn't review" is a minus, not a free pass.
+    # dropped for all; a pillar present for the team but missing for ONE person counts
+    # as 0 for them — "didn't ship / didn't review" is a minus, not a free pass — unless
+    # it is in _SCORE_GAP_PILLARS, where the absence is ours and it is renormalised away.
     n_elig = len(eligible) or 1
     coverage = {p: sum(1 for lg in eligible if per_pillars[lg][p] is not None) / n_elig
                 for p in _SCORE_WEIGHTS}
@@ -3406,17 +3431,23 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
     for lg in eligible:
         e = raw[lg]
         pillars = per_pillars[lg]
-        # missing an ACTIVE pillar → contributes 0 (a real minus); everyone with
-        # enough activity is ranked, no gate — we don't drop people for gaps.
-        num = sum(weights[p] * (pillars[p] or 0) for p in active)
-        score = round(num / den)
-        # integer point contributions per active pillar (value × weight-share) that
+        # Which pillars this PERSON is scored on. Missing an active pillar still
+        # contributes 0 — "didn't ship" is a real minus — EXCEPT for the pillars whose
+        # absence means we never collected the data (see _SCORE_GAP_PILLARS), which are
+        # dropped from their mean instead so the remaining weights carry the score.
+        gaps = [p for p in active if p in _SCORE_GAP_PILLARS and pillars[p] is None]
+        scored_on = [p for p in active if p not in gaps]
+        den_i = sum(weights[p] for p in scored_on) or 1
+        num = sum(weights[p] * (pillars[p] or 0) for p in scored_on)
+        score = round(num / den_i)
+        # integer point contributions per scored pillar (value × weight-share) that
         # sum EXACTLY to the rounded score — largest-remainder rounding — so the row
-        # arithmetic always adds up. None for pillars not scored this window.
-        cf = {p: weights[p] * (pillars[p] or 0) / den for p in active}
-        contrib = {p: int(cf[p]) for p in active}
+        # arithmetic always adds up. None for a pillar not scored FOR THIS PERSON,
+        # whether because the window dropped it or because they have no reading.
+        cf = {p: weights[p] * (pillars[p] or 0) / den_i for p in scored_on}
+        contrib = {p: int(cf[p]) for p in scored_on}
         rem = score - sum(contrib.values())
-        for p in sorted(active, key=lambda p: cf[p] - int(cf[p]), reverse=True)[:max(0, rem)]:
+        for p in sorted(scored_on, key=lambda p: cf[p] - int(cf[p]), reverse=True)[:max(0, rem)]:
             contrib[p] += 1
         band, tone = _score_band(score, band_spec)
         # A band PER PILLAR, not just for the total. This deliberately runs the total's
@@ -3438,6 +3469,11 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             "band": band, "tone": tone,
             "pillars": pillars, "pillar_bands": pillar_bands,
             "contributions": {p: contrib.get(p) for p in _SCORE_WEIGHTS},
+            # The pillars THIS person's score is a mean of, and the ones renormalised
+            # away for want of data. The client needs both: the weight share it prints
+            # beside each pillar ("35% of score") is only true against this denominator,
+            # and a dropped pillar has to read as "not measured" rather than as a zero.
+            "scored_on": scored_on, "weight_gaps": gaps,
             # drivers stay RAW — this is what the person actually did, and it is what the
             # UI prints beside the team median.
             "drivers": {
@@ -3463,8 +3499,14 @@ def developer_scores(conn, since: str, until: str, repos=None) -> dict:
             row["above"] = None
             continue
         ab = board[i - 1]
+        # Only pillars BOTH are scored on. Points are a share of each person's own
+        # denominator, so a pillar one of them was not scored on has no comparable
+        # number: treating its absent contribution as 0 reported "they lead on Flow"
+        # against somebody whose score never included Flow and who lost nothing for it.
+        shared = [p for p in active
+                  if p in row["scored_on"] and p in ab["scored_on"]]
         gaps = {p: (ab["contributions"].get(p) or 0) - (row["contributions"].get(p) or 0)
-                for p in active}
+                for p in shared}
         gp = max(gaps, key=gaps.get) if gaps else None
         prim = _PILLAR_PRIMARY.get(gp) if gp else None
         row["above"] = {
@@ -3553,8 +3595,14 @@ def score_delta(cur: dict, prev: dict, login: str) -> dict | None:
             buckets.setdefault(pillar, []).append(pctl(key, v, direction))
     pil = {p: (round(100 * sum(buckets[p]) / len(buckets[p])) if p in buckets else None)
            for p in _SCORE_WEIGHTS}
-    den = sum(weights[p] for p in active) or 1
-    counterfactual = round(sum(weights[p] * (pil[p] or 0) for p in active) / den)
+    # Renormalise the counterfactual the same way the real score is renormalised, using
+    # the PREVIOUS window's readings: if flow was unmeasurable for them then, it did not
+    # score 0 then either, and dividing by the full weight here would invent a drop and
+    # attribute it to the team.
+    scored_on = [p for p in active
+                 if not (p in _SCORE_GAP_PILLARS and pil[p] is None)]
+    den = sum(weights[p] for p in scored_on) or 1
+    counterfactual = round(sum(weights[p] * (pil[p] or 0) for p in scored_on) / den)
 
     team = counterfactual - a["score"]
     return {"prev": a["score"], "now": b["score"], "total": b["score"] - a["score"],
@@ -3573,8 +3621,13 @@ def compare_row_to(row, anchor, active):
     own row; None when there's nothing to compare."""
     if not anchor or row.get("login") == anchor.get("login"):
         return {"self": True}
+    # Pillars both are scored on — see the same restriction on `above` in developer_scores.
+    # A pillar renormalised away for one of them has no comparable point total.
+    shared = [p for p in (active or [])
+              if p in (row.get("scored_on") or active or [])
+              and p in (anchor.get("scored_on") or active or [])]
     diffs = {p: (row["contributions"].get(p) or 0) - (anchor["contributions"].get(p) or 0)
-             for p in (active or [])}
+             for p in shared}
     if not diffs:
         return None
     gp = max(diffs, key=lambda p: abs(diffs[p]))
@@ -4217,10 +4270,14 @@ _mreg.register_for(developer_scores, [
             "a verdict. Everyone with ≥5 commits+PRs is ranked; a SCORED pillar you have no "
             "data for (e.g. no PRs opened) counts as 0 — a real minus, not a free pass — rather "
             "than dropping you from the board. A pillar with data across fewer than half the team "
-            "is a collection gap, not a shortfall, so it's left out for everyone. Weights are "
-            "tunable and calibrated by the score backtest.",
+            "is a collection gap, not a shortfall, so it's left out for everyone. Flow is the one "
+            "exception to the per-person rule: its input is Projects-board movement, which exists "
+            "per REPOSITORY, so where there is no reading for somebody it is dropped "
+            "from THEIR mean and its weight redistributed rather than scored 0 — that absence is "
+            "the collector's, not theirs. Weights are tunable and calibrated by the score backtest.",
        formula="active = pillars with team coverage ≥ 50% (engagement always in); "
-               "score = Σ_{p∈active} wₚ·(pillarₚ or 0) / Σ_{p∈active} wₚ ×100 "
+               "scored_on = active minus flow when that person has no flow reading; "
+               "score = Σ_{p∈scored_on} wₚ·(pillarₚ or 0) / Σ_{p∈scored_on} wₚ ×100 "
                "(missing active pillar → 0); defaults engagement 20, delivery 25, craft 25, flow 35; "
                "pillarₚ = mean(percentileₛ) over its signals",
        snippet="pct(x) = (#below + 0.5·#equal) / N   # within eligible people, per signal\n"
@@ -4256,12 +4313,18 @@ _mreg.register_for(developer_scores, [
                "reviewed_share = merged PRs with peer>0 / merged PRs;\n"
                "merge_rate = prs_merged / prs_opened"),
     _m("score_flow", type="computed", group="score", unit="0–100",
-       desc="Flow pillar (weight 35): how smoothly a person's items move, from RETROSPECTIVE "
-            "issue/PR timeline events (not the history-less Projects-v2 board). Friction per "
-            "owned item = 2·bounces (convert_to_draft / reopened) + extra review-requests + "
-            "extra assignments; lower is smoother. Independent of the commit/PR volume signals. "
-            "People with <3 tracked items are reweighted out.",
-       formula="friction/item = (2·bounces + churn) / owned items; percentile inverted (lower→higher)",
-       snippet="owner = PR author / issue first-assignee; events from timeline_event\n"
+       desc="Flow pillar (weight 35): how smoothly a person's items move, read from "
+            "Projects-board MOVEMENT — the share of their board moves that went backward, "
+            "lower is smoother. Until v0.3 this was friction per owned item counted from "
+            "timeline events, which had the property that doing nothing scored perfectly: "
+            "84% of items had no friction and the people at exactly 0.000 shared the top "
+            "percentile. An item that never moved is now in neither half of the ratio, so "
+            "standing still is no reading rather than a perfect one. Independent of the "
+            "commit/PR volume signals. People with <3 moved items are reweighted out — and "
+            "since flow is in _SCORE_GAP_PILLARS, a person with no reading has it dropped "
+            "from their score rather than counted as zero. Requires the stages taxonomy: "
+            "a status that resolves outside the ordered pipeline has no direction.",
+       formula="backward moves / (forward + backward moves); percentile inverted (lower→higher)",
+       snippet="owner = PR author / issue first-assignee; moves from board_moves_scan()\n"
                "see semantic_metrics.person_flow()"),
 ])

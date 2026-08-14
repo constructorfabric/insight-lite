@@ -14,6 +14,51 @@ import html as _h
 # {type, title, detail}. Prepend new releases at the top.
 CHANGELOG = [
     {
+        "date": "2026-08-14",
+        "changes": [
+            {"type": "fix", "title": "Flow measures whether work moved, not whether it stayed quiet",
+             "detail": "Flow counted things that go wrong — reopens, changes back to draft, "
+                       "repeated review requests — over everything somebody owned. Counting "
+                       "bad events has one property that makes it useless in a score: doing "
+                       "nothing is a perfect result. 84% of items had none, and the people "
+                       "sitting at exactly zero shared the top of the ranking, including "
+                       "somebody whose items never came back simply because nobody else was "
+                       "in the repository to send them back. Flow now reads the Projects "
+                       "board instead: of the moves your items actually made, how many went "
+                       "backward. An item that never moved counts in neither half — standing "
+                       "still is no longer the best possible score, it is no reading at all. "
+                       "Because this can only see work that is on a board, and moving, it "
+                       "currently has a reading for 13 of 34 people — too few for the org, so "
+                       "Flow is shown as not scored and left out for everyone until board use "
+                       "spreads. The other three pillars carry the score in the meantime."},
+            {"type": "improvement", "title": "“How is my friction calculated” now answers with the moves themselves",
+             "detail": "The assistant used to explain the number with rounded percentages of "
+                       "bounces and reopens, which described different data and could not be "
+                       "added back up to it. It now reports how many of your board moves went "
+                       "forward and how many went backward — which do add up — and names the "
+                       "specific items, with the path each one took."},
+            {"type": "fix", "title": "Flow no longer costs you a third of your score when we have no data for you",
+             "detail": "Flow is the heaviest part of the score, and it is built from issue "
+                       "timelines and Projects-board snapshots — which exist per repository, "
+                       "not per person. If your work happens somewhere we collect none of "
+                       "that, there was no reading for you, and a pillar with no reading "
+                       "counted as zero. So the score was charging people 35% for where they "
+                       "work rather than for how they work. Flow is now left out of your own "
+                       "score when there is nothing to read, and its weight goes to the parts "
+                       "we can measure — the panel says “not measured here” and the pillar "
+                       "carries no points instead of zero points. This is only Flow: Delivery "
+                       "and Craft are missing only when somebody opened no pull requests, "
+                       "which is a fact about the work and still counts."},
+            {"type": "fix", "title": "Rank comparisons stop blaming a pillar that was not counted",
+             "detail": "“Why am I behind them” picks the pillar with the biggest points "
+                       "gap. Points are a share of each person’s own total, so once a "
+                       "pillar could be left out for one of the two, an absent one read as "
+                       "zero and won the comparison — the panel said one person led on Flow "
+                       "against somebody whose score never included Flow. The comparison now "
+                       "only considers pillars both people are scored on."},
+        ],
+    },
+    {
         "date": "2026-08-13",
         "changes": [
             {"type": "fix", "title": "The score no longer rewards work nobody reviewed",

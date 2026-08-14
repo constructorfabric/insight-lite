@@ -266,17 +266,31 @@ class SignalWiringTest(unittest.TestCase):
             self.assertIsNotNone(_row(store, conn, "solo")["drivers"][key])
 
 
+#: Flow reads board movement; the default taxonomy maps no statuses, so without this
+#: every status is "other", which has no position and therefore no direction.
+_STAGES = {"Backlog": "backlog", "In progress": "in_progress", "Done": "done"}
+
+
+def _board(conn, login, nums, status_a="Backlog", status_b="In progress"):
+    """Give `login`'s PRs two snapshots each, so they MOVE."""
+    for n in nums:
+        for d, s in (("2026-06-05", status_a), ("2026-06-06", status_b)):
+            conn.execute(
+                "INSERT INTO work_item_status (taken_at, date, item_id, project, item_type, "
+                "repo, number, status_raw, title) "
+                "VALUES (?, ?, ?, 'o/1', 'pull_request', 'o/r', ?, ?, ?)",
+                (f"{d}T00:00:00Z", d, f"{login}-{n}", n, s, f"t{n}"))
+    conn.commit()
+
+
 class FlowItemsTest(unittest.TestCase):
     def test_person_flow_can_return_the_counts_the_shrinkage_needs(self):
+        import semantic
         import semantic_metrics as sm
-        with _store() as (store, conn):
+        with _store() as (store, conn), patch.object(
+                semantic, "stage_for", lambda _c, raw: _STAGES.get(raw, "other")):
             _work(conn, "a", peer_reviews=1)
-            for n in range(6):
-                conn.execute(
-                    "INSERT INTO timeline_event (repo, number, event, actor_login, "
-                    "created_at) VALUES ('o/r', ?, 'assigned', 'a', '2026-06-12T00:00:00Z')",
-                    (n,))
-            conn.commit()
+            _board(conn, "a", range(6))
             ratios, items = sm.person_flow(conn, None, SINCE, UNTIL, with_items=True)
             self.assertEqual(items["a"], 6)
             self.assertIsInstance(ratios, dict)
@@ -284,16 +298,27 @@ class FlowItemsTest(unittest.TestCase):
     def test_the_item_map_is_not_gated_by_the_minimum(self):
         """A caller needs the count even when the ratio was withheld, to tell "too few
         items" from "no items"."""
+        import semantic
         import semantic_metrics as sm
-        with _store() as (store, conn):
+        with _store() as (store, conn), patch.object(
+                semantic, "stage_for", lambda _c, raw: _STAGES.get(raw, "other")):
             _work(conn, "a", peer_reviews=1)
-            conn.execute(
-                "INSERT INTO timeline_event (repo, number, event, actor_login, created_at) "
-                "VALUES ('o/r', 0, 'assigned', 'a', '2026-06-12T00:00:00Z')")
-            conn.commit()
+            _board(conn, "a", [0])
             ratios, items = sm.person_flow(conn, None, SINCE, UNTIL, with_items=True)
             self.assertEqual(items["a"], 1)
             self.assertNotIn("a", ratios, "one item is below the ratio's minimum")
+
+    def test_an_item_that_never_moved_is_not_counted_as_smooth(self):
+        """The whole point of v0.3: no movement is no reading, not a perfect score."""
+        import semantic
+        import semantic_metrics as sm
+        with _store() as (store, conn), patch.object(
+                semantic, "stage_for", lambda _c, raw: _STAGES.get(raw, "other")):
+            _work(conn, "a", peer_reviews=1)
+            _board(conn, "a", range(6), "Backlog", "Backlog")     # stands still
+            ratios, items = sm.person_flow(conn, None, SINCE, UNTIL, with_items=True)
+            self.assertNotIn("a", ratios)
+            self.assertEqual(items.get("a", 0), 0)
 
     def test_the_old_single_value_shape_still_works(self):
         import semantic_metrics as sm

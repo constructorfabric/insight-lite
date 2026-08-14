@@ -51,6 +51,12 @@ export type ScoreRow = {
   rank: number; above?: ScoreAbove | null; vs_self?: VsSelf;
   /** Total move against the previous window; null when they were not scored then. */
   delta?: number | null;
+  /** The pillars THIS person's score is a mean of, and the ones dropped from it because
+      we collected no data (store._SCORE_GAP_PILLARS). The weight share printed beside a
+      pillar is only true against `scored_on`, and a pillar in `weight_gaps` has to read
+      as "not measured" — it contributed nothing, and it cost nothing either. Optional:
+      a payload from before this existed simply has every active pillar scored. */
+  scored_on?: string[]; weight_gaps?: string[];
 };
 // store.score_band_spec(): the band scale, ascending by floor. The gauge must draw its
 // boundaries at exactly the thresholds the labels come from, so it reads them rather
@@ -216,12 +222,20 @@ function FactorRows({ row, tm, signals, whose }: {
   );
 }
 
-// How many of the pillars scored THIS WINDOW the person actually has data for. A missing
-// active pillar counts as zero in the score, which is deliberate — "didn't ship" is a real
-// minus — but on a table a manager reads it makes a data gap look like a result, so the
-// count is shown and the band is withheld.
+// How many of the pillars THEY are scored on the person actually has data for. A missing
+// one counts as zero in the score, which is deliberate — "didn't ship" is a real minus —
+// but on a table a manager reads it makes a data gap look like a result, so the count is
+// shown and the band is withheld.
+//
+// Measured against `scored_on`, not `active`: a pillar renormalised away for want of data
+// is no longer a hole in their score, so counting it as one would withhold a band from
+// somebody whose score is an honest mean of everything we could measure. `scored` below
+// is that person's denominator, and the two have to be read as a pair.
+function scored(row: ScoreRow, active: string[]): string[] {
+  return row.scored_on ?? active;
+}
 function coverage(row: ScoreRow, active: string[]): number {
-  return active.filter((p) => row.pillars[p] !== null && row.pillars[p] !== undefined).length;
+  return scored(row, active).filter((p) => row.pillars[p] !== null && row.pillars[p] !== undefined).length;
 }
 
 // How many people sit in each band, best first — the order the scale is drawn in, read right
@@ -233,8 +247,7 @@ function coverage(row: ScoreRow, active: string[]): number {
 // bug. Exported for the test, because the invariant worth pinning is arithmetic: the bands plus
 // the not-banded must be the board, exactly once each.
 export function bandCounts(board: ScoreRow[], scale: BandStop[], active: string[]) {
-  const nAct = active.length;
-  const full = board.filter((r) => coverage(r, active) === nAct);
+  const full = board.filter((r) => coverage(r, active) === scored(r, active).length);
   return scale.slice().reverse()
     .map((b) => ({ ...b, n: full.filter((r) => r.band === b.band).length,
                    col: bandColor(bandIndex(b.band, scale), scale.length) }))
@@ -256,41 +269,59 @@ function Ingredients({ row, active, weights, tm, wsum, signals, scale, whose }: 
   // link; the reference puts a chevron on the row and opens it in place.
   const [open, setOpen] = useState<string | null>(null);
   const order = byWeight(weights);
-  const parts = order.filter((k) => active.includes(k)).map((k) => row.contributions[k] ?? 0);
+  // This person's own denominator. A pillar we have no data for is renormalised away
+  // rather than scored 0, so its weight is redistributed — printing the team-wide share
+  // here would describe an arithmetic the score did not use.
+  const gaps = new Set(row.weight_gaps ?? []);
+  const mine = row.scored_on ?? active;
+  const msum = mine.reduce((s, k) => s + (weights[k] || 0), 0) || wsum;
+  const parts = order.filter((k) => mine.includes(k)).map((k) => row.contributions[k] ?? 0);
   return (
     <>
     <table className="dsc-ing">
       <tbody>
         {order.map((key) => {
           const on = active.includes(key);
+          const nodata = gaps.has(key);            // active for the team, no reading here
           const v = row.pillars[key];
           const pb = row.pillar_bands?.[key] ?? null;
           const sigs = signals.filter((s) => s.pillar === key);
-          const canOpen = on && sigs.length > 0;
+          const canOpen = on && !nodata && sigs.length > 0;
           const isOpen = open === key;
           const Icon = PICON[key];
           return (
             <Fragment key={key}>
               <tr
-                className={`${!on ? "off" : ""}${on && v === null ? " gap" : ""}${canOpen ? " can" : ""}`.trim() || undefined}
+                className={`${!on || nodata ? "off" : ""}${on && !nodata && v === null ? " gap" : ""}${canOpen ? " can" : ""}`.trim() || undefined}
                 onClick={canOpen ? () => setOpen(isOpen ? null : key) : undefined}
               >
                 <td className="pico"><span style={{ color: PCOLOR[key] }}><Icon size={17} /></span></td>
                 <td className="pil">
                   <span className="w" style={{ color: PCOLOR[key] }}>
-                    {on ? `${Math.round((100 * weights[key]) / wsum)}% of score` : "not scored"}
+                    {!on ? "not scored"
+                      : nodata ? "not measured here"
+                      : `${Math.round((100 * weights[key]) / msum)}% of score`}
                   </span>
                   <span className="nm">{PLABELS[key][0]}</span>
                   <span className="mut"> · {sigs.length} factor{sigs.length === 1 ? "" : "s"}</span>
                 </td>
                 <td className="bd">
-                  {/* A pillar the whole team lacks is a collection gap, not this person's
-                      shortfall, and one THEY lack is a real zero. Neither gets a band. */}
+                  {/* Three different absences, and they must not read alike: the whole
+                      team lacks it (collection gap), THIS person has no reading for a
+                      pillar whose absence we treat as a gap (renormalised away, costs
+                      them nothing), or they have no reading and it counts as a zero. */}
                   {pb
                     ? <span className="dsc-pill"><i style={{ background: bandColor(bandIndex(pb.band, scale), scale.length) }} />{pb.band}</span>
-                    : <span className="mut">{on ? nodataMetric(key) : "team data gap"}</span>}
+                    : <span className="mut">
+                        {!on ? "team data gap" : nodata ? "no data for you — not counted"
+                          : nodataMetric(key)}
+                      </span>}
                 </td>
-                <td className="pt">{on ? <><b>{row.contributions[key] ?? 0}</b> <span className="u">pts</span></> : "—"}</td>
+                <td className="pt">
+                  {on && !nodata
+                    ? <><b>{row.contributions[key] ?? 0}</b> <span className="u">pts</span></>
+                    : "—"}
+                </td>
                 <td className="cv">
                   {/* A real button, not just a click handler on the row. The row stays
                       clickable because that is the nicer target, but without this the whole
@@ -582,7 +613,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
         {sc && sc.score !== null && sc.score !== undefined ? (
           <>
             <Hero row={sc} n={score.n_ranked || score.n_eligible} scale={score.bands_scale ?? []}
-                  caveat={`A transparent heuristic to calibrate against outcomes — not a verdict, and no ML. A scored pillar you have no data for (e.g. no PRs opened) counts as 0, a real minus, rather than dropping you from the board; a pillar with too little data across the whole team is a collection gap, not a shortfall, so it is shown not scored and left out for everyone. Known proxies: no true code-complexity signal, and quality is read from peer review — how much of your merged work a colleague reviewed, and how many rounds it took — plus merge rate, not blame. Review bots and your own reviews of your own work do not count as peer review. A per-item average is weighed by how much work stands behind it, so a ratio from three pull requests does not outrank the same ratio from eight hundred.`} />
+                  caveat={`A transparent heuristic to calibrate against outcomes — not a verdict, and no ML. A scored pillar you have no data for (e.g. no PRs opened) counts as 0, a real minus, rather than dropping you from the board. Two absences are treated differently: a pillar with too little data across the whole team is a collection gap, shown not scored and left out for everyone; and Flow, whose inputs exist per repository rather than per person, is left out of YOUR score when we have none for you — its weight going to the pillars that do have a reading — because that absence is ours, not yours. Known proxies: no true code-complexity signal, and quality is read from peer review — how much of your merged work a colleague reviewed, and how many rounds it took — plus merge rate, not blame. Review bots and your own reviews of your own work do not count as peer review. A per-item average is weighed by how much work stands behind it, so a ratio from three pull requests does not outrank the same ratio from eight hundred.`} />
             <WhatsChanged d={score.delta ?? null} weights={score.weights} wsum={wsum}
                           boardHasDeltas={(score.board ?? []).some((r) => r.delta !== null && r.delta !== undefined)} />
             <div className="dsc-card">
@@ -615,7 +646,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
         {score.board && score.board.length > 0 && (
         <div className="dsc-sidec">{(() => {
           const nAct = active.length;
-          const thin = score.board.filter((r) => coverage(r, active) < nAct);
+          const thin = score.board.filter((r) => coverage(r, active) < scored(r, active).length);
           // No "and N of those land in <lowest band>" any more, and not only for length: the
           // payload bands a thin row, but the TABLE prints "not banded" for it, so the claim
           // could not be checked against the rows beside it and contradicted the sentence
@@ -636,7 +667,7 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                 Team standing{" "}
                 <Help
                   id="dsc-board-help" of="this table"
-                  text={`Scores are percentiles inside this window and scope, so they compare to each other and to nothing else. Not banded means a pillar with no data, which counts as zero — a data gap rather than a result. Anyone under ${score.min_activity} commits and PRs is not scored and is absent, so a name that is not here is not a name that is fine.`}
+                  text={`Scores are percentiles inside this window and scope, so they compare to each other and to nothing else. Not banded means a pillar that counts as zero for want of data — a data gap rather than a result. Flow is the exception: where we have no reading for somebody it is left out of their score instead, so the Data column counts against the pillars they are actually scored on. Anyone under ${score.min_activity} commits and PRs is not scored and is absent, so a name that is not here is not a name that is fine.`}
                 />{" "}
                 <span className="dsc-vs">
                   {score.board.length} ranked &middot; &ge;{score.min_activity} commits+PRs
@@ -690,8 +721,9 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
             </div>
             <div className={`dsc-rows${capped ? " capped" : ""}`}>
               {score.board.map((r) => {
+                const nMine = scored(r, active).length;
                 const cov = coverage(r, active);
-                const partial = nAct > 0 && cov < nAct;
+                const partial = nMine > 0 && cov < nMine;
                 return (
                 <details key={r.login} className={`dsc-drow${r.login === login ? " me" : ""}`}>
                   <summary>
@@ -733,8 +765,17 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                             {r.delta > 0 ? `+${r.delta}` : r.delta}
                           </span>}
                     </span>
-                    <span className={`cov${partial ? " thin" : ""}`} data-tip={`data for ${cov} of the ${nAct} pillars scored this window`}>
-                      {cov}/{nAct}
+                    <span className={`cov${partial ? " thin" : ""}`} data-tip={
+                      nMine < nAct
+                        ? `data for ${cov} of the ${nMine} pillars this person is scored on — `
+                          + `${nAct - nMine} of the window's ${nAct} had no data for them and `
+                          // _SCORE_GAP_PILLARS holds only flow today, so this is "was" in
+                          // every case the backend currently produces; agreeing with the
+                          // count keeps it right if a second pillar is ever added to it.
+                          + `${nAct - nMine === 1 ? "was" : "were"} left out of their `
+                          + `score rather than counted as zero`
+                        : `data for ${cov} of the ${nAct} pillars scored this window`}>
+                      {cov}/{nMine}
                     </span>
                   </summary>
                   <div className="dsc-drow-body">

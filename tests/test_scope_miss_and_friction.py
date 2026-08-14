@@ -26,10 +26,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 SINCE, UNTIL = "2026-06-01", "2026-07-01"
 
 
+#: Flow reads board movement, and the default taxonomy maps no statuses — without this
+#: every status resolves to "other", which has no position, so nothing is a direction.
+_STAGES = {"Backlog": "backlog", "In progress": "in_progress",
+           "To Verify": "qa", "Done": "done"}
+
+
 @contextlib.contextmanager
 def _tools():
+    import semantic
     with TemporaryDirectory() as tmp:
-        with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}):
+        with patch.dict(os.environ, {"REPORT_DB": str(Path(tmp) / "t.db")}), \
+             patch.object(semantic, "stage_for",
+                          lambda _c, raw: _STAGES.get(raw, "other")):
             import store
             conn = store.connect()
             _seed(conn)
@@ -64,20 +73,26 @@ def _seed(conn):
     conn.execute("INSERT INTO commits (repo, sha, committed_at, author_login, additions, "
                  "meaningful_additions, is_spec, ai_marked, is_bot) "
                  "VALUES ('o/beta', 'beta1', '2026-06-11T00:00:00Z', 'visitor', 1, 1, 0, 0, 0)")
-    # Timeline events, because friction is computed from them and from nothing else: an item
-    # with no events is not tracked, and a person with fewer than three tracked items has no
-    # friction at all. ann gets one reopen across her six PRs — friction 2/6 — while bob gets
-    # none, so there is a spread to take a median of.
-    for n in (100, 101, 102, 103, 104, 105):
-        conn.execute("INSERT INTO timeline_event (repo, number, event, actor_login, "
-                     "created_at) VALUES ('o/alpha', ?, 'assigned', 'ann', ?)",
-                     (n, "2026-06-12T00:00:00Z"))
-    conn.execute("INSERT INTO timeline_event (repo, number, event, actor_login, created_at) "
-                 "VALUES ('o/alpha', 100, 'reopened', 'ann', '2026-06-13T00:00:00Z')")
-    for n in (200, 201, 202, 203, 204, 205, 206):
-        conn.execute("INSERT INTO timeline_event (repo, number, event, actor_login, "
-                     "created_at) VALUES ('o/alpha', ?, 'assigned', 'bob', ?)",
-                     (n, "2026-06-12T00:00:00Z"))
+    # Board snapshots, because since v0.3 friction is computed from board MOVEMENT and
+    # from nothing else: an item that never moves is in neither half of the ratio, and a
+    # person with fewer than three moved items has no friction at all. ann's four items
+    # move — three forward, one from testing back to development — so her share is 1/4,
+    # while bob's five all advance cleanly, which gives a spread to take a median of.
+    def snap(num, day, status):
+        conn.execute(
+            "INSERT INTO work_item_status (taken_at, date, item_id, project, item_type, "
+            "repo, number, status_raw, title) "
+            "VALUES (?, ?, ?, 'o/1', 'pull_request', 'o/alpha', ?, ?, ?)",
+            (f"{day}T00:00:00Z", day, f"IT{num}", num, status, f"t{num}"))
+
+    for n in (100, 101, 102):
+        snap(n, "2026-06-12", "Backlog")
+        snap(n, "2026-06-13", "In progress")
+    snap(103, "2026-06-12", "To Verify")           # ann's one rewind
+    snap(103, "2026-06-13", "In progress")
+    for n in (200, 201, 202, 203, 204):
+        snap(n, "2026-06-12", "In progress")
+        snap(n, "2026-06-13", "Done")
     conn.commit()
 
 
@@ -135,14 +150,25 @@ class FrictionBreakdownTest(unittest.TestCase):
             self.assertIn("required", t.friction_breakdown("")["error"])
 
     def test_it_answers_with_the_number_and_the_parts_behind_it(self):
+        """Since v0.3 friction is the backward SHARE of board moves, so the parts are the
+        moves themselves — and unlike the rounded percentages they replaced, they add
+        back up to the number."""
         with _tools() as t:
             out = t.friction_breakdown("ann", since=SINCE, until=UNTIL)
             self.assertTrue(out["found"])
-            self.assertEqual(out["owned_items"], 6)
-            self.assertAlmostEqual(out["friction_per_item"], 2 / 6, places=2,
-                                   msg="one reopen across six owned items")
-            self.assertEqual(out["parts"]["reopens_pct_of_items"], 17)
+            self.assertEqual(out["items_that_moved"], 4)
+            fwd = out["parts"]["forward_moves"]
+            back = out["parts"]["backward_moves"]
+            self.assertEqual(back, 1, "one item went back to development")
+            self.assertAlmostEqual(out["backward_share"], back / (fwd + back), places=2)
             self.assertIsNotNone(out["team_median"])
+
+    def test_it_names_the_items_behind_the_number(self):
+        with _tools() as t:
+            worst = t.friction_breakdown("ann", since=SINCE, until=UNTIL)["worst_items"]
+            self.assertTrue(worst, "an explanation with no items explains nothing")
+            self.assertEqual(worst[0]["backward_moves"], 1, "worst first")
+            self.assertIn("→", worst[0]["moves"])
 
     def test_a_login_with_no_flow_data_says_what_to_try(self):
         """Friction needs at least three owned TRACKED items, so somebody with none lands
@@ -167,31 +193,26 @@ class FrictionBreakdownTest(unittest.TestCase):
             self.assertFalse(out["found"], "listed with a null friction is not an answer")
             self.assertIn("note", out)
 
-    def test_the_reply_admits_the_term_it_cannot_break_out(self):
-        """The formula has four terms and the flow report exposes three; assignment churn is
-        folded into friction. A caller asked to explain a number must not be left to account
-        for a term it was never given."""
+    def test_the_reply_admits_what_the_snapshots_cannot_see(self):
+        """Moves are reconstructed by diffing daily snapshots, so the count is a floor.
+        A caller asked to explain a number must be told that, or it will present the
+        number as exact."""
         with _tools() as t:
-            out = t.friction_breakdown("ann", since=SINCE, until=UNTIL)
-            self.assertIn("extra assignments", out["formula"])
-            self.assertIn("extra assignments", out["not_broken_out"])
-            self.assertNotIn("extra_assignments", out["parts"])
+            note = t.friction_breakdown("ann", since=SINCE, until=UNTIL)["note"]
+            self.assertIn("floor", note)
+            self.assertIn("never moved", note)
 
     def test_a_bad_scope_is_refused_with_the_shape_of_a_scope(self):
         with _tools() as t:
             self.assertIn("org|element|repo|project",
                           t.friction_breakdown("ann", scope="person:ann")["error"])
 
-    def test_it_carries_the_formula_and_says_the_parts_are_rounded(self):
-        """The parts come from the Flow page's rounded percentages: they explain the number,
-        they do not reconstruct it digit for digit, and claiming otherwise would invite the
-        assistant to present a reconstruction that does not quite add up."""
+    def test_it_carries_the_formula_and_the_direction(self):
         with _tools() as t:
             out = t.friction_breakdown("ann", since=SINCE, until=UNTIL)
-            self.assertTrue(out["found"], "the fixture seeds timeline events on purpose")
-            self.assertIn("owned_items", out)
-            self.assertIn("formula", out)
-            self.assertIn("PERCENTAGES", out["note"])
+            self.assertTrue(out["found"], "the fixture seeds board movement on purpose")
+            self.assertIn("items_that_moved", out)
+            self.assertIn("backward", out["formula"])
             self.assertTrue(out["lower_is_better"])
 
 
