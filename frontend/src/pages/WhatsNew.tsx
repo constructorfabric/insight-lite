@@ -54,7 +54,9 @@ export default function WhatsNew() {
         <section className="release" key={rel.date}>
           <h2 className="rdate">
             {rel.date}
-            <span className="rcount">{rel.changes.length} changes</span>
+            <span className="rcount">
+              {rel.changes.length} {rel.changes.length === 1 ? "change" : "changes"}
+            </span>
           </h2>
           <ul className="clist">
             {rel.changes.map((c, i) => {
