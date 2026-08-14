@@ -661,11 +661,20 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
     if not (login or "").strip():
         return {"error": "login is required"}
     import semantic_metrics
+    # ONE connection for both reads. `parts` has to sum to `backward_share`, and they come
+    # from two different queries — taking them from two connections means a collection
+    # landing between them can make the explanation contradict the number it explains.
     conn = store.connect()
     try:
-        rep = semantic_metrics.flow_report(conn, repos=_repos(conn, scope),
-                                          since=_iso(since), until=_iso(until, end=True))
+        repos = _repos(conn, scope)
+        rep = semantic_metrics.flow_report(conn, repos=repos,
+                                           since=_iso(since), until=_iso(until, end=True))
         covers = _covers(conn, scope)
+        # Every item, not a page of them: a capped read would report the totals of the
+        # first page as the totals.
+        drill = semantic_metrics.drill_person_flow(
+            conn, login, repos=repos,
+            since=_iso(since), until=_iso(until, end=True))
     except ValueError as exc:
         return {"error": str(exc)}
     finally:
@@ -680,7 +689,12 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
         mine = None
     if mine is None:
         return {"login": login, "found": False, "scope": scope, "covers": covers,
-                "people_with_flow_data": len(people),
+                # people with a READING, not people in the report: the flow table lists
+                # anyone in the cohort, including those whose friction is null, and
+                # counting those would answer "how many have flow data" with a number
+                # that includes the ones that do not.
+                "people_with_flow_data": sum(1 for p in people
+                                             if p.get("friction") is not None),
                 "note": ("no flow data for this login in this window — friction is read "
                          "from Projects-board movement and needs at least three items of "
                          "theirs that actually moved, so somebody whose work is not on a "
@@ -693,21 +707,15 @@ def friction_breakdown(login: str, since: str = "", until: str = "",
     # the number instead of approximating it. The previous version reported draft bounces
     # and reopens as the "parts" — those describe timeline events and stopped explaining
     # this metric when it moved to board movement in v0.3.
-    conn = store.connect()
-    try:
-        # Every item, not a page of them: `parts` has to sum to the share reported above,
-        # and a capped read would report the totals of the first page as the totals.
-        drill = semantic_metrics.drill_person_flow(
-            conn, login, repos=_repos(conn, scope),
-            since=_iso(since), until=_iso(until, end=True))
-    finally:
-        conn.close()
     rows = drill.get("rows") or []
     backward = sum(r["friction"] for r in rows)
     forward = sum(r["forward"] for r in rows)
 
-    vals = sorted(p["friction"] for p in people if p.get("friction") is not None)
-    median = vals[len(vals) // 2] if vals else None
+    # semantic_metrics._median, not an upper-middle pick: the flow report computes its own
+    # medians with it, and a tool that prints "you 0.15, team 0.20" beside that page must
+    # not mean something different by "median".
+    median = semantic_metrics._median(
+        [p["friction"] for p in people if p.get("friction") is not None])
     return {
         "login": login, "found": True, "since": since, "until": until, "scope": scope,
         "covers": covers, "backward_share": mine.get("friction"),

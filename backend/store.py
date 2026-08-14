@@ -2503,11 +2503,12 @@ _SCORE_PILLAR_COVERAGE = 0.5
 # their weight is redistributed over the pillars that DO have one, so the score is a
 # mean of what could actually be measured.
 #
-# Only flow, deliberately. Its inputs are timeline events and board snapshots, which
-# exist per REPOSITORY: the board covers 25 of 34 scored people and one top-ranked
-# person's repository has zero rows on it. delivery and craft are missing only when
-# somebody opened no pull requests, which is a fact about them rather than about the
-# collector, so those keep scoring 0 — changing that is a separate decision.
+# Only flow, deliberately. Its input is Projects-board movement, which exists per
+# REPOSITORY: it has a reading for 13 of 34 scored people on the 30d window of
+# 2026-08-14, and one top-ranked person's repository has zero rows on the board at all.
+# delivery and craft are missing only when somebody opened no pull requests, which is a
+# fact about them rather than about the collector, so those keep scoring 0 — changing
+# that is a separate decision.
 _SCORE_GAP_PILLARS = frozenset({"flow"})
 # v0.3 — three corrections, all aimed at one measured defect: the score is mostly built
 # from FRICTION, and friction needs collaborators, so working unreviewed maximised it.
@@ -4270,8 +4271,8 @@ _mreg.register_for(developer_scores, [
             "data for (e.g. no PRs opened) counts as 0 — a real minus, not a free pass — rather "
             "than dropping you from the board. A pillar with data across fewer than half the team "
             "is a collection gap, not a shortfall, so it's left out for everyone. Flow is the one "
-            "exception to the per-person rule: its inputs are timeline events and board snapshots, "
-            "which exist per REPOSITORY, so where there is no reading for somebody it is dropped "
+            "exception to the per-person rule: its input is Projects-board movement, which exists "
+            "per REPOSITORY, so where there is no reading for somebody it is dropped "
             "from THEIR mean and its weight redistributed rather than scored 0 — that absence is "
             "the collector's, not theirs. Weights are tunable and calibrated by the score backtest.",
        formula="active = pillars with team coverage ≥ 50% (engagement always in); "

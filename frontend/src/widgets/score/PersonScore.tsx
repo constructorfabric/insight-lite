@@ -769,7 +769,11 @@ export function PersonScore({ score, login }: { score: ScoreBlock; login: string
                       nMine < nAct
                         ? `data for ${cov} of the ${nMine} pillars this person is scored on — `
                           + `${nAct - nMine} of the window's ${nAct} had no data for them and `
-                          + `were left out of their score rather than counted as zero`
+                          // _SCORE_GAP_PILLARS holds only flow today, so this is "was" in
+                          // every case the backend currently produces; agreeing with the
+                          // count keeps it right if a second pillar is ever added to it.
+                          + `${nAct - nMine === 1 ? "was" : "were"} left out of their `
+                          + `score rather than counted as zero`
                         : `data for ${cov} of the ${nAct} pillars scored this window`}>
                       {cov}/{nMine}
                     </span>

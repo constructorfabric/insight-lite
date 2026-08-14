@@ -2,11 +2,11 @@
 
 The score is a weighted mean of pillar percentiles, and a pillar missing for ONE person
 used to contribute 0 to it. For engagement or craft that is the point — "you opened no
-pull requests" is a fact about the person. For flow it is not: its inputs are timeline
-events and Projects-board snapshots, which exist per REPOSITORY. Measured on the 30d
-window of 2026-08-14, the board covers 25 of 34 scored people and the rank-1 person's
-repository has zero rows on it, so "no flow reading" says where somebody works, not how
-well. Charging 35% of a score for that measures the collector.
+pull requests" is a fact about the person. For flow it is not: its input is
+Projects-board movement, which exists per REPOSITORY. Measured on the 30d window of
+2026-08-14, it has a reading for 13 of 34 scored people and the rank-1 person's
+repository has zero rows on the board at all, so "no flow reading" says where somebody
+works, not how well. Charging 35% of a score for that measures the collector.
 
 Flow is therefore renormalised away for a person with no reading: its weight goes to the
 pillars that do have one. On production this moved exactly one person — somebody with 2
